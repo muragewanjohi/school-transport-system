@@ -1,4 +1,4 @@
-# Safaricom-Linked School Transport Tracking Ecosystem
+# School Transport Tracking System
 
 A multi-tenant B2B2C school transport tracking and student security platform designed for private schools. This platform provides real-time fleet telemetry for school administrations, proximity alerts for parents, and driver manifests via a hybrid driver GPS tracking and smart NFC/RFID badge check-in architecture.
 
