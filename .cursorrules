@@ -1,0 +1,40 @@
+# Safaricom-Linked School Transport Tracking Ecosystem - AI Rules
+
+## Workflow & Development Rules
+
+### 1. Spec-Driven & Spec-First Development
+- Always read and follow files in the `context/` directory (`project-overview.md`, `architecture.md`, `code-standards.md`, `ui-context.md`, `progress-tracker.md`, `ai-workflow-rules.md`).
+- Before modifying production code for architectural or core changes, update the relevant specification file in `context/`.
+- Do not guess or invent product behavior that is not documented in the context files. If a requirement is missing or ambiguous, document it in `progress-tracker.md` under **Open Questions** and resolve it before writing code.
+
+### 2. Scoping & Verification Boundaries
+- Work on one feature unit or API route at a time.
+- Prefer small, compile-safe, and verifiable increments over large speculative changes.
+- **When to Split Work:** Split an implementation step if it combines:
+  - Mobile background telemetry logic and mobile UI layouts.
+  - Telemetry API ingestion endpoints and administrative CRUD operations.
+  - Spatial PostGIS trigger logic and SMS gateway notification dispatches.
+- If a change cannot be verified end-to-end (e.g. through unit tests or dry runs) in under 10 minutes, the scope is too broad—split the task immediately.
+
+### 3. Protected Files & Directories
+Do not modify the following unless explicitly instructed:
+- Native mobile build configurations (`android/app/build.gradle`, `ios/Podfile`, `Info.plist`, `AndroidManifest.xml`) unless adding raw NFC/Location permissions.
+- Node.js auto-generated files (e.g., `package-lock.json` manually without running `npm`).
+- Auto-generated database migration scripts manually after they have already been executed.
+
+---
+
+## Technical Stack & Standards
+
+### 1. Tech Stack
+- **Dashboard & API Backend:** Next.js (App Router) + TypeScript + Vanilla CSS (No TailwindCSS unless explicitly requested).
+- **Mobile Clients:** Flutter + Dart (using the `supabase_flutter` SDK and Riverpod/Bloc for state management).
+- **Database:** PostgreSQL + PostGIS (via Supabase). Enforce Row Level Security (RLS) policies on all tables.
+- **Telemetry Realtime:** Supabase Realtime Channels (Broadcasts/Subscriptions).
+- **SMS Gateway:** Africa's Talking API (triggered from Deno Edge Functions on Supabase).
+
+### 2. Code Conventions
+- **Row Level Security (RLS):** Every table must have RLS active. Filter data scoped to `tenant_id` by extracting the claim from the JWT: `auth.jwt() ->> 'tenant_id'`.
+- **TypeScript:** Strict mode is mandatory. The `any` type is strictly forbidden. Validate external inputs at API boundaries via `zod`.
+- **Styling:** CSS variables/custom properties only. Refer to variables defined in `ui-context.md` (Outfit font, JetBrains Mono font, specific HSL variables).
+- **Data Protection Invariant (PII):** Do not leak parent phone numbers, student names, or exact coordinates in logs. Dynamic UI masking must be used for support accounts. High-resolution telemetry logs must have a 7-day TTL and prune automatically. Physical NFC badges must only store encrypted UUIDs.
