@@ -1,0 +1,13 @@
+{
+  "name": "school-transport-ecosystem",
+  "version": "1.0.0",
+  "description": "Safaricom-linked School Transport Tracking and Security Platform",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:dashboard": "npm run dev --workspace=apps/admin_dashboard",
+    "build:dashboard": "npm run build --workspace=apps/admin_dashboard"
+  }
+}
