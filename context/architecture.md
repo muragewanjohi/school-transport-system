@@ -20,17 +20,18 @@
 
 ## Storage Model
 
-- **PostgreSQL Relational DB**: Dedicated database instance on Supabase. Stores multi-tenant assets (tenant records, student registry, user accounts, assigned NFC card mappings, static polyline route coordinates).
+- **PostgreSQL Relational DB**: Dedicated database instance on Supabase. Stores multi-tenant assets (tenant records, student registry, user accounts, assigned NFC card mappings, static polyline route coordinates). Holds vehicle inventories (`vehicles` table, including capacity, status, odometer, fuel level, service, and insurance timers) and service history logs (`maintenance_logs` table).
 - **PostGIS Spatial Indexing**: Spatial tables managing student pickup coordinates, route geofence boundaries, and transient coordinate logs. Uses `GIST` indexes for fast geometric intersection calculations.
 
 ## Auth and Access Model
 
-- **Row Level Security (RLS):** All database tables have RLS active. Every client request, API invocation, and WebSockets subscription carries a JWT containing the user's authenticated `tenant_id` and role context (`super_admin`, `school_admin`, `driver`, `parent`).
+- **Row Level Security (RLS):** All database tables have RLS active. Every client request, API invocation, and WebSockets subscription carries a JWT containing the user's authenticated `tenant_id` and role context (`super_admin`, `school_admin`, `driver`, `parent`, `conductor`).
 - **Unified Web Dashboard Access Control:**
-  - **School Admins (`school_admin`):** Access is strictly scoped to their matching `tenant_id`. They can register students, assign routes, bind NFC cards, and view metrics for their school only.
+  - **School Admins (`school_admin`):** Access is strictly scoped to their matching `tenant_id`. They can register students, assign routes, bind NFC cards, view metrics, manage vehicles/conductors, and log service checks.
   - **Support Team (`super_admin`):** Granted system-wide access to monitor tenant metrics, onboard new schools, and troubleshoot system anomalies.
   - **Tenant Impersonation Mode:** Support users can view a specific school's dashboard. During impersonation, support roles are restricted to read-only views on student identities, and all sensitive contact details are dynamically masked in the UI.
 - **Driver Token Scope:** Drivers are authorized exclusively to broadcast coordinate arrays to their active `route_id` channels and write check-ins for students assigned to their scheduled run.
+- **Conductor Token Scope:** Conductors can read assigned routes and student checklist manifests, read active vehicle attributes inside their tenant, and check-in students.
 - **Parent Resource Rules:** RLS policies restrict parents to reading telemetry and subscribing to realtime coordinates *only* for the specific `route_id` mapped to their own registered children.
 
 ## Student & Parent Data Protection Model

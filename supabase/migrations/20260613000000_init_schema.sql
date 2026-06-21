@@ -107,7 +107,25 @@ CREATE INDEX idx_live_coordinates_coords ON public.live_coordinates USING GIST (
 CREATE INDEX idx_geofences_boundary ON public.geofences USING GIST (boundary);
 
 -- Add Supabase Realtime configuration for live coordinate streaming
-ALTER MIGRATION public.live_coordinates PUBLISH; -- Expose to Realtime channel
+do $$
+begin
+  if not exists (select 1 from pg_publication where pubname = 'supabase_realtime') then
+    create publication supabase_realtime;
+  end if;
+  
+  if not exists (
+    select 1 from pg_publication_rel pr
+    join pg_publication p on p.oid = pr.prpubid
+    join pg_class c on c.oid = pr.prrelid
+    join pg_namespace n on n.oid = c.relnamespace
+    where p.pubname = 'supabase_realtime'
+      and n.nspname = 'public'
+      and c.relname = 'live_coordinates'
+  ) then
+    alter publication supabase_realtime add table public.live_coordinates;
+  end if;
+end;
+$$;
 
 -- DB Function: Auto-populate Profiles on User Creation (Supabase Auth Trigger)
 CREATE OR REPLACE FUNCTION public.handle_new_user()
@@ -221,16 +239,10 @@ CREATE POLICY "Super Admins can manage all Vehicles" ON public.vehicles
   FOR ALL USING (public.jwt_role() = 'super_admin');
 CREATE POLICY "Drivers can read vehicles inside Tenant" ON public.vehicles
   FOR SELECT USING (tenant_id = public.jwt_tenant_id() AND public.jwt_role() = 'driver');
-CREATE POLICY "Parents can read vehicles on child's assigned routes" ON public.vehicles
+CREATE POLICY "Parents can read vehicles inside Tenant" ON public.vehicles
   FOR SELECT USING (
     tenant_id = public.jwt_tenant_id() 
     AND public.jwt_role() = 'parent'
-    AND id IN (
-      SELECT vehicle_id FROM public.vehicles 
-      WHERE active_driver_id IN (
-        SELECT active_driver_id FROM public.vehicles WHERE id = vehicles.id
-      )
-    )
   );
 
 -- Routes Policies
