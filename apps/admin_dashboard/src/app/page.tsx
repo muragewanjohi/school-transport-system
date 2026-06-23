@@ -84,6 +84,7 @@ export default function Home() {
   const [students, setStudents] = useState<DBStudent[]>([]);
   const [stops, setStops] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<any[]>([]);
+  const [routes, setRoutes] = useState<any[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [gradeFilter, setGradeFilter] = useState("All");
   const [classFilter, setClassFilter] = useState("All");
@@ -328,6 +329,13 @@ export default function Home() {
           }
         }
 
+        // Fetch routes
+        const routesRes = await fetch("/api/routes");
+        const routesJson = await routesRes.json();
+        if (routesJson.success) {
+          setRoutes(routesJson.data);
+        }
+
         // Fetch students
         const res = await fetch("/api/students");
         const json = await res.json();
@@ -375,11 +383,80 @@ export default function Home() {
     }
   };
 
+  // Simulation Tracker Ref
+  const simulationStopIndexRef = useRef<number>(0);
+
   // Simulation Trigger Handlers
   const handleSimulateGPS = async () => {
-    // Generate coordinates near Nairobi center
-    const randomLat = -1.2721 + (Math.random() * 0.02 - 0.01);
-    const randomLng = 36.8045 + (Math.random() * 0.02 - 0.01);
+    // Generate default coordinates near Nairobi center
+    let lat = -1.2721;
+    let lng = 36.8045;
+    let stopName = "";
+    let nextStopName = "";
+    let etaMins = 0;
+    let etaStr = "";
+    let smsEvents: TelemetryEvent[] = [];
+    
+    // Choose route for simulation
+    const activeRouteId = stops.length > 0 ? stops[0].route_id : "route-4";
+    let chosenRouteName = "Morning Route 4";
+    const matchedRoute = routes.find(r => r.id === activeRouteId);
+    if (matchedRoute) {
+      chosenRouteName = matchedRoute.name;
+    }
+
+    // Filter stops on the active simulation route, sorted by sequence number
+    const routeStops = stops
+      .filter(s => s.route_id === activeRouteId)
+      .sort((a, b) => a.sequence_no - b.sequence_no);
+
+    if (routeStops.length > 0) {
+      const idx = simulationStopIndexRef.current % routeStops.length;
+      simulationStopIndexRef.current += 1;
+      
+      const targetStop = routeStops[idx];
+      lng = targetStop.location.coordinates[0];
+      lat = targetStop.location.coordinates[1];
+      stopName = targetStop.name;
+      
+      // Determine if there is a next stop in sequence
+      const nextStop = routeStops[idx + 1];
+      if (nextStop) {
+        nextStopName = nextStop.name;
+        // Travel duration in seconds from previous stop
+        const durationSec = nextStop.duration_from_prev_seconds || 300; // default 5 mins
+        etaMins = Math.round(durationSec / 60);
+        if (etaMins <= 0) etaMins = 5;
+
+        const now = new Date();
+        const etaTime = new Date(now.getTime() + durationSec * 1000);
+        etaStr = etaTime.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
+        // Find students assigned to this next stop
+        const nextStopStudents = students.filter(s => 
+          s.route_id === activeRouteId && 
+          (s.pickup_stop_id === nextStop.id || s.dropoff_stop_id === nextStop.id)
+        );
+
+        nextStopStudents.forEach(student => {
+          const parent = student.guardians && student.guardians[0];
+          const parentPhone = parent ? parent.phone : "+254703000122";
+          
+          const smsEvent: TelemetryEvent = {
+            id: `sms-${student.id}-${Date.now()}-${Math.random()}`,
+            time: new Date().toLocaleTimeString("en-US", { hour12: true }),
+            route: chosenRouteName,
+            type: "success",
+            message: `SMS alert sent to ${student.name}'s parent -> ${parentPhone}`
+          };
+          smsEvents.push(smsEvent);
+        });
+      }
+    } else {
+      // Fallback if no stops found
+      lat = -1.2721 + (Math.random() * 0.02 - 0.01);
+      lng = 36.8045 + (Math.random() * 0.02 - 0.01);
+    }
     
     // Animate local state radar offset (for simulated view)
     const randomX = Math.floor(Math.random() * 80) - 40;
@@ -387,24 +464,25 @@ export default function Home() {
     setRadarOffset({ x: randomX, y: randomY });
 
     const newTime = new Date().toLocaleTimeString("en-US", { hour12: true });
-    const routes = ["Morning Route 1", "Morning Route 2", "Morning Route 4"];
-    const chosenRouteName = routes[Math.floor(Math.random() * routes.length)];
     
-    const newEvent: TelemetryEvent = {
-      id: Date.now().toString(),
+    const geofenceEvent: TelemetryEvent = {
+      id: `geo-${Date.now()}`,
       time: newTime,
       route: chosenRouteName,
       type: "info",
-      message: `Telemetry ping: Lat ${randomLat.toFixed(5)}, Lng ${randomLng.toFixed(5)}`
+      message: stopName 
+        ? `Bus entered geofence: ${stopName}`
+        : `Telemetry ping: Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)}`
     };
 
-    setEvents(prev => [newEvent, ...prev.slice(0, 15)]);
-    setAlertCount(prev => prev + 1);
+    // Prepend new events (geofence entry + SMS dispatches)
+    setEvents(prev => [...smsEvents, geofenceEvent, ...prev].slice(0, 15));
+    setAlertCount(prev => prev + smsEvents.length);
 
     // Update active Mapbox marker for "bus-4" if map is active
     if (hasMapboxToken && markersRef.current["bus-4"] && mapRef.current) {
-      markersRef.current["bus-4"].setLngLat([randomLng, randomLat]);
-      mapRef.current.easeTo({ center: [randomLng, randomLat], duration: 1000 });
+      markersRef.current["bus-4"].setLngLat([lng, lat]);
+      mapRef.current.easeTo({ center: [lng, lat], duration: 1000 });
     }
 
     // Try posting to API database backend if Supabase variables exist
@@ -415,9 +493,9 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             vehicle_id: "8c9ad841-f762-4217-a021-9876251b5bcf", // Mock vehicle UUID
-            route_id: "782cd841-f762-4217-a021-9876251b5bca", // Mock route UUID
-            latitude: randomLat,
-            longitude: randomLng,
+            route_id: activeRouteId,
+            latitude: lat,
+            longitude: lng,
             speed: Math.floor(Math.random() * 25) + 20,
             bearing: Math.floor(Math.random() * 360)
           })

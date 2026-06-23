@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { 
   Navigation, 
   Bus, 
@@ -13,11 +13,29 @@ import {
   Users,
   ChevronDown,
   ChevronRight,
-  User
+  User,
+  MapPin
 } from "lucide-react";
 
 export default function Sidebar() {
+  return (
+    <Suspense fallback={
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <div className="brand-icon">S</div>
+          <span className="brand-title">Safaricom Track</span>
+        </div>
+      </aside>
+    }>
+      <SidebarContent />
+    </Suspense>
+  );
+}
+
+function SidebarContent() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const tabParam = searchParams.get("tab");
   const [staffExpanded, setStaffExpanded] = useState(false);
 
   // Keep staff menu expanded if currently active on staff sub-routes
@@ -120,10 +138,21 @@ export default function Sidebar() {
           <li>
             <Link 
               href="/routes" 
-              className={`menu-item ${pathname === "/routes" ? "active" : ""}`}
+              className={`menu-item ${pathname === "/routes" && tabParam !== "schools" ? "active" : ""}`}
             >
               <Compass size={18} />
               <span>Route Planning</span>
+            </Link>
+          </li>
+
+          {/* School Locations */}
+          <li>
+            <Link 
+              href="/routes?tab=schools" 
+              className={`menu-item ${pathname === "/routes" && tabParam === "schools" ? "active" : ""}`}
+            >
+              <MapPin size={18} />
+              <span>School Locations</span>
             </Link>
           </li>
 

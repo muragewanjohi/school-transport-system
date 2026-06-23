@@ -23,7 +23,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { id, student_id, parent_id, message_type } = record;
+    const { id, student_id, parent_id, message_type, custom_message } = record;
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -55,17 +55,19 @@ Deno.serve(async (req) => {
     }
 
     // Format the alert message
-    let message = "";
+    let message = custom_message || "";
     const nowTime = new Date().toLocaleTimeString("en-US", { hour12: true });
 
-    if (message_type === "proximity") {
-      message = `Safaricom Track: The school bus is 5 minutes away. Please prepare ${studentName} for pickup.`;
-    } else if (message_type === "boarding") {
-      message = `Safaricom Track: ${studentName} has safely boarded the school bus at ${nowTime}.`;
-    } else if (message_type === "dropoff") {
-      message = `Safaricom Track: ${studentName} has been dropped off at school/home at ${nowTime}.`;
-    } else {
-      throw new Error(`Invalid message type: ${message_type}`);
+    if (!message) {
+      if (message_type === "proximity") {
+        message = `Safaricom Track: The school bus is 5 minutes away. Please prepare ${studentName} for pickup.`;
+      } else if (message_type === "boarding") {
+        message = `Safaricom Track: ${studentName} has safely boarded the school bus at ${nowTime}.`;
+      } else if (message_type === "dropoff") {
+        message = `Safaricom Track: ${studentName} has been dropped off at school/home at ${nowTime}.`;
+      } else {
+        throw new Error(`Invalid message type: ${message_type}`);
+      }
     }
 
     // Read Africa's Talking credentials

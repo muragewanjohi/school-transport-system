@@ -10,6 +10,8 @@ const stopCreateSchema = z.object({
   sequence_no: z.number().int().min(1),
   geofence_radius_meters: z.number().min(5).default(50),
   stop_type: z.enum(["PICKUP", "DROPOFF", "BOTH"]).default("BOTH"),
+  distance_from_prev_meters: z.number().optional().default(0),
+  duration_from_prev_seconds: z.number().optional().default(0),
 });
 
 export const mockStops = [
@@ -86,7 +88,7 @@ export async function GET(request: Request) {
 
     const client = getSupabaseClient(token);
     
-    let query = client.from("stops").select("id, tenant_id, route_id, name, location, sequence_no, geofence_radius_meters, stop_type, created_at, updated_at");
+    let query = client.from("stops").select("id, tenant_id, route_id, name, location, sequence_no, geofence_radius_meters, stop_type, distance_from_prev_meters, duration_from_prev_seconds, created_at, updated_at");
     
     if (routeId) {
       query = query.eq("route_id", routeId);
@@ -153,7 +155,9 @@ export async function POST(request: Request) {
         location: locGeoJSON,
         sequence_no: result.data.sequence_no,
         geofence_radius_meters: result.data.geofence_radius_meters,
-        stop_type: result.data.stop_type
+        stop_type: result.data.stop_type,
+        distance_from_prev_meters: result.data.distance_from_prev_meters,
+        duration_from_prev_seconds: result.data.duration_from_prev_seconds,
       };
       return NextResponse.json({ success: true, source: "mock", data: newMockStop });
     }
@@ -177,7 +181,9 @@ export async function POST(request: Request) {
       location: locationWKT,
       sequence_no: result.data.sequence_no,
       geofence_radius_meters: result.data.geofence_radius_meters,
-      stop_type: result.data.stop_type
+      stop_type: result.data.stop_type,
+      distance_from_prev_meters: result.data.distance_from_prev_meters,
+      duration_from_prev_seconds: result.data.duration_from_prev_seconds,
     };
 
     const { data: stopInsert, error } = await client

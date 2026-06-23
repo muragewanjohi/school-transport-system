@@ -309,6 +309,9 @@ export async function PUT(request: Request) {
     const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
+      if (result.data.trip_id && result.data.status === "in_progress") {
+        console.log(`[Notification Simulator] All parents of students on trip ${result.data.trip_id}'s route have been notified: Bus has left school.`);
+      }
       return NextResponse.json({ success: true, source: "mock", data: result.data });
     }
 
@@ -353,6 +356,37 @@ export async function PUT(request: Request) {
 
       if (tripError) {
         return NextResponse.json({ success: false, error: tripError.message }, { status: 400 });
+      }
+
+      // If the trip is started, notify all parents on the route
+      if (result.data.status === "in_progress" && tripUpdate) {
+        const { data: students } = await client
+          .from("students")
+          .select("id, name, parent_id")
+          .eq("route_id", tripUpdate.route_id);
+
+        if (students && students.length > 0) {
+          const alertPayloads = students
+            .filter(std => std.parent_id)
+            .map(std => ({
+              id: crypto.randomUUID(),
+              tenant_id: tripUpdate.tenant_id,
+              student_id: std.id,
+              parent_id: std.parent_id,
+              message_type: "proximity",
+              custom_message: `Safaricom Track: The school bus has departed from school and started the trip for your child ${std.name}'s route.`,
+              processed: false
+            }));
+
+          if (alertPayloads.length > 0) {
+            const { error: alertErr } = await client
+              .from("alerts_queue")
+              .insert(alertPayloads);
+            if (alertErr) {
+              console.warn("Failed to queue departure alerts for parents:", alertErr.message);
+            }
+          }
+        }
       }
 
       return NextResponse.json({ success: true, source: "supabase", data: tripUpdate });

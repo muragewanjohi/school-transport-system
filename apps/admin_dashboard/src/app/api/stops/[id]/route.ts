@@ -10,6 +10,8 @@ const stopUpdateSchema = z.object({
   sequence_no: z.number().int().min(1).optional(),
   geofence_radius_meters: z.number().min(5).optional(),
   stop_type: z.enum(["PICKUP", "DROPOFF", "BOTH"]).optional(),
+  distance_from_prev_meters: z.number().optional(),
+  duration_from_prev_seconds: z.number().optional(),
 });
 
 export async function PUT(
@@ -40,6 +42,8 @@ export async function PUT(
     if (result.data.sequence_no !== undefined) updatePayload.sequence_no = result.data.sequence_no;
     if (result.data.geofence_radius_meters !== undefined) updatePayload.geofence_radius_meters = result.data.geofence_radius_meters;
     if (result.data.stop_type !== undefined) updatePayload.stop_type = result.data.stop_type;
+    if (result.data.distance_from_prev_meters !== undefined) updatePayload.distance_from_prev_meters = result.data.distance_from_prev_meters;
+    if (result.data.duration_from_prev_seconds !== undefined) updatePayload.duration_from_prev_seconds = result.data.duration_from_prev_seconds;
 
     if (result.data.longitude !== undefined && result.data.latitude !== undefined) {
       updatePayload.location = `POINT(${result.data.longitude} ${result.data.latitude})`;
