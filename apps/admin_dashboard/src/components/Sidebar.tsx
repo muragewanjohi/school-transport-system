@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
+import { useAuth } from "@/components/AuthProvider";
 import { usePathname, useSearchParams } from "next/navigation";
 import { 
   Navigation, 
@@ -14,7 +15,9 @@ import {
   ChevronDown,
   ChevronRight,
   User,
-  MapPin
+  MapPin,
+  Shield,
+  CreditCard
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -37,6 +40,7 @@ function SidebarContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const [staffExpanded, setStaffExpanded] = useState(false);
+  const { signOut, profile } = useAuth();
 
   // Keep staff menu expanded if currently active on staff sub-routes
   useEffect(() => {
@@ -156,11 +160,35 @@ function SidebarContent() {
             </Link>
           </li>
 
+          {/* Admin Management */}
+          {profile?.admin_role === "Super Admin" && (
+            <li>
+              <Link 
+                href="/users" 
+                className={`menu-item ${pathname === "/users" ? "active" : ""}`}
+              >
+                <Shield size={18} />
+                <span>Admin Management</span>
+              </Link>
+            </li>
+          )}
+
+          {/* Billing Console */}
+          <li>
+            <Link 
+              href="/billing" 
+              className={`menu-item ${pathname.startsWith("/billing") ? "active" : ""}`}
+            >
+              <CreditCard size={18} />
+              <span>Billing & Plan</span>
+            </Link>
+          </li>
+
           {/* System Config */}
           <li>
             <Link 
-              href="#" 
-              className="menu-item"
+              href="/config" 
+              className={`menu-item ${pathname === "/config" ? "active" : ""}`}
             >
               <Settings size={18} />
               <span>System Config</span>
@@ -168,8 +196,42 @@ function SidebarContent() {
           </li>
         </ul>
       </nav>
-      <div style={{ padding: "16px", borderTop: "1px solid var(--border-default)" }}>
-        <a href="#" className="menu-item">
+      <div style={{ padding: "16px", borderTop: "1px solid var(--border-default)", display: "flex", flexDirection: "column", gap: "12px" }}>
+        {profile && (
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "4px 8px" }}>
+            <div style={{
+              width: "36px",
+              height: "36px",
+              borderRadius: "50%",
+              background: "linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontWeight: 600,
+              fontSize: "0.9rem",
+              color: "white",
+              flexShrink: 0
+            }}>
+              {profile.name.charAt(0).toUpperCase()}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {profile.name}
+              </span>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                {profile.admin_role || "Administrator"}
+              </span>
+            </div>
+          </div>
+        )}
+        <a 
+          href="#" 
+          onClick={(e) => {
+            e.preventDefault();
+            signOut();
+          }} 
+          className="menu-item"
+        >
           <LogOut size={18} />
           <span>Sign Out</span>
         </a>

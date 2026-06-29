@@ -64,6 +64,15 @@ void onStart(ServiceInstance service) async {
     service.stopSelf();
   });
 
+  bool isEmergency = false;
+
+  // Handle emergency SOS toggles from the main UI thread
+  service.on('toggleSOS').listen((event) {
+    if (event != null) {
+      isEmergency = event['isEmergency'] as bool? ?? false;
+    }
+  });
+
   // Start periodic GPS location tracking at 5-second intervals (Success Criteria 1)
   Timer.periodic(const Duration(seconds: 5), (timer) async {
     // Stop the timer if the service instance was stopped
@@ -92,11 +101,13 @@ void onStart(ServiceInstance service) async {
         ),
       );
 
-      // Update foreground notification with live coordinates
+      // Update foreground notification with live coordinates or SOS status
       if (service is AndroidServiceInstance) {
         service.setForegroundNotificationInfo(
-          title: "Safaricom Track Running",
-          content: "Bus Location: Lat ${position.latitude.toStringAsFixed(5)}, Lng ${position.longitude.toStringAsFixed(5)}",
+          title: isEmergency ? "⚠️ CRITICAL SOS ACTIVE" : "Safaricom Track Running",
+          content: isEmergency
+              ? "Distress Signal Broadcasting..."
+              : "Bus Location: Lat ${position.latitude.toStringAsFixed(5)}, Lng ${position.longitude.toStringAsFixed(5)}",
         );
       }
 
@@ -109,6 +120,7 @@ void onStart(ServiceInstance service) async {
         'coordinates': 'POINT(${position.longitude} ${position.latitude})',
         'speed': position.speed,
         'bearing': position.heading,
+        'is_emergency': isEmergency,
       });
 
       // Broadcast coordinate updates back to the main UI thread for local updates
@@ -118,12 +130,13 @@ void onStart(ServiceInstance service) async {
         'speed': position.speed,
         'bearing': position.heading,
         'timestamp': DateTime.now().toIso8601String(),
+        'isEmergency': isEmergency,
       });
 
     } catch (e) {
       if (service is AndroidServiceInstance) {
         service.setForegroundNotificationInfo(
-          title: "Safaricom Track Warning",
+          title: isEmergency ? "⚠️ SOS Broadcast Warning" : "Safaricom Track Warning",
           content: "Failed to stream GPS: ${e.toString().split('\n').first}",
         );
       }

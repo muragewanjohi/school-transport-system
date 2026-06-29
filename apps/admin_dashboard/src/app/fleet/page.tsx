@@ -18,6 +18,7 @@ import {
   User
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import UserProfileBadge from "@/components/UserProfileBadge";
 
 interface DBVehicle {
   id: string;
@@ -62,8 +63,6 @@ export default function FleetManagement() {
     model: "",
     capacity: 30,
     status: "Active" as "Active" | "Maintenance" | "Out of Service",
-    fuel_level: 100,
-    odometer: 0,
     last_service_date: "",
     next_service_date: "",
     insurance_expiry: "",
@@ -78,39 +77,26 @@ export default function FleetManagement() {
     service_date: new Date().toISOString().split("T")[0]
   });
 
+  const fetchFleetData = async () => {
+    setIsLoading(true);
+    try {
+      const fleetRes = await fetch("/api/fleet");
+      const fleetJson = await fleetRes.json();
+      
+      if (fleetJson.success) {
+        setVehicles(fleetJson.data);
+      }
+    } catch (err) {
+      console.error("Failed to load fleet data:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Fetch all fleet data on mount
   useEffect(() => {
-    const fetchFleetData = async () => {
-      setIsLoading(true);
-      try {
-        const fleetRes = await fetch("/api/fleet");
-        const fleetJson = await fleetRes.json();
-        
-        if (fleetJson.success) {
-          // If we have data stored in localStorage (sandbox mode changes), prioritize it
-          const localStoredVehicles = localStorage.getItem("safaricom_fleet_sandbox");
-          if (localStoredVehicles) {
-            setVehicles(JSON.parse(localStoredVehicles));
-          } else {
-            setVehicles(fleetJson.data);
-            localStorage.setItem("safaricom_fleet_sandbox", JSON.stringify(fleetJson.data));
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load fleet data:", err);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
     fetchFleetData();
   }, []);
-
-  // Sync to local storage whenever vehicles array changes (sandbox updates persistence)
-  const saveVehiclesState = (updatedVehicles: DBVehicle[]) => {
-    setVehicles(updatedVehicles);
-    localStorage.setItem("safaricom_fleet_sandbox", JSON.stringify(updatedVehicles));
-  };
 
   // Fetch maintenance logs when vehicle selected
   useEffect(() => {
@@ -124,14 +110,7 @@ export default function FleetManagement() {
         const res = await fetch(`/api/fleet/${selectedVehicle.id}/maintenance`);
         const json = await res.json();
         if (json.success) {
-          // Check if there are local logs stored in localStorage for this vehicle
-          const localStoredLogs = localStorage.getItem(`safaricom_logs_sandbox_${selectedVehicle.id}`);
-          if (localStoredLogs) {
-            setMaintenanceLogs(JSON.parse(localStoredLogs));
-          } else {
-            setMaintenanceLogs(json.data);
-            localStorage.setItem(`safaricom_logs_sandbox_${selectedVehicle.id}`, JSON.stringify(json.data));
-          }
+          setMaintenanceLogs(json.data);
         }
       } catch (err) {
         console.error(`Failed to load maintenance logs for ${selectedVehicle.id}:`, err);
@@ -146,7 +125,7 @@ export default function FleetManagement() {
     const { name, value } = e.target;
     setFormValues(prev => ({
       ...prev,
-      [name]: name === "capacity" || name === "fuel_level" || name === "odometer" 
+      [name]: name === "capacity"
         ? Number(value) 
         : value
     }));
@@ -164,8 +143,6 @@ export default function FleetManagement() {
       model: "",
       capacity: 33,
       status: "Active",
-      fuel_level: 100,
-      odometer: 0,
       last_service_date: new Date().toISOString().split("T")[0],
       next_service_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0], // +90 days
       insurance_expiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0], // +1 year
@@ -183,8 +160,6 @@ export default function FleetManagement() {
       model: vehicle.model,
       capacity: vehicle.capacity,
       status: vehicle.status,
-      fuel_level: vehicle.fuel_level,
-      odometer: vehicle.odometer,
       last_service_date: vehicle.last_service_date || "",
       next_service_date: vehicle.next_service_date || "",
       insurance_expiry: vehicle.insurance_expiry || "",
@@ -208,12 +183,6 @@ export default function FleetManagement() {
     if (formValues.capacity <= 0) {
       errors.capacity = "Capacity must be positive";
     }
-    if (formValues.fuel_level < 0 || formValues.fuel_level > 100) {
-      errors.fuel_level = "Fuel level must be between 0% and 100%";
-    }
-    if (formValues.odometer < 0) {
-      errors.odometer = "Odometer cannot be negative";
-    }
 
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -236,11 +205,7 @@ export default function FleetManagement() {
         const json = await res.json();
         
         if (json.success) {
-          const newVehicle: DBVehicle = {
-            ...formValues,
-            id: json.data.id || `bus-${Date.now()}`,
-          };
-          saveVehiclesState([...vehicles, newVehicle]);
+          await fetchFleetData();
           setShowDrawer(false);
         } else {
           const errorMsg = json.error || (json.errors ? Object.entries(json.errors).map(([k, v]) => `${k}: ${v}`).join(", ") : "Unknown validation error");
@@ -255,13 +220,7 @@ export default function FleetManagement() {
         const json = await res.json();
 
         if (json.success) {
-          const updated = vehicles.map(v => 
-            v.id === currentEditId 
-              ? { ...v, ...formValues } 
-              : v
-          );
-          saveVehiclesState(updated);
-          
+          await fetchFleetData();
           if (selectedVehicle?.id === currentEditId) {
             setSelectedVehicle({ ...selectedVehicle, ...formValues });
           }
@@ -287,8 +246,7 @@ export default function FleetManagement() {
       const res = await fetch(`/api/fleet/${id}`, { method: "DELETE" });
       const json = await res.json();
       if (json.success) {
-        const filtered = vehicles.filter(v => v.id !== id);
-        saveVehiclesState(filtered);
+        await fetchFleetData();
         if (selectedVehicle?.id === id) {
           setSelectedVehicle(null);
         }
@@ -319,26 +277,13 @@ export default function FleetManagement() {
       const json = await res.json();
 
       if (json.success) {
-        const newLog: DBMaintenanceLog = {
-          id: json.data.id || `log-${Date.now()}`,
-          vehicle_id: selectedVehicle.id,
-          description: payload.description,
-          cost: payload.cost ?? null,
-          service_date: payload.service_date,
-          technician: payload.technician ?? null
-        };
+        const resLogs = await fetch(`/api/fleet/${selectedVehicle.id}/maintenance`);
+        const jsonLogs = await resLogs.json();
+        if (jsonLogs.success) {
+          setMaintenanceLogs(jsonLogs.data);
+        }
 
-        const updatedLogs = [newLog, ...maintenanceLogs];
-        setMaintenanceLogs(updatedLogs);
-        localStorage.setItem(`safaricom_logs_sandbox_${selectedVehicle.id}`, JSON.stringify(updatedLogs));
-
-        // Update the vehicle's last_service_date in vehicles list
-        const updatedVehicles = vehicles.map(v => 
-          v.id === selectedVehicle.id 
-            ? { ...v, last_service_date: payload.service_date, next_service_date: new Date(Date.parse(payload.service_date) + 90*24*60*60*1000).toISOString().split("T")[0] }
-            : v
-        );
-        saveVehiclesState(updatedVehicles);
+        await fetchFleetData();
         setSelectedVehicle({
           ...selectedVehicle,
           last_service_date: payload.service_date,
@@ -362,54 +307,23 @@ export default function FleetManagement() {
     }
   };
 
-  // Interactive Telemetry Simulation Triggers
-  const simulateLowFuel = (vehicleId: string) => {
-    const updated = vehicles.map(v => {
-      if (v.id === vehicleId) {
-        const newV = { ...v, fuel_level: 8 };
-        if (selectedVehicle?.id === vehicleId) setSelectedVehicle(newV);
-        return newV;
+  const simulateStatusChange = async (vehicleId: string, status: "Active" | "Maintenance" | "Out of Service") => {
+    try {
+      const res = await fetch(`/api/fleet/${vehicleId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status })
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchFleetData();
+        if (selectedVehicle?.id === vehicleId) {
+          setSelectedVehicle({ ...selectedVehicle, status });
+        }
       }
-      return v;
-    });
-    saveVehiclesState(updated);
-  };
-
-  const simulateRefuel = (vehicleId: string) => {
-    const updated = vehicles.map(v => {
-      if (v.id === vehicleId) {
-        const newV = { ...v, fuel_level: 100 };
-        if (selectedVehicle?.id === vehicleId) setSelectedVehicle(newV);
-        return newV;
-      }
-      return v;
-    });
-    saveVehiclesState(updated);
-  };
-
-  const simulateOdometerDrive = (vehicleId: string) => {
-    const updated = vehicles.map(v => {
-      if (v.id === vehicleId) {
-        const mileageAddition = Math.floor(Math.random() * 85) + 15; // Drive 15-100 km
-        const newV = { ...v, odometer: Number((v.odometer + mileageAddition).toFixed(1)) };
-        if (selectedVehicle?.id === vehicleId) setSelectedVehicle(newV);
-        return newV;
-      }
-      return v;
-    });
-    saveVehiclesState(updated);
-  };
-
-  const simulateStatusChange = (vehicleId: string, status: "Active" | "Maintenance" | "Out of Service") => {
-    const updated = vehicles.map(v => {
-      if (v.id === vehicleId) {
-        const newV = { ...v, status };
-        if (selectedVehicle?.id === vehicleId) setSelectedVehicle(newV);
-        return newV;
-      }
-      return v;
-    });
-    saveVehiclesState(updated);
+    } catch (err) {
+      console.error("Failed to update status simulator:", err);
+    }
   };
 
   // Calculations for KPI Metrics
@@ -417,9 +331,6 @@ export default function FleetManagement() {
   const activeBuses = vehicles.filter(v => v.status === "Active").length;
   const maintenanceBuses = vehicles.filter(v => v.status === "Maintenance").length;
   const outOfServiceBuses = vehicles.filter(v => v.status === "Out of Service").length;
-  const averageFuel = totalBuses > 0 
-    ? Math.round(vehicles.reduce((acc, v) => acc + v.fuel_level, 0) / totalBuses) 
-    : 0;
   const totalCapacity = vehicles.reduce((acc, v) => acc + v.capacity, 0);
 
   // Filtered vehicles list
@@ -596,13 +507,7 @@ export default function FleetManagement() {
               Active Term Monitoring
             </span>
           </div>
-          <div className="user-profile">
-            <div className="profile-avatar">SA</div>
-            <div>
-              <span className="profile-name">Sarah Jenkins</span>
-              <span className="profile-role">School Admin</span>
-            </div>
-          </div>
+          <UserProfileBadge />
         </header>
 
         {/* Fleet KPI Metric Cards */}
@@ -620,14 +525,6 @@ export default function FleetManagement() {
               <span style={{ color: "var(--state-error)" }}>{outOfServiceBuses} <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Out</span></span>
             </div>
             <div className="stat-desc">Active, servicing, and retired assets</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-label">Average Fleet Fuel</div>
-            <div className="stat-value" style={{ display: "flex", alignItems: "baseline", gap: "4px" }}>
-              {averageFuel}%
-              <Fuel size={16} style={{ color: averageFuel > 25 ? "var(--state-success)" : "var(--state-error)" }} />
-            </div>
-            <div className="stat-desc">Aggregated fuel status level</div>
           </div>
           <div className="stat-card">
             <div className="stat-label">Total Seating Capacity</div>
@@ -798,29 +695,8 @@ export default function FleetManagement() {
                         </div>
                       </div>
 
-                      {/* Fuel and Odometer progress bars */}
-                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                        <div>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.75rem", marginBottom: "4px" }}>
-                            <span style={{ color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
-                              <Fuel size={12} /> Fuel Level
-                            </span>
-                            <span style={{ fontWeight: 600, color: fuelColor }}>{fuelPercent}%</span>
-                          </div>
-                          <div style={{ height: "6px", background: "rgba(255,255,255,0.05)", borderRadius: "3px", overflow: "hidden" }}>
-                            <div style={{ height: "100%", width: `${fuelPercent}%`, background: fuelColor, transition: "width 0.5s ease" }} />
-                          </div>
-                        </div>
-
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.75rem" }}>
-                          <span style={{ color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "4px" }}>
-                            <Gauge size={12} /> Odometer
-                          </span>
-                          <span style={{ fontWeight: 600, fontFamily: "var(--font-mono)" }}>
-                            {vehicle.odometer.toLocaleString()} km
-                          </span>
-                        </div>
-                      </div>
+                      {/* Seating Capacity info row placeholder border */}
+                      <div style={{ paddingBottom: "1px" }} />
 
                       {/* Expiry Checks Alerts */}
                       {(insuranceExpired || serviceOverdue) && (
@@ -1017,72 +893,7 @@ export default function FleetManagement() {
                   </div>
 
                   {/* Simulator buttons */}
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                    <button
-                      onClick={() => simulateLowFuel(selectedVehicle.id)}
-                      disabled={selectedVehicle.fuel_level <= 15}
-                      style={{
-                        background: selectedVehicle.fuel_level <= 15 ? "rgba(255,255,255,0.02)" : "rgba(244,63,94,0.1)",
-                        color: selectedVehicle.fuel_level <= 15 ? "var(--text-muted)" : "var(--state-error)",
-                        border: "1px solid " + (selectedVehicle.fuel_level <= 15 ? "var(--border-default)" : "rgba(244,63,94,0.2)"),
-                        padding: "8px 10px",
-                        borderRadius: "6px",
-                        fontSize: "0.75rem",
-                        fontWeight: 600,
-                        cursor: selectedVehicle.fuel_level <= 15 ? "default" : "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "4px"
-                      }}
-                    >
-                      <Fuel size={12} />
-                      Simulate Fuel Alert
-                    </button>
-
-                    <button
-                      onClick={() => simulateRefuel(selectedVehicle.id)}
-                      disabled={selectedVehicle.fuel_level === 100}
-                      style={{
-                        background: selectedVehicle.fuel_level === 100 ? "rgba(255,255,255,0.02)" : "rgba(16,185,129,0.1)",
-                        color: selectedVehicle.fuel_level === 100 ? "var(--text-muted)" : "var(--state-success)",
-                        border: "1px solid " + (selectedVehicle.fuel_level === 100 ? "var(--border-default)" : "rgba(16,185,129,0.2)"),
-                        padding: "8px 10px",
-                        borderRadius: "6px",
-                        fontSize: "0.75rem",
-                        fontWeight: 600,
-                        cursor: selectedVehicle.fuel_level === 100 ? "default" : "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "4px"
-                      }}
-                    >
-                      <Fuel size={12} />
-                      Refuel to 100%
-                    </button>
-
-                    <button
-                      onClick={() => simulateOdometerDrive(selectedVehicle.id)}
-                      style={{
-                        background: "rgba(99,102,241,0.1)",
-                        color: "var(--accent-secondary)",
-                        border: "1px solid rgba(99,102,241,0.2)",
-                        padding: "8px 10px",
-                        borderRadius: "6px",
-                        fontSize: "0.75rem",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: "4px"
-                      }}
-                    >
-                      <Gauge size={12} />
-                      Simulate Drive
-                    </button>
-
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "8px" }}>
                     <button
                       onClick={async () => {
                         const randomLat = -1.2721 + (Math.random() * 0.02 - 0.01);
@@ -1266,31 +1077,7 @@ export default function FleetManagement() {
                 />
               </div>
 
-              {/* Dynamic Telemetry (Odometer & Fuel) for Add Mode */}
-              {drawerMode === "add" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", borderTop: "1px dashed var(--border-default)", paddingTop: "12px" }}>
-                  <div className="form-group">
-                    <label className="form-label">Odometer (km)</label>
-                    <input
-                      type="number"
-                      name="odometer"
-                      className="form-input"
-                      value={formValues.odometer}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Fuel Level (%)</label>
-                    <input
-                      type="number"
-                      name="fuel_level"
-                      className="form-input"
-                      value={formValues.fuel_level}
-                      onChange={handleInputChange}
-                    />
-                  </div>
-                </div>
-              )}
+              {/* Compliance & Servicing Fields border separator */}
 
               {/* Submit Buttons */}
               <div style={{ display: "flex", gap: "12px", marginTop: "auto", paddingTop: "16px", borderTop: "1px solid var(--border-default)" }}>

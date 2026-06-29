@@ -52,16 +52,38 @@
 - Added a Client-side CSV spreadsheet onboarding template parser allowing bulk registration of students with custom route/stop matching and parent contact parsing.
 - Integrated browser `confirm()` confirmation popups on all deletion events (vehicles, drivers, conductors, and students) across the entire admin command center.
 - Verified Next.js Turbopack build succeeds with zero compiler, lint, or type check errors.
+- Developed database migration `20260625000000_add_admin_role_to_profiles.sql` to support sub-roles (Super Admin, Dispatcher, Fleet Manager, Roster Manager) via `admin_role` column and check constraint.
+- Built API endpoints `/api/users` and `/api/users/[id]` to query, create, update, and delete administrator accounts with zod validations and database fallbacks.
+- Constructed the Admin Management registry dashboard (`/users`) featuring role filtering, metrics, and slide-out onboarding drawers, along with a role-based permission matrix.
+- Verified that the dashboard builds successfully with zero compiler, lint, or type check errors.
+- Developed database migration `20260625010000_add_otp_to_profiles.sql` to store login OTP codes, and added an `is_emergency` flag to the `live_coordinates` table.
+- Upgraded the driver registration API and frontend page to generate, store, and display sandbox OTP codes, while dispatching SMS via Africa's Talking.
+- Created `/api/auth/driver-login` to authenticate drivers and resolve session details (tenant, vehicle, and active route).
+- Developed a daylight-optimized, high-contrast Flutter Login Screen with oversized input fields.
+- Implemented an interactive manual Student Checklist boarding manifest in the Driver Console supporting optimistic state updates.
+- Integrated a long-press Emergency SOS panic button that signals distress logs to background coordinates streaming.
+- Verified that both Next.js and Flutter compilation and analysis checks pass with zero errors.
+- Created database migration to seed default school tenant and updated the new user DB sync trigger to automatically fall back to defaults when user metadata is absent.
+- Implemented React Context AuthProvider handling session verification, role-based access control, route protection, and transparent access token injection for all outgoing `/api/*` fetch calls.
+- Integrated Sidebar footer to render active administrator profile details and bound the "Sign Out" button to the auth sign-out function.
+- Designed premium dark-mode login form featuring forgot password recovery links and a dedicated reset password page, with sandbox bypass fallback mode.
+- Integrated user registration directly into the Admin Management onboarding drawer, using a client-side non-persisting client to register users in Supabase Auth without disrupting active sessions.
+- Resolved Row Level Security (RLS) query visibility mismatch by patching the JWT claims helper functions to extract `role` and `tenant_id` from request `user_metadata` instead of standard database roles.
+- Fixed the Billing page reload UX by keeping the sidebar layout visible during page load and fetching operations.
+- Implemented real-time dynamic tenant billing metrics by aggregating counts across student, route, driver, and notification logs in the backend API router.
+- Designed and built the System Configurations Console (schema migrations, GET/POST router, and multi-tabbed React configuration board) with role-based editing locks.
+- Refactored the Fleet Management console: removed fuel level and odometer attributes from Zod schemas, API endpoints, UI display cards, and onboarding forms, and disabled local sandbox localStorage caching in favor of direct database fetching.
+- Verified Next.js dashboard compiles and builds successfully with zero compilation or typecheck errors.
 
 ## In Progress
 
-- Designing the background location service and telemetry streaming connector inside the Driver app.
+- Designing the parent real-time map tracking view inside the Parent mobile application.
 
 ## Next Up
 
-- Write the background high-precision location tracking service in the Driver App to stream GPS telemetry to Supabase.
-- Implement the NFC scanning driver checklist verification handler in the Driver App.
-- Build the daylight-optimized, daylight-contrast Driver UI with oversized tap targets and Emergency SOS panic triggers.
+- Bootstrapping the Parent mobile application (`apps/parent_app`) Flutter workspace.
+- Implement the live coordinate channel listener to receive vehicle coordinates in the Parent App.
+- Add route-boundary geofence calculations and proximity notification logs in the Parent App.
 
 ## Open Questions
 
@@ -76,4 +98,4 @@
 
 ## Session Notes
 
-- Completed the Fleet Management separation and Staff Management systems. Verified database migrations are created, developed robust and resilient API endpoints, updated navigation sidebar routing, and built the Drivers/Conductors lists and Fleet status/maintenance dashboards. Verified Next.js Turbopack build succeeds with zero compiler or typecheck errors. Ready to proceed back to background driver location services in Flutter.
+- Implemented full Supabase Email & Password authentication for the Next.js admin app. Created DB triggers and seeded tenant defaults to sync logins automatically into profiles. Added routing guards, intercepting fetch auth headers, sidebar profile widgets, and high-fidelity login/register UI panels. Verified the Next.js dashboard builds successfully with zero TypeScript compilation or bundler errors.

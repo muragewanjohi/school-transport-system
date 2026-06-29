@@ -6,9 +6,9 @@ const routeUpdateSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters")
 });
 
-export async function PUT(request: Request, { params }: { params: { id: string } }) {
+export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const routeId = params.id;
+    const { id: routeId } = await params;
     const body: unknown = await request.json();
     const result = routeUpdateSchema.safeParse(body);
 
@@ -63,9 +63,9 @@ export async function PUT(request: Request, { params }: { params: { id: string }
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
-    const routeId = params.id;
+    const { id: routeId } = await params;
 
     if (!isSupabaseConfigured) {
       return NextResponse.json({

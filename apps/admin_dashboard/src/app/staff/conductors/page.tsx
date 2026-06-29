@@ -15,6 +15,7 @@ import {
   ShieldAlert
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import UserProfileBadge from "@/components/UserProfileBadge";
 
 interface DBProfile {
   id: string;
@@ -452,13 +453,7 @@ export default function ConductorsManagement() {
               Staff Management
             </span>
           </div>
-          <div className="user-profile">
-            <div className="profile-avatar">SA</div>
-            <div>
-              <span className="profile-name">Sarah Jenkins</span>
-              <span className="profile-role">School Admin</span>
-            </div>
-          </div>
+          <UserProfileBadge />
         </header>
 
         {/* Conductors KPI Metrics Row */}

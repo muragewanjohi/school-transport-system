@@ -7,8 +7,6 @@ const vehicleUpdateSchema = z.object({
   model: z.string().min(2).optional(),
   capacity: z.number().int().min(1).optional(),
   status: z.enum(["Active", "Maintenance", "Out of Service"]).optional(),
-  fuel_level: z.number().int().min(0).max(100).optional(),
-  odometer: z.number().nonnegative().optional(),
   last_service_date: z.string().nullable().optional(),
   next_service_date: z.string().nullable().optional(),
   insurance_expiry: z.string().nullable().optional(),

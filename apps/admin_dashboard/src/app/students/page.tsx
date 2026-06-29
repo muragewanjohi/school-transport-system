@@ -20,6 +20,7 @@ import {
   Search
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import UserProfileBadge from "@/components/UserProfileBadge";
 
 const PREDEFINED_LOCATIONS = [
   { id: "loc-1", name: "Kileleshwa stop (Githunguri Road)", coordinates: [36.7889, -1.2789] },
@@ -779,13 +780,7 @@ export default function StudentsManagement() {
               School Roster
             </span>
           </div>
-          <div className="user-profile">
-            <div className="profile-avatar">SA</div>
-            <div>
-              <span className="profile-name">Sarah Jenkins</span>
-              <span className="profile-role">School Admin</span>
-            </div>
-          </div>
+          <UserProfileBadge />
         </header>
 
         {/* KPIs */}

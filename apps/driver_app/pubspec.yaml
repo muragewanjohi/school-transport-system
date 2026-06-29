@@ -39,6 +39,8 @@ dependencies:
   nfc_manager: ^4.2.1
   geolocator: ^14.0.3
   flutter_background_service: ^5.1.0
+  shared_preferences: ^2.2.0
+  http: ^1.2.0
 
 dev_dependencies:
   flutter_test:

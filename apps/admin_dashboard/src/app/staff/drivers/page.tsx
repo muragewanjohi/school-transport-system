@@ -15,6 +15,7 @@ import {
   ShieldAlert
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import UserProfileBadge from "@/components/UserProfileBadge";
 
 interface DBProfile {
   id: string;
@@ -193,6 +194,8 @@ export default function DriversManagement() {
           };
           saveDriversState([...drivers, newDriver]);
           setShowDrawer(false);
+          const otpMessage = json.sandbox_otp ? `\n\n[SANDBOX OTP FOR MOBILE LOGIN]: ${json.sandbox_otp}` : "";
+          alert(`Driver registered successfully! An OTP has been dispatched to their phone.${otpMessage}`);
         } else {
           const errorMsg = json.error || (json.errors ? Object.entries(json.errors).map(([k, v]) => `${k}: ${v}`).join(", ") : "Unknown validation error");
           alert(`Failed to register driver: ${errorMsg}`);
@@ -421,13 +424,7 @@ export default function DriversManagement() {
               Staff Management
             </span>
           </div>
-          <div className="user-profile">
-            <div className="profile-avatar">SA</div>
-            <div>
-              <span className="profile-name">Sarah Jenkins</span>
-              <span className="profile-role">School Admin</span>
-            </div>
-          </div>
+          <UserProfileBadge />
         </header>
 
         {/* Drivers KPI Metrics Row */}

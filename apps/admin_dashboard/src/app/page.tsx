@@ -17,6 +17,7 @@ import {
   User
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
+import UserProfileBadge from "@/components/UserProfileBadge";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import type mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
@@ -738,17 +739,11 @@ export default function Home() {
             >
               Toggle Support Mode
             </button>
-            <div className="user-profile">
-              <div className="profile-avatar">SA</div>
-              <div>
-                <span className="profile-name">
-                  {impersonating ? "Platform Support Team" : "Sarah Jenkins"}
-                </span>
-                <span className="profile-role">
-                  {impersonating ? "Super Administrator" : "School Admin"}
-                </span>
-              </div>
-            </div>
+            <UserProfileBadge 
+              nameOverride={impersonating ? "Platform Support Team" : undefined}
+              roleOverride={impersonating ? "Super Administrator" : undefined}
+              initialsOverride={impersonating ? "PS" : undefined}
+            />
           </div>
         </header>
 
