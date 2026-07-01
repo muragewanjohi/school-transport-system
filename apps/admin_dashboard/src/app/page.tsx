@@ -302,32 +302,32 @@ export default function Home() {
 
   // Fetch student, stops and schedules records
   useEffect(() => {
+    const fetchStudents = async () => {
+      try {
+        const res = await fetch("/api/students");
+        const json = await res.json();
+        if (json.success) {
+          setStudents(json.data);
+        }
+      } catch (err) {
+        console.error("Failed to load students:", err);
+      }
+    };
+
     const fetchDashboardData = async () => {
       try {
         // Fetch stops
         const stopsRes = await fetch("/api/stops");
         const stopsJson = await stopsRes.json();
         if (stopsJson.success) {
-          const localStops = localStorage.getItem("safaricom_stops_sandbox");
-          if (localStops) {
-            setStops(JSON.parse(localStops));
-          } else {
-            setStops(stopsJson.data);
-            localStorage.setItem("safaricom_stops_sandbox", JSON.stringify(stopsJson.data));
-          }
+          setStops(stopsJson.data);
         }
 
         // Fetch schedules
         const schedulesRes = await fetch("/api/schedules");
         const schedulesJson = await schedulesRes.json();
         if (schedulesJson.success) {
-          const localSchedules = localStorage.getItem("safaricom_schedules_sandbox");
-          if (localSchedules) {
-            setSchedules(JSON.parse(localSchedules));
-          } else {
-            setSchedules(schedulesJson.data);
-            localStorage.setItem("safaricom_schedules_sandbox", JSON.stringify(schedulesJson.data));
-          }
+          setSchedules(schedulesJson.data);
         }
 
         // Fetch routes
@@ -338,17 +338,7 @@ export default function Home() {
         }
 
         // Fetch students
-        const res = await fetch("/api/students");
-        const json = await res.json();
-        if (json.success) {
-          const localStudents = localStorage.getItem("safaricom_students_sandbox");
-          if (localStudents) {
-            setStudents(JSON.parse(localStudents));
-          } else {
-            setStudents(json.data);
-            localStorage.setItem("safaricom_students_sandbox", JSON.stringify(json.data));
-          }
-        }
+        await fetchStudents();
       } catch (err) {
         console.error("Failed to load dashboard overview data:", err);
       }
@@ -356,29 +346,25 @@ export default function Home() {
     fetchDashboardData();
   }, []);
 
-  const saveStudentsState = (updatedStudents: DBStudent[]) => {
-    setStudents(updatedStudents);
-    localStorage.setItem("safaricom_students_sandbox", JSON.stringify(updatedStudents));
-  };
-
   const handleToggleStatus = async (studentId: string) => {
     const student = students.find(s => s.id === studentId);
     if (!student) return;
 
     const newStatus = student.status === "Present" ? "Absent" : "Present";
-    
-    // Optimistic UI state update
-    const updated = students.map(s => 
-      s.id === studentId ? { ...s, status: newStatus as "Present" | "Absent" } : s
-    );
-    saveStudentsState(updated);
-
     try {
-      await fetch(`/api/students/${studentId}`, {
+      const res = await fetch(`/api/students/${studentId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus })
       });
+      const json = await res.json();
+      if (json.success) {
+        const studentsRes = await fetch("/api/students");
+        const studentsJson = await studentsRes.json();
+        if (studentsJson.success) {
+          setStudents(studentsJson.data);
+        }
+      }
     } catch (err) {
       console.error("Failed to sync student status toggle:", err);
     }

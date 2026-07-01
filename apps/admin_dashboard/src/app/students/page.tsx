@@ -92,98 +92,77 @@ export default function StudentsManagement() {
   ]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      setIsLoading(true);
-      try {
-        // Fetch routes
-        const routesRes = await fetch("/api/routes");
-        const routesJson = await routesRes.json();
-        if (routesJson.success) {
-          setRoutes(routesJson.data);
-        }
-
-        // Fetch stops
-        const stopsRes = await fetch("/api/stops");
-        const stopsJson = await stopsRes.json();
-        if (stopsJson.success) {
-          const localStops = localStorage.getItem("safaricom_stops_sandbox");
-          if (localStops) {
-            setStops(JSON.parse(localStops));
-          } else {
-            setStops(stopsJson.data);
-            localStorage.setItem("safaricom_stops_sandbox", JSON.stringify(stopsJson.data));
-          }
-        }
-
-        // Fetch schedules
-        const schedulesRes = await fetch("/api/schedules");
-        const schedulesJson = await schedulesRes.json();
-        if (schedulesJson.success) {
-          const localSchedules = localStorage.getItem("safaricom_schedules_sandbox");
-          if (localSchedules) {
-            setSchedules(JSON.parse(localSchedules));
-          } else {
-            setSchedules(schedulesJson.data);
-            localStorage.setItem("safaricom_schedules_sandbox", JSON.stringify(schedulesJson.data));
-          }
-        }
-
-        // Fetch students
-        const studentsRes = await fetch("/api/students");
-        const studentsJson = await studentsRes.json();
-        if (studentsJson.success) {
-          const localStudents = localStorage.getItem("safaricom_students_sandbox");
-          if (localStudents) {
-            setStudents(JSON.parse(localStudents));
-          } else {
-            setStudents(studentsJson.data);
-            localStorage.setItem("safaricom_students_sandbox", JSON.stringify(studentsJson.data));
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load students page data:", err);
-      } finally {
-        setIsLoading(false);
+  const fetchStudents = async () => {
+    try {
+      const res = await fetch("/api/students");
+      const json = await res.json();
+      if (json.success) {
+        setStudents(json.data);
       }
-    };
+    } catch (err) {
+      console.error("Failed to load students:", err);
+    }
+  };
 
+  const fetchStops = async () => {
+    try {
+      const res = await fetch("/api/stops");
+      const json = await res.json();
+      if (json.success) {
+        setStops(json.data);
+      }
+    } catch (err) {
+      console.error("Failed to load stops:", err);
+    }
+  };
+
+  const fetchSchedules = async () => {
+    try {
+      const res = await fetch("/api/schedules");
+      const json = await res.json();
+      if (json.success) {
+        setSchedules(json.data);
+      }
+    } catch (err) {
+      console.error("Failed to load schedules:", err);
+    }
+  };
+
+  const fetchInitialData = async () => {
+    setIsLoading(true);
+    try {
+      const routesRes = await fetch("/api/routes");
+      const routesJson = await routesRes.json();
+      if (routesJson.success) {
+        setRoutes(routesJson.data);
+      }
+      await Promise.all([fetchStops(), fetchSchedules(), fetchStudents()]);
+    } catch (err) {
+      console.error("Failed to load students page data:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchInitialData();
   }, []);
-
-  const saveStudentsState = (updatedStudents: DBStudent[]) => {
-    setStudents(updatedStudents);
-    localStorage.setItem("safaricom_students_sandbox", JSON.stringify(updatedStudents));
-  };
-
-  const saveStopsState = (updatedStops: any[]) => {
-    setStops(updatedStops);
-    localStorage.setItem("safaricom_stops_sandbox", JSON.stringify(updatedStops));
-  };
-
-  const saveSchedulesState = (updatedSchedules: any[]) => {
-    setSchedules(updatedSchedules);
-    localStorage.setItem("safaricom_schedules_sandbox", JSON.stringify(updatedSchedules));
-  };
 
   const handleToggleStatus = async (studentId: string) => {
     const student = students.find(s => s.id === studentId);
     if (!student) return;
 
     const newStatus = student.status === "Present" ? "Absent" : "Present";
-    
-    // Optimistic UI state update
-    const updated = students.map(s => 
-      s.id === studentId ? { ...s, status: newStatus as "Present" | "Absent" } : s
-    );
-    saveStudentsState(updated);
-
     try {
-      await fetch(`/api/students/${studentId}`, {
+      const res = await fetch(`/api/students/${studentId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus })
       });
+      const json = await res.json();
+      if (json.success) {
+        await fetchStudents();
+      }
     } catch (err) {
       console.error("Failed to sync student status toggle:", err);
     }
@@ -246,8 +225,6 @@ export default function StudentsManagement() {
     if (!validateForm()) return;
     setIsSubmitLoading(true);
 
-    const selectedRoute = routes.find(r => r.id === formValues.route_id);
-
     const payload = {
       name: formValues.name,
       route_id: formValues.route_id,
@@ -270,21 +247,7 @@ export default function StudentsManagement() {
         });
         const json = await res.json();
         if (json.success) {
-          const newStudent: DBStudent = {
-            id: json.data.id || `std-${Date.now()}`,
-            name: payload.name,
-            route_id: payload.route_id,
-            nfc_card_hash: payload.nfc_card_hash,
-            status: payload.status,
-            pickup_stop_id: payload.pickup_stop_id,
-            dropoff_stop_id: payload.dropoff_stop_id,
-            schedule_ids: payload.schedule_ids,
-            guardians: payload.guardians,
-            route: selectedRoute ? { name: selectedRoute.name } : null,
-            grade: payload.grade,
-            class_name: payload.class_name
-          };
-          saveStudentsState([...students, newStudent]);
+          await fetchStudents();
           setShowDrawer(false);
         } else {
           const errorMsg = json.error || (json.errors ? Object.entries(json.errors).map(([k, v]) => `${k}: ${v}`).join(", ") : "Unknown validation error");
@@ -298,25 +261,7 @@ export default function StudentsManagement() {
         });
         const json = await res.json();
         if (json.success) {
-          const updated = students.map(s => 
-            s.id === currentEditId 
-              ? { 
-                  ...s, 
-                  name: payload.name,
-                  route_id: payload.route_id,
-                  nfc_card_hash: payload.nfc_card_hash,
-                  status: payload.status,
-                  pickup_stop_id: payload.pickup_stop_id,
-                  dropoff_stop_id: payload.dropoff_stop_id,
-                  schedule_ids: payload.schedule_ids,
-                  guardians: payload.guardians,
-                  route: selectedRoute ? { name: selectedRoute.name } : null,
-                  grade: payload.grade,
-                  class_name: payload.class_name
-                } 
-              : s
-          );
-          saveStudentsState(updated);
+          await fetchStudents();
           setShowDrawer(false);
           alert("Student profile updated.");
         } else {
@@ -340,8 +285,7 @@ export default function StudentsManagement() {
       });
       const json = await res.json();
       if (json.success) {
-        const filtered = students.filter(s => s.id !== id);
-        saveStudentsState(filtered);
+        await fetchStudents();
         alert("Student profile removed.");
       }
     } catch (err) {
@@ -435,14 +379,15 @@ export default function StudentsManagement() {
       if (rows.length === 0) return;
 
       let successCount = 0;
-      const newStudents = [...students];
 
       for (const row of rows) {
         // Resolve route mapping
         let route = routes.find(r => r.name.toLowerCase().includes(row.routeName.toLowerCase()));
         if (!route) {
-          route = routes[0] || { id: "route-1", name: "Morning Route 1 (Kileleshwa)" };
+          route = routes[0];
         }
+
+        if (!route) continue;
 
         // Resolve pickup stop mapping
         let pickupStop = stops.find(s => 
@@ -473,27 +418,36 @@ export default function StudentsManagement() {
           parsedGuardians.push({ name: "Unspecified Guardian", phone: "+254 700 000 000" });
         }
 
-        const newStudent: DBStudent = {
-          id: `std-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        const payload = {
           name: row.name,
           route_id: route.id,
           nfc_card_hash: row.nfc_card_hash || null,
-          status: "Present",
           pickup_stop_id: pickupStop ? pickupStop.id : null,
           dropoff_stop_id: dropoffStop ? dropoffStop.id : null,
           schedule_ids: [],
+          status: "Present",
           guardians: parsedGuardians,
-          route: { name: route.name },
           grade: row.grade || null,
           class_name: row.class_name || null
         };
 
-        newStudents.push(newStudent);
-        successCount++;
+        try {
+          const res = await fetch("/api/students", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          const json = await res.json();
+          if (json.success) {
+            successCount++;
+          }
+        } catch (err) {
+          console.error("Failed to import student:", err);
+        }
       }
 
-      saveStudentsState(newStudents);
-      alert(`Import completed successfully! Bulk registered ${successCount} students with custom guardians and locations.`);
+      await fetchStudents();
+      alert(`Import completed successfully! Bulk registered ${successCount} students with custom guardians and locations in database.`);
       if (e.target) e.target.value = "";
     };
     reader.readAsText(file);

@@ -54,48 +54,39 @@ export default function DriversManagement() {
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      setIsLoading(true);
-      try {
-        // Fetch drivers
-        const driversRes = await fetch("/api/drivers");
-        const driversJson = await driversRes.json();
-        if (driversJson.success) {
-          const localDrivers = localStorage.getItem("safaricom_drivers_sandbox");
-          if (localDrivers) {
-            setDrivers(JSON.parse(localDrivers));
-          } else {
-            setDrivers(driversJson.data);
-            localStorage.setItem("safaricom_drivers_sandbox", JSON.stringify(driversJson.data));
-          }
-        }
-
-        // Fetch vehicles (for assignment dropdown)
-        const fleetRes = await fetch("/api/fleet");
-        const fleetJson = await fleetRes.json();
-        if (fleetJson.success) {
-          const localVehicles = localStorage.getItem("safaricom_fleet_sandbox");
-          if (localVehicles) {
-            setVehicles(JSON.parse(localVehicles));
-          } else {
-            setVehicles(fleetJson.data);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load drivers page data:", err);
-      } finally {
-        setIsLoading(false);
+  const fetchDrivers = async () => {
+    try {
+      const res = await fetch("/api/drivers");
+      const json = await res.json();
+      if (json.success) {
+        setDrivers(json.data);
       }
-    };
+    } catch (err) {
+      console.error("Failed to load drivers:", err);
+    }
+  };
 
+  const fetchVehicles = async () => {
+    try {
+      const res = await fetch("/api/fleet");
+      const json = await res.json();
+      if (json.success) {
+        setVehicles(json.data);
+      }
+    } catch (err) {
+      console.error("Failed to load vehicles:", err);
+    }
+  };
+
+  const fetchInitialData = async () => {
+    setIsLoading(true);
+    await Promise.all([fetchDrivers(), fetchVehicles()]);
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
     fetchInitialData();
   }, []);
-
-  const saveDriversState = (updatedDrivers: DBProfile[]) => {
-    setDrivers(updatedDrivers);
-    localStorage.setItem("safaricom_drivers_sandbox", JSON.stringify(updatedDrivers));
-  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -127,11 +118,9 @@ export default function DriversManagement() {
   const handleAssignBus = async (driverId: string, vehicleId: string) => {
     try {
       // 1. Find the vehicle currently assigned to this driver and set it to null
-      let updatedVehicles = [...vehicles];
-      const previousVehicle = updatedVehicles.find(v => v.active_driver_id === driverId);
+      const previousVehicle = vehicles.find(v => v.active_driver_id === driverId);
       
       if (previousVehicle) {
-        previousVehicle.active_driver_id = null;
         await fetch(`/api/fleet/${previousVehicle.id}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -141,20 +130,14 @@ export default function DriversManagement() {
 
       // 2. If assigning to a new vehicle
       if (vehicleId) {
-        const targetVehicle = updatedVehicles.find(v => v.id === vehicleId);
-        if (targetVehicle) {
-          targetVehicle.active_driver_id = driverId;
-          await fetch(`/api/fleet/${vehicleId}`, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ active_driver_id: driverId })
-          });
-        }
+        await fetch(`/api/fleet/${vehicleId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ active_driver_id: driverId })
+        });
       }
 
-      // Save to local storage for vehicles
-      setVehicles(updatedVehicles);
-      localStorage.setItem("safaricom_fleet_sandbox", JSON.stringify(updatedVehicles));
+      await fetchInitialData();
       alert("Driver vehicle assignment updated successfully!");
 
     } catch (err) {
@@ -163,15 +146,23 @@ export default function DriversManagement() {
   };
 
   // Toggle Driver Status directly on card
-  const handleToggleStatus = (driverId: string) => {
-    const updated = drivers.map(d => {
-      if (d.id === driverId) {
-        const newStatus = d.status === "Available" ? "Unavailable" : "Available";
-        return { ...d, status: newStatus as "Available" | "Unavailable" };
+  const handleToggleStatus = async (driverId: string) => {
+    const driver = drivers.find(d => d.id === driverId);
+    if (!driver) return;
+    const newStatus = driver.status === "Available" ? "Unavailable" : "Available";
+    try {
+      const res = await fetch(`/api/drivers/${driverId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchDrivers();
       }
-      return d;
-    });
-    saveDriversState(updated);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleFormSubmit = async (e: React.FormEvent) => {
@@ -188,11 +179,7 @@ export default function DriversManagement() {
         });
         const json = await res.json();
         if (json.success) {
-          const newDriver: DBProfile = {
-            ...formValues,
-            id: json.data.id || `drv-${Date.now()}`
-          };
-          saveDriversState([...drivers, newDriver]);
+          await fetchDrivers();
           setShowDrawer(false);
           const otpMessage = json.sandbox_otp ? `\n\n[SANDBOX OTP FOR MOBILE LOGIN]: ${json.sandbox_otp}` : "";
           alert(`Driver registered successfully! An OTP has been dispatched to their phone.${otpMessage}`);
@@ -201,14 +188,19 @@ export default function DriversManagement() {
           alert(`Failed to register driver: ${errorMsg}`);
         }
       } else {
-        const updated = drivers.map(d => 
-          d.id === currentEditId 
-            ? { ...d, ...formValues } 
-            : d
-        );
-        saveDriversState(updated);
-        setShowDrawer(false);
-        alert("Driver profile updated.");
+        const res = await fetch(`/api/drivers/${currentEditId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formValues)
+        });
+        const json = await res.json();
+        if (json.success) {
+          await fetchDrivers();
+          setShowDrawer(false);
+          alert("Driver profile updated.");
+        } else {
+          alert(`Failed to update profile: ${json.error || "Unknown error"}`);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -217,17 +209,23 @@ export default function DriversManagement() {
     }
   };
 
-  const handleDeleteDriver = (id: string) => {
+  const handleDeleteDriver = async (id: string) => {
     if (!confirm("Are you sure you want to remove this driver profile? This will also unassign them from any active bus.")) return;
     
-    const updatedVehicles = vehicles.map(v => 
-      v.active_driver_id === id ? { ...v, active_driver_id: null } : v
-    );
-    setVehicles(updatedVehicles);
-    localStorage.setItem("safaricom_fleet_sandbox", JSON.stringify(updatedVehicles));
-
-    const filtered = drivers.filter(d => d.id !== id);
-    saveDriversState(filtered);
+    try {
+      const res = await fetch(`/api/drivers/${id}`, {
+        method: "DELETE"
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchInitialData();
+        alert("Driver profile removed successfully.");
+      } else {
+        alert(`Failed to delete: ${json.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // Metrics

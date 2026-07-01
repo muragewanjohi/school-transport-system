@@ -9,6 +9,7 @@ const scheduleUpdateSchema = z.object({
   direction: z.enum(["HOME_TO_SCHOOL", "SCHOOL_TO_HOME"]).optional(),
   target_grades: z.array(z.string()).min(1).optional(),
   days_of_week: z.array(z.number().int().min(1).max(7)).optional(),
+  vehicle_id: z.string().uuid("Invalid vehicle UUID").nullable().optional(),
 });
 
 export async function PUT(
@@ -40,6 +41,7 @@ export async function PUT(
     if (result.data.direction !== undefined) updatePayload.direction = result.data.direction;
     if (result.data.target_grades !== undefined) updatePayload.target_grades = result.data.target_grades;
     if (result.data.days_of_week !== undefined) updatePayload.days_of_week = result.data.days_of_week;
+    if (result.data.vehicle_id !== undefined) updatePayload.vehicle_id = result.data.vehicle_id;
 
     const { data: scheduleUpdate, error } = await client
       .from("schedules")

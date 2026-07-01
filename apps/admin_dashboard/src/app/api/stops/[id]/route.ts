@@ -57,8 +57,8 @@ export async function PUT(
       .single();
 
     if (error) {
-      console.warn(`Supabase stop update error for ${id}, falling back to mock:`, error.message);
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: { id, ...result.data } });
+      console.error(`Supabase stop update error for ${id}:`, error.message);
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, source: "supabase", data: stopUpdate });
@@ -89,8 +89,8 @@ export async function DELETE(
       .eq("id", id);
 
     if (error) {
-      console.warn(`Supabase stop delete error for ${id}, falling back to mock:`, error.message);
-      return NextResponse.json({ success: true, source: "supabase_error_fallback" });
+      console.error(`Supabase stop delete error for ${id}:`, error.message);
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, source: "supabase" });

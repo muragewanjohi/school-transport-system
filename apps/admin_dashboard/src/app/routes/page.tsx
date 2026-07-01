@@ -23,6 +23,7 @@ import "mapbox-gl/dist/mapbox-gl.css";
 interface DBRoute {
   id: string;
   name: string;
+  vehicle_id?: string | null;
   path: {
     type: "LineString";
     coordinates: [number, number][];
@@ -52,6 +53,7 @@ interface DBSchedule {
   direction: "HOME_TO_SCHOOL" | "SCHOOL_TO_HOME";
   target_grades: string[];
   days_of_week: number[];
+  vehicle_id?: string | null;
 }
 
 interface SchoolLocation {
@@ -70,6 +72,7 @@ function RoutesManagement() {
   const [selectedRouteId, setSelectedRouteId] = useState<string>("");
   const [stops, setStops] = useState<DBStop[]>([]);
   const [schedules, setSchedules] = useState<DBSchedule[]>([]);
+  const [vehicles, setVehicles] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"stops" | "schedules" | "schools">("stops");
 
@@ -85,6 +88,9 @@ function RoutesManagement() {
   const [showStopDrawer, setShowStopDrawer] = useState(false);
   const [showScheduleDrawer, setShowScheduleDrawer] = useState(false);
   const [showRouteDrawer, setShowRouteDrawer] = useState(false);
+  const [showEditRouteDrawer, setShowEditRouteDrawer] = useState(false);
+  const [editRouteId, setEditRouteId] = useState("");
+  const [editRouteName, setEditRouteName] = useState("");
   const [routeName, setRouteName] = useState("");
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
@@ -191,7 +197,8 @@ function RoutesManagement() {
       departure_time: timeShort,
       direction: sched.direction,
       target_grades: sched.target_grades || [],
-      days_of_week: sched.days_of_week || [1, 2, 3, 4, 5]
+      days_of_week: sched.days_of_week || [1, 2, 3, 4, 5],
+      vehicle_id: sched.vehicle_id || ""
     });
     setScheduleDrawerMode("edit");
     setCurrentEditScheduleId(sched.id);
@@ -214,7 +221,8 @@ function RoutesManagement() {
     departure_time: "07:00",
     direction: "HOME_TO_SCHOOL" as "HOME_TO_SCHOOL" | "SCHOOL_TO_HOME",
     target_grades: [] as string[],
-    days_of_week: [1, 2, 3, 4, 5]
+    days_of_week: [1, 2, 3, 4, 5],
+    vehicle_id: ""
   });
 
   // Mapbox references
@@ -594,14 +602,6 @@ function RoutesManagement() {
     }
   }, []);
 
-  // Sync Start/End school ID options
-  useEffect(() => {
-    if (schoolLocations.length > 0) {
-      setStartSchoolId(prev => prev || schoolLocations[0].id);
-      setEndSchoolId(prev => prev || schoolLocations[0].id);
-    }
-  }, [schoolLocations]);
-
   const currentRoute = routes.find(r => r.id === selectedRouteId) || routes[0];
 
   // Fetch initial routes, stops, and schedules
@@ -622,26 +622,21 @@ function RoutesManagement() {
         const stopsRes = await fetch("/api/stops");
         const stopsJson = await stopsRes.json();
         if (stopsJson.success) {
-          const localStops = localStorage.getItem("safaricom_stops_sandbox");
-          if (localStops) {
-            setStops(JSON.parse(localStops));
-          } else {
-            setStops(stopsJson.data);
-            localStorage.setItem("safaricom_stops_sandbox", JSON.stringify(stopsJson.data));
-          }
+          setStops(stopsJson.data);
         }
 
         // Fetch schedules
         const schedulesRes = await fetch("/api/schedules");
         const schedulesJson = await schedulesRes.json();
         if (schedulesJson.success) {
-          const localSchedules = localStorage.getItem("safaricom_schedules_sandbox");
-          if (localSchedules) {
-            setSchedules(JSON.parse(localSchedules));
-          } else {
-            setSchedules(schedulesJson.data);
-            localStorage.setItem("safaricom_schedules_sandbox", JSON.stringify(schedulesJson.data));
-          }
+          setSchedules(schedulesJson.data);
+        }
+
+        // Fetch fleet vehicles
+        const fleetRes = await fetch("/api/fleet");
+        const fleetJson = await fleetRes.json();
+        if (fleetJson.success) {
+          setVehicles(fleetJson.data);
         }
       } catch (err) {
         console.error("Error loading route management data:", err);
@@ -653,15 +648,13 @@ function RoutesManagement() {
     fetchRouteData();
   }, []);
 
-  // Save actions for local caches
+  // Save actions
   const saveStopsState = (updatedStops: DBStop[]) => {
     setStops(updatedStops);
-    localStorage.setItem("safaricom_stops_sandbox", JSON.stringify(updatedStops));
   };
 
   const saveSchedulesState = (updatedSchedules: DBSchedule[]) => {
     setSchedules(updatedSchedules);
-    localStorage.setItem("safaricom_schedules_sandbox", JSON.stringify(updatedSchedules));
   };
 
   // Save stop legs details (distance and duration) to state, localStorage, and DB
@@ -700,7 +693,7 @@ function RoutesManagement() {
 
     if (updatesNeeded.length === 0) return;
 
-    // 1. Instantly update React state & localStorage for responsive UI
+    // 1. Instantly update React state for responsive UI
     setStops(prevStops => {
       const nextStops = prevStops.map(s => {
         if (updatedStopsMap.has(s.id)) {
@@ -708,7 +701,6 @@ function RoutesManagement() {
         }
         return s;
       });
-      localStorage.setItem("safaricom_stops_sandbox", JSON.stringify(nextStops));
       return nextStops;
     });
 
@@ -980,15 +972,8 @@ function RoutesManagement() {
     }));
 
     setStops(prev => {
-      const updated = prev.map(s => {
-        if (s.route_id === routeId) {
-          const found = reindexed.find(rs => rs.id === s.id);
-          return found ? found : s;
-        }
-        return s;
-      });
-      localStorage.setItem("safaricom_stops_sandbox", JSON.stringify(updated));
-      return updated;
+      const otherStops = prev.filter(s => s.route_id !== routeId);
+      return [...otherStops, ...reindexed];
     });
 
     try {
@@ -1060,7 +1045,7 @@ function RoutesManagement() {
           name: "",
           longitude: 36.8045,
           latitude: -1.2721,
-          sequence_no: Math.max(2, newRouteStops.length),
+          sequence_no: newRouteStops.length + 1,
           geofence_radius_meters: 50,
           stop_type: "BOTH"
         });
@@ -1106,7 +1091,8 @@ function RoutesManagement() {
       departure_time: departureTime,
       direction: scheduleForm.direction,
       target_grades: scheduleForm.target_grades,
-      days_of_week: scheduleForm.days_of_week
+      days_of_week: scheduleForm.days_of_week,
+      vehicle_id: scheduleForm.vehicle_id || null
     };
 
     try {
@@ -1126,7 +1112,8 @@ function RoutesManagement() {
           departure_time: payload.departure_time,
           direction: payload.direction,
           target_grades: payload.target_grades,
-          days_of_week: payload.days_of_week
+          days_of_week: payload.days_of_week,
+          vehicle_id: payload.vehicle_id
         };
 
         let updated;
@@ -1142,7 +1129,8 @@ function RoutesManagement() {
           departure_time: "07:00",
           direction: "HOME_TO_SCHOOL",
           target_grades: [],
-          days_of_week: [1, 2, 3, 4, 5]
+          days_of_week: [1, 2, 3, 4, 5],
+          vehicle_id: ""
         });
       } else {
         alert(json.error || "Failed to save schedule");
@@ -1166,6 +1154,63 @@ function RoutesManagement() {
       }
     } catch (err) {
       console.error("Failed to delete schedule:", err);
+    }
+  };
+
+  const handleOpenEditRoute = (route: DBRoute) => {
+    setEditRouteId(route.id);
+    setEditRouteName(route.name);
+    setShowEditRouteDrawer(true);
+  };
+
+  const handleEditRouteSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editRouteName.trim()) return;
+    setIsSubmitLoading(true);
+
+    try {
+      const res = await fetch(`/api/routes/${editRouteId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: editRouteName
+        })
+      });
+      const json = await res.json();
+      if (json.success) {
+        setRoutes(prev => prev.map(r => r.id === editRouteId ? { ...r, name: editRouteName } : r));
+        setShowEditRouteDrawer(false);
+      } else {
+        alert(json.error || "Failed to update route");
+      }
+    } catch (err) {
+      console.error("Error editing route:", err);
+    } finally {
+      setIsSubmitLoading(false);
+    }
+  };
+
+  const handleDeleteRoute = async (routeId: string) => {
+    if (!confirm("Are you sure you want to delete this entire transit route? All associated stops and schedules will also be removed.")) return;
+    
+    try {
+      const res = await fetch(`/api/routes/${routeId}`, { method: "DELETE" });
+      const json = await res.json();
+      if (json.success) {
+        setRoutes(prev => prev.filter(r => r.id !== routeId));
+        if (selectedRouteId === routeId) {
+          const remaining = routes.filter(r => r.id !== routeId);
+          if (remaining.length > 0) {
+            setSelectedRouteId(remaining[0].id);
+          } else {
+            setSelectedRouteId("");
+          }
+        }
+      } else {
+        alert(json.error || "Failed to delete route");
+      }
+    } catch (err) {
+      console.error("Error deleting route:", err);
     }
   };
 
@@ -1498,14 +1543,49 @@ function RoutesManagement() {
                       onClick={() => {
                         setSelectedRouteId(route.id);
                         const rStops = stops.filter(s => s.route_id === route.id);
-                        setStopForm(prev => ({ ...prev, sequence_no: Math.max(2, rStops.length) }));
+                        setStopForm(prev => ({ ...prev, sequence_no: rStops.length + 1 }));
+                      }}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        cursor: "pointer"
                       }}
                     >
-                      <div>
+                      <div style={{ flex: 1 }}>
                         <span style={{ fontWeight: 600, display: "block", color: "var(--text-primary)" }}>{route.name}</span>
                         <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
                           {stops.filter(s => s.route_id === route.id).length} stops • {schedules.filter(s => s.route_id === route.id).length} run schedules
                         </span>
+                      </div>
+                      <div 
+                        style={{ display: "flex", gap: "6px" }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          onClick={() => handleOpenEditRoute(route)}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            padding: "4px",
+                            cursor: "pointer",
+                            color: "var(--accent-secondary)"
+                          }}
+                        >
+                          <Edit size={14} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteRoute(route.id)}
+                          style={{
+                            background: "transparent",
+                            border: "none",
+                            padding: "4px",
+                            cursor: "pointer",
+                            color: "var(--state-error)"
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -1660,7 +1740,7 @@ function RoutesManagement() {
                         name: "",
                         longitude: 36.8045,
                         latitude: -1.2721,
-                        sequence_no: Math.max(2, routeStops.length),
+                        sequence_no: routeStops.length + 1,
                         geofence_radius_meters: 50,
                         stop_type: "BOTH"
                       });
@@ -1693,7 +1773,8 @@ function RoutesManagement() {
                         departure_time: "07:00",
                         direction: "HOME_TO_SCHOOL",
                         target_grades: [],
-                        days_of_week: [1, 2, 3, 4, 5]
+                        days_of_week: [1, 2, 3, 4, 5],
+                        vehicle_id: ""
                       });
                       setScheduleDrawerMode("add");
                       setCurrentEditScheduleId(null);
@@ -1852,26 +1933,38 @@ function RoutesManagement() {
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Schedule Name</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Dep. Time</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Direction</th>
+                          <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Assigned Bus</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Target Grades</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Operating Days</th>
                           <th style={{ padding: "10px", textAlign: "right", fontSize: "0.75rem", color: "var(--text-muted)" }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {routeSchedules.map(sched => (
-                          <tr key={sched.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.02)" }}>
-                            <td style={{ padding: "12px 10px", fontWeight: 600, color: "var(--text-primary)" }}>{sched.name}</td>
-                            <td style={{ padding: "12px 10px", fontWeight: "bold", color: "var(--accent-secondary)" }}>
-                              <Clock size={12} style={{ display: "inline", marginRight: "4px" }} />
-                              {sched.departure_time.slice(0, 5)}
-                            </td>
-                            <td style={{ padding: "12px 10px", fontSize: "0.8rem", color: "var(--text-primary)" }}>{getDirectionText(sched.direction)}</td>
-                            <td style={{ padding: "12px 10px", fontSize: "0.8rem", color: "var(--text-muted)" }}>
-                              {sched.target_grades && sched.target_grades.length > 0 
-                                ? sched.target_grades.join(", ") 
-                                : "All Grades"}
-                            </td>
-                            <td style={{ padding: "12px 10px", fontSize: "0.8rem", color: "var(--text-muted)" }}>{getDaysText(sched.days_of_week)}</td>
+                        {routeSchedules.map(sched => {
+                          const assignedVehicle = vehicles.find(v => v.id === sched.vehicle_id);
+                          return (
+                            <tr key={sched.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.02)" }}>
+                              <td style={{ padding: "12px 10px", fontWeight: 600, color: "var(--text-primary)" }}>{sched.name}</td>
+                              <td style={{ padding: "12px 10px", fontWeight: "bold", color: "var(--accent-secondary)" }}>
+                                <Clock size={12} style={{ display: "inline", marginRight: "4px" }} />
+                                {sched.departure_time.slice(0, 5)}
+                              </td>
+                              <td style={{ padding: "12px 10px", fontSize: "0.8rem", color: "var(--text-primary)" }}>{getDirectionText(sched.direction)}</td>
+                              <td style={{ padding: "12px 10px", fontSize: "0.8rem", color: "var(--text-primary)" }}>
+                                {assignedVehicle ? (
+                                  <span style={{ color: "var(--accent-secondary)", fontWeight: 600 }}>
+                                    {assignedVehicle.model} ({assignedVehicle.license_plate})
+                                  </span>
+                                ) : (
+                                  <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>None</span>
+                                )}
+                              </td>
+                              <td style={{ padding: "12px 10px", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                                {sched.target_grades && sched.target_grades.length > 0 
+                                  ? sched.target_grades.join(", ") 
+                                  : "All Grades"}
+                              </td>
+                              <td style={{ padding: "12px 10px", fontSize: "0.8rem", color: "var(--text-muted)" }}>{getDaysText(sched.days_of_week)}</td>
                             <td style={{ padding: "12px 10px", textAlign: "right" }}>
                               <button 
                                 onClick={() => handleStartEditSchedule(sched)}
@@ -1887,7 +1980,8 @@ function RoutesManagement() {
                               </button>
                             </td>
                           </tr>
-                        ))}
+                        );
+                      })}
                       </tbody>
                     </table>
                   </div>
@@ -2260,6 +2354,26 @@ function RoutesManagement() {
                 </div>
               </div>
 
+              {/* Assigned Bus */}
+              <div className="form-group">
+                <label className="form-label">Assigned Fleet Bus (Vehicle)</label>
+                <select
+                  className="form-input"
+                  value={scheduleForm.vehicle_id}
+                  onChange={(e) => setScheduleForm(prev => ({ ...prev, vehicle_id: e.target.value }))}
+                >
+                  <option value="">-- No Bus Assigned --</option>
+                  {vehicles.map(v => (
+                    <option key={v.id} value={v.id}>
+                      {v.model} ({v.license_plate}) - Capacity: {v.capacity}
+                    </option>
+                  ))}
+                </select>
+                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                  Links this schedule run to a specific bus. The driver of this bus will automatically run this schedule upon login.
+                </span>
+              </div>
+
               <div style={{ display: "flex", gap: "12px", marginTop: "20px", paddingTop: "16px", borderTop: "1px solid var(--border-default)" }}>
                 <button
                   type="button"
@@ -2387,6 +2501,78 @@ function RoutesManagement() {
                   }}
                 >
                   {isSubmitLoading ? "Creating Route..." : "Create Route"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Route Modal Drawer */}
+      {showEditRouteDrawer && (
+        <div className="drawer-overlay" onClick={() => setShowEditRouteDrawer(false)}>
+          <div className="drawer-content" onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", borderBottom: "1px solid var(--border-default)", paddingBottom: "16px" }}>
+              <h2 style={{ fontSize: "1.2rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
+                <Compass size={20} style={{ color: "var(--accent-primary)" }} />
+                Edit Route Configuration
+              </h2>
+              <button 
+                onClick={() => setShowEditRouteDrawer(false)} 
+                style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditRouteSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div className="form-group">
+                <label className="form-label">Route Name *</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="e.g. Morning Route 1 (Kileleshwa)"
+                  className="form-input"
+                  value={editRouteName}
+                  onChange={(e) => setEditRouteName(e.target.value)}
+                />
+              </div>
+
+
+
+              <div style={{ display: "flex", gap: "12px", marginTop: "20px", paddingTop: "16px", borderTop: "1px solid var(--border-default)" }}>
+                <button
+                  type="button"
+                  onClick={() => setShowEditRouteDrawer(false)}
+                  style={{
+                    flex: 1,
+                    background: "rgba(255,255,255,0.02)",
+                    border: "1px solid var(--border-default)",
+                    color: "var(--text-muted)",
+                    padding: "10px 16px",
+                    borderRadius: "6px",
+                    cursor: "pointer",
+                    fontSize: "0.85rem"
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitLoading}
+                  style={{
+                    flex: 2,
+                    background: "var(--accent-primary)",
+                    color: "#ffffff",
+                    border: "none",
+                    padding: "10px 16px",
+                    borderRadius: "6px",
+                    fontWeight: 600,
+                    cursor: isSubmitLoading ? "default" : "pointer",
+                    fontSize: "0.85rem"
+                  }}
+                >
+                  {isSubmitLoading ? "Saving Changes..." : "Save Route"}
                 </button>
               </div>
             </form>

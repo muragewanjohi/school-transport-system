@@ -111,6 +111,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
   String _driverName = "";
   String _driverPhone = "";
+  String _driverRole = "driver";
   StreamSubscription? _telemetrySub;
 
   @override
@@ -136,6 +137,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     setState(() {
       _driverName = prefs.getString('driver_name') ?? "Unknown Driver";
       _driverPhone = prefs.getString('driver_phone') ?? "";
+      _driverRole = prefs.getString('driver_role') ?? "driver";
       _tenantController.text = prefs.getString('tenant_id') ?? '8c9ad841-f762-4217-a021-9876251b5bcf';
       _vehicleController.text = prefs.getString('vehicle_id') ?? 'e5015e10-c09a-4c22-901d-5573752e379c';
       _routeController.text = prefs.getString('route_id') ?? '782cd841-f762-4217-a021-9876251b5bca';
@@ -293,7 +295,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Driver Profile Header
+            // Driver/Conductor Profile Header
             Container(
               padding: const EdgeInsets.all(12),
               margin: const EdgeInsets.only(bottom: 12),
@@ -304,9 +306,14 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               ),
               child: Row(
                 children: [
-                  const CircleAvatar(
-                    backgroundColor: Color(0xFF10B981),
-                    child: Icon(Icons.person, color: Colors.white),
+                  CircleAvatar(
+                    backgroundColor: _driverRole.toLowerCase() == 'conductor'
+                        ? Colors.blueGrey
+                        : const Color(0xFF10B981),
+                    child: Icon(
+                      _driverRole.toLowerCase() == 'conductor' ? Icons.badge : Icons.person,
+                      color: Colors.white,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Column(
@@ -317,7 +324,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Color(0xFF1E293B)),
                       ),
                       Text(
-                        'Driver • $_driverPhone',
+                        '${_driverRole.isNotEmpty ? _driverRole[0].toUpperCase() + _driverRole.substring(1) : "Driver"} • $_driverPhone',
                         style: const TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ],

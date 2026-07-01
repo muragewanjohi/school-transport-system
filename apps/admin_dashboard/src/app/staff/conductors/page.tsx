@@ -55,48 +55,39 @@ export default function ConductorsManagement() {
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    const fetchInitialData = async () => {
-      setIsLoading(true);
-      try {
-        // Fetch conductors
-        const conductorsRes = await fetch("/api/conductors");
-        const conductorsJson = await conductorsRes.json();
-        if (conductorsJson.success) {
-          const localConductors = localStorage.getItem("safaricom_conductors_sandbox");
-          if (localConductors) {
-            setConductors(JSON.parse(localConductors));
-          } else {
-            setConductors(conductorsJson.data);
-            localStorage.setItem("safaricom_conductors_sandbox", JSON.stringify(conductorsJson.data));
-          }
-        }
-
-        // Fetch vehicles (for assignment slots)
-        const fleetRes = await fetch("/api/fleet");
-        const fleetJson = await fleetRes.json();
-        if (fleetJson.success) {
-          const localVehicles = localStorage.getItem("safaricom_fleet_sandbox");
-          if (localVehicles) {
-            setVehicles(JSON.parse(localVehicles));
-          } else {
-            setVehicles(fleetJson.data);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load conductors page data:", err);
-      } finally {
-        setIsLoading(false);
+  const fetchConductors = async () => {
+    try {
+      const res = await fetch("/api/conductors");
+      const json = await res.json();
+      if (json.success) {
+        setConductors(json.data);
       }
-    };
+    } catch (err) {
+      console.error("Failed to load conductors:", err);
+    }
+  };
 
+  const fetchVehicles = async () => {
+    try {
+      const res = await fetch("/api/fleet");
+      const json = await res.json();
+      if (json.success) {
+        setVehicles(json.data);
+      }
+    } catch (err) {
+      console.error("Failed to load vehicles:", err);
+    }
+  };
+
+  const fetchInitialData = async () => {
+    setIsLoading(true);
+    await Promise.all([fetchConductors(), fetchVehicles()]);
+    setIsLoading(false);
+  };
+
+  useEffect(() => {
     fetchInitialData();
   }, []);
-
-  const saveConductorsState = (updatedConductors: DBProfile[]) => {
-    setConductors(updatedConductors);
-    localStorage.setItem("safaricom_conductors_sandbox", JSON.stringify(updatedConductors));
-  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -127,19 +118,15 @@ export default function ConductorsManagement() {
   // Assign Conductor to Bus (Allocating Conductor 1 or Conductor 2 slot)
   const handleAssignBus = async (conductorId: string, vehicleId: string) => {
     try {
-      let updatedVehicles = [...vehicles];
-
       // 1. Unassign conductor from their current vehicle (if they are assigned anywhere)
-      for (const vehicle of updatedVehicles) {
+      for (const vehicle of vehicles) {
         if (vehicle.conductor_1_id === conductorId) {
-          vehicle.conductor_1_id = null;
           await fetch(`/api/fleet/${vehicle.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ conductor_1_id: null })
           });
         } else if (vehicle.conductor_2_id === conductorId) {
-          vehicle.conductor_2_id = null;
           await fetch(`/api/fleet/${vehicle.id}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
@@ -150,19 +137,17 @@ export default function ConductorsManagement() {
 
       // 2. If assigning to a bus (not unassigned)
       if (vehicleId) {
-        const targetVehicle = updatedVehicles.find(v => v.id === vehicleId);
+        const targetVehicle = vehicles.find(v => v.id === vehicleId);
         
         if (targetVehicle) {
           // Determine slot allocation
           if (targetVehicle.conductor_1_id === null) {
-            targetVehicle.conductor_1_id = conductorId;
             await fetch(`/api/fleet/${vehicleId}`, {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ conductor_1_id: conductorId })
             });
           } else if (targetVehicle.conductor_2_id === null) {
-            targetVehicle.conductor_2_id = conductorId;
             await fetch(`/api/fleet/${vehicleId}`, {
               method: "PUT",
               headers: { "Content-Type": "application/json" },
@@ -175,9 +160,7 @@ export default function ConductorsManagement() {
         }
       }
 
-      // Save to local storage for vehicles
-      setVehicles(updatedVehicles);
-      localStorage.setItem("safaricom_fleet_sandbox", JSON.stringify(updatedVehicles));
+      await fetchInitialData();
       alert("Conductor vehicle allocation slot successfully updated!");
 
     } catch (err) {
@@ -186,15 +169,23 @@ export default function ConductorsManagement() {
   };
 
   // Toggle Conductor Status directly on card
-  const handleToggleStatus = (conductorId: string) => {
-    const updated = conductors.map(c => {
-      if (c.id === conductorId) {
-        const newStatus = c.status === "Available" ? "Unavailable" : "Available";
-        return { ...c, status: newStatus as "Available" | "Unavailable" };
+  const handleToggleStatus = async (conductorId: string) => {
+    const conductor = conductors.find(c => c.id === conductorId);
+    if (!conductor) return;
+    const newStatus = conductor.status === "Available" ? "Unavailable" : "Available";
+    try {
+      const res = await fetch(`/api/conductors/${conductorId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchConductors();
       }
-      return c;
-    });
-    saveConductorsState(updated);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleFormSubmit = async (e: React.FormEvent) => {
@@ -211,25 +202,28 @@ export default function ConductorsManagement() {
         });
         const json = await res.json();
         if (json.success) {
-          const newConductor: DBProfile = {
-            ...formValues,
-            id: json.data.id || `cnd-${Date.now()}`
-          };
-          saveConductorsState([...conductors, newConductor]);
+          await fetchConductors();
           setShowDrawer(false);
+          const otpMessage = json.sandbox_otp ? `\n\n[SANDBOX OTP FOR MOBILE LOGIN]: ${json.sandbox_otp}` : "";
+          alert(`Conductor registered successfully! An OTP has been dispatched to their phone.${otpMessage}`);
         } else {
           const errorMsg = json.error || (json.errors ? Object.entries(json.errors).map(([k, v]) => `${k}: ${v}`).join(", ") : "Unknown validation error");
           alert(`Failed to register conductor: ${errorMsg}`);
         }
       } else {
-        const updated = conductors.map(c => 
-          c.id === currentEditId 
-            ? { ...c, ...formValues } 
-            : c
-        );
-        saveConductorsState(updated);
-        setShowDrawer(false);
-        alert("Conductor profile updated.");
+        const res = await fetch(`/api/conductors/${currentEditId}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(formValues)
+        });
+        const json = await res.json();
+        if (json.success) {
+          await fetchConductors();
+          setShowDrawer(false);
+          alert("Conductor profile updated.");
+        } else {
+          alert(`Failed to update profile: ${json.error || "Unknown error"}`);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -238,23 +232,23 @@ export default function ConductorsManagement() {
     }
   };
 
-  const handleDeleteConductor = (id: string) => {
+  const handleDeleteConductor = async (id: string) => {
     if (!confirm("Are you sure you want to remove this conductor profile? This will also unassign them from any active bus slots.")) return;
     
-    // Unassign conductor from any vehicle slots
-    const updatedVehicles = vehicles.map(v => {
-      let changed = false;
-      let c1 = v.conductor_1_id;
-      let c2 = v.conductor_2_id;
-      if (c1 === id) { c1 = null; changed = true; }
-      if (c2 === id) { c2 = null; changed = true; }
-      return changed ? { ...v, conductor_1_id: c1, conductor_2_id: c2 } : v;
-    });
-    setVehicles(updatedVehicles);
-    localStorage.setItem("safaricom_fleet_sandbox", JSON.stringify(updatedVehicles));
-
-    const filtered = conductors.filter(c => c.id !== id);
-    saveConductorsState(filtered);
+    try {
+      const res = await fetch(`/api/conductors/${id}`, {
+        method: "DELETE"
+      });
+      const json = await res.json();
+      if (json.success) {
+        await fetchInitialData();
+        alert("Conductor profile removed successfully.");
+      } else {
+        alert(`Failed to delete: ${json.error || "Unknown error"}`);
+      }
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // Metrics

@@ -63,6 +63,7 @@ class _LoginScreenState extends State<LoginScreen> {
         await prefs.setString('driver_id', session['id'] ?? '');
         await prefs.setString('driver_name', session['name'] ?? '');
         await prefs.setString('driver_phone', session['phone'] ?? '');
+        await prefs.setString('driver_role', session['role'] ?? '');
         await prefs.setString('tenant_id', session['tenant_id'] ?? '');
         await prefs.setString('vehicle_id', session['vehicle_id'] ?? '');
         await prefs.setString('route_id', session['route_id'] ?? '');

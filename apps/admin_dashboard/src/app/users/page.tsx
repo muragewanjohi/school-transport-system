@@ -138,34 +138,24 @@ export default function UserAndRoleManagement() {
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
-  useEffect(() => {
-    const fetchAdmins = async () => {
-      setIsLoading(true);
-      try {
-        const res = await fetch("/api/users");
-        const json = await res.json();
-        if (json.success) {
-          const localAdmins = localStorage.getItem("safaricom_users_sandbox");
-          if (localAdmins) {
-            setAdmins(JSON.parse(localAdmins));
-          } else {
-            setAdmins(json.data);
-            localStorage.setItem("safaricom_users_sandbox", JSON.stringify(json.data));
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load administrator accounts:", err);
-      } finally {
-        setIsLoading(false);
+  const fetchAdmins = async () => {
+    setIsLoading(true);
+    try {
+      const res = await fetch("/api/users");
+      const json = await res.json();
+      if (json.success) {
+        setAdmins(json.data);
       }
-    };
+    } catch (err) {
+      console.error("Failed to load administrator accounts:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
     fetchAdmins();
   }, []);
-
-  const saveAdminsState = (updatedAdmins: DBAdmin[]) => {
-    setAdmins(updatedAdmins);
-    localStorage.setItem("safaricom_users_sandbox", JSON.stringify(updatedAdmins));
-  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
@@ -216,15 +206,7 @@ export default function UserAndRoleManagement() {
           });
           const json = await res.json();
           if (json.success) {
-            const newAdmin: DBAdmin = {
-              name: formValues.name,
-              phone: formValues.phone,
-              email: formValues.email,
-              admin_role: formValues.admin_role,
-              role: "school_admin",
-              id: json.data.id || `adm-${Date.now()}`
-            };
-            saveAdminsState([...admins, newAdmin]);
+            await fetchAdmins();
             setShowDrawer(false);
             alert("New Administrator account registered successfully (Sandbox Mode)!");
           } else {
@@ -258,13 +240,7 @@ export default function UserAndRoleManagement() {
           if (authError) {
             alert(`Authentication registration failed: ${authError.message}`);
           } else {
-            // Trigger created the profile row. Refresh list from backend.
-            const res = await fetch("/api/users");
-            const json = await res.json();
-            if (json.success) {
-              setAdmins(json.data);
-              localStorage.setItem("safaricom_users_sandbox", JSON.stringify(json.data));
-            }
+            await fetchAdmins();
             setShowDrawer(false);
             alert("New Administrator registered successfully! Auth account created in Supabase.");
           }
@@ -277,12 +253,7 @@ export default function UserAndRoleManagement() {
         });
         const json = await res.json();
         if (json.success) {
-          const updated = admins.map(a => 
-            a.id === currentEditId 
-              ? { ...a, ...formValues } 
-              : a
-          );
-          saveAdminsState(updated);
+          await fetchAdmins();
           setShowDrawer(false);
           alert("Administrator details modified successfully.");
         } else {
@@ -305,8 +276,7 @@ export default function UserAndRoleManagement() {
       });
       const json = await res.json();
       if (json.success) {
-        const filtered = admins.filter(a => a.id !== id);
-        saveAdminsState(filtered);
+        await fetchAdmins();
         alert("Administrator access revoked.");
       } else {
         alert("Failed to delete user profile.");

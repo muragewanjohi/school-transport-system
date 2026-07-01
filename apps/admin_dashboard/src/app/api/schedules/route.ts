@@ -9,6 +9,7 @@ const scheduleCreateSchema = z.object({
   direction: z.enum(["HOME_TO_SCHOOL", "SCHOOL_TO_HOME"]),
   target_grades: z.array(z.string()).min(1, "At least one target grade is required"),
   days_of_week: z.array(z.number().int().min(1).max(7)).default([1, 2, 3, 4, 5]),
+  vehicle_id: z.string().uuid("Invalid vehicle UUID").nullable().optional(),
 });
 
 export const mockSchedules = [
@@ -85,7 +86,7 @@ export async function GET(request: Request) {
 
     const client = getSupabaseClient(token);
     
-    let query = client.from("schedules").select("id, tenant_id, route_id, name, departure_time, direction, target_grades, days_of_week, created_at, updated_at");
+    let query = client.from("schedules").select("id, tenant_id, route_id, name, departure_time, direction, target_grades, days_of_week, vehicle_id, created_at, updated_at");
     
     if (routeId) {
       query = query.eq("route_id", routeId);
@@ -152,6 +153,7 @@ export async function POST(request: Request) {
       direction: result.data.direction,
       target_grades: result.data.target_grades,
       days_of_week: result.data.days_of_week,
+      vehicle_id: result.data.vehicle_id || null,
     };
 
     const { data: scheduleInsert, error } = await client

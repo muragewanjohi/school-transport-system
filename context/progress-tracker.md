@@ -74,6 +74,17 @@
 - Designed and built the System Configurations Console (schema migrations, GET/POST router, and multi-tabbed React configuration board) with role-based editing locks.
 - Refactored the Fleet Management console: removed fuel level and odometer attributes from Zod schemas, API endpoints, UI display cards, and onboarding forms, and disabled local sandbox localStorage caching in favor of direct database fetching.
 - Verified Next.js dashboard compiles and builds successfully with zero compilation or typecheck errors.
+- Updated the driver-login backend API and Flutter driver application to support both Driver and Conductor roles, including role-specific profile header UI styling.
+- Implemented login restriction checks rejecting driver/conductor accounts whose status is set to 'Unavailable' with a 403 Forbidden response.
+- Resolved conductor-to-vehicle bindings inside the backend login handler by checking conductor slot allocations.
+- Fixed `CannotPostForegroundServiceNotificationException` runtime crash on Android 13+ devices by requesting `POST_NOTIFICATIONS` permission natively in `MainActivity.kt` and declaring it in the manifest.
+- Created database stored procedure `verify_driver_login` utilizing `SECURITY DEFINER` to securely bypass RLS, and updated the Next.js `/api/auth/driver-login` endpoint to call this RPC function, resolving authentication query visibility failures.
+- Dropped the `profiles_id_fkey` foreign key constraint to permit staff accounts (using random UUIDs) to be created directly in `public.profiles` without requiring `auth.users` records.
+- Removed local browser `localStorage` caching logic across the entire Admin Dashboard (Drivers, Conductors, Users, Students, Routes, Stops, and Schedules), connecting all loads, saves, edits, and deletions directly to the PostgreSQL database via API routes.
+- Created PUT and DELETE API endpoints for driver/conductor detail routes (`/api/drivers/[id]` and `/api/conductors/[id]`).
+- Refactored the bulk CSV student importer to write imported rows directly to the database via API requests.
+- Verified successfully that both the Next.js admin dashboard and Flutter driver application compile and build with zero errors.
+
 
 ## In Progress
 

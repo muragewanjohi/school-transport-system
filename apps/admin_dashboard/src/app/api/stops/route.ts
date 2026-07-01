@@ -193,13 +193,8 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      console.warn("Supabase stop insert error, falling back to mock save:", error.message);
-      const mockStop = {
-        ...payload,
-        location: locGeoJSON,
-        id: `stop-db-fallback-${Math.floor(Math.random() * 1000)}`
-      };
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: mockStop });
+      console.error("Supabase stop insert error:", error.message);
+      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, source: "supabase", data: stopInsert });
