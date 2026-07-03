@@ -168,6 +168,7 @@ function RoutesManagement() {
   const [stopSuggestions, setStopSuggestions] = useState<any[]>([]);
   const [showSuggestionsList, setShowSuggestionsList] = useState(false);
   const [isSearchingStops, setIsSearchingStops] = useState(false);
+  const [searchLocation, setSearchLocation] = useState("");
   const draggableMarkerRef = useRef<mapboxgl.Marker | null>(null);
   const draggableSchoolMarkerRef = useRef<mapboxgl.Marker | null>(null);
 
@@ -185,6 +186,7 @@ function RoutesManagement() {
       geofence_radius_meters: stop.geofence_radius_meters,
       stop_type: stop.stop_type
     });
+    setSearchLocation(stop.name);
     setStopDrawerMode("edit");
     setCurrentEditStopId(stop.id);
     setShowStopDrawer(true);
@@ -359,8 +361,8 @@ function RoutesManagement() {
   };
 
   // Mapbox Geocoding Autocomplete Search Handlers
-  const handleStopNameChange = async (val: string) => {
-    setStopForm(prev => ({ ...prev, name: val }));
+  const handleSearchLocationChange = async (val: string) => {
+    setSearchLocation(val);
 
     if (val.trim().length < 3) {
       setStopSuggestions([]);
@@ -390,9 +392,10 @@ function RoutesManagement() {
 
   const handleSelectSuggestion = (feat: any) => {
     const [lng, lat] = feat.center;
+    setSearchLocation(feat.place_name);
     setStopForm(prev => ({
       ...prev,
-      name: feat.place_name,
+      name: feat.text || feat.place_name,
       longitude: parseFloat(lng.toFixed(6)),
       latitude: parseFloat(lat.toFixed(6))
     }));
@@ -915,12 +918,29 @@ function RoutesManagement() {
       .filter(s => s.route_id === selectedRouteId)
       .sort((a, b) => a.sequence_no - b.sequence_no);
     
+    // Group stops that share the same (or very close) coordinates to prevent overlap hiding
+    const groupedStops: { coordinates: [number, number]; stops: DBStop[] }[] = [];
     routeStops.forEach((stop) => {
+      if (!stop.location || !stop.location.coordinates) return;
+      const coord = stop.location.coordinates;
+      const existingGroup = groupedStops.find(g => 
+        Math.abs(g.coordinates[0] - coord[0]) < 1e-6 &&
+        Math.abs(g.coordinates[1] - coord[1]) < 1e-6
+      );
+      if (existingGroup) {
+        existingGroup.stops.push(stop);
+      } else {
+        groupedStops.push({
+          coordinates: coord as [number, number],
+          stops: [stop]
+        });
+      }
+    });
+
+    groupedStops.forEach((group) => {
       const el = document.createElement("div");
       el.className = "map-stop-marker";
-      el.style.width = "22px";
       el.style.height = "22px";
-      el.style.borderRadius = "50%";
       el.style.backgroundColor = "rgba(99, 102, 241, 0.25)";
       el.style.border = "2px solid #6366f1";
       el.style.display = "flex";
@@ -929,30 +949,96 @@ function RoutesManagement() {
       el.style.color = "#ffffff";
       el.style.fontWeight = "bold";
       el.style.fontSize = "10px";
-      el.textContent = stop.sequence_no.toString();
       el.style.boxShadow = "0 0 8px #6366f1";
 
-      const legText = stop.sequence_no > 1 
-        ? `<div style="font-size:0.75rem; color:#6366f1; font-weight:600; margin-top:2px;">
-            Leg: ${(stop.distance_from_prev_meters ? stop.distance_from_prev_meters / 1000 : 0).toFixed(2)} km (${Math.round((stop.duration_from_prev_seconds ? stop.duration_from_prev_seconds : 0) / 60)} mins)
-           </div>`
-        : `<div style="font-size:0.75rem; color:#64748b; font-style:italic; margin-top:2px;">Route Start</div>`;
+      const labelParts = group.stops.map(s => {
+        if (s.sequence_no === 1) return "Start";
+        if (s.sequence_no === routeStops.length && routeStops.length > 1) return "End";
+        return s.sequence_no.toString();
+      });
+      const label = labelParts.join(", ");
+      el.textContent = label;
 
-      const popup = new mapboxglModule.Popup({ offset: 15 }).setHTML(
-        `<div style="color:#0f172a; font-family:var(--font-sans); padding:4px;">
-          <h4 style="font-weight:600; margin:0 0 2px 0;">Stop #${stop.sequence_no}: ${stop.name}</h4>
+      // Adjust shape/width if it is a pill (has text like "Start", "End" or multiple values)
+      const hasWordLabel = labelParts.some(l => l.length > 1);
+      if (group.stops.length > 1 || hasWordLabel) {
+        el.style.padding = "0 8px";
+        el.style.width = "auto";
+        el.style.minWidth = "22px";
+        el.style.borderRadius = "11px";
+      } else {
+        el.style.width = "22px";
+        el.style.borderRadius = "50%";
+      }
+
+      let popupHTML = `<div style="color:#0f172a; font-family:var(--font-sans); padding:4px; max-width:260px;">`;
+      if (group.stops.length > 1) {
+        popupHTML += `<h4 style="font-weight:700; margin:0 0 6px 0; font-size:0.875rem; border-bottom:1px solid #e2e8f0; padding-bottom:4px;">Stops at this Location</h4>`;
+        group.stops.forEach((stop, index) => {
+          let legLabel = `Stop #${stop.sequence_no}`;
+          if (stop.sequence_no === 1) legLabel = "Start (Stop #1)";
+          else if (stop.sequence_no === routeStops.length) legLabel = `End (Stop #${stop.sequence_no})`;
+
+          const legText = stop.sequence_no > 1 
+            ? `<div style="font-size:0.75rem; color:#6366f1; font-weight:600; margin-top:2px;">
+                Leg: ${(stop.distance_from_prev_meters ? stop.distance_from_prev_meters / 1000 : 0).toFixed(2)} km (${Math.round((stop.duration_from_prev_seconds ? stop.duration_from_prev_seconds : 0) / 60)} mins)
+               </div>`
+            : `<div style="font-size:0.75rem; color:#64748b; font-style:italic; margin-top:2px;">Route Start</div>`;
+
+          popupHTML += `
+            <div style="margin-bottom:${index === group.stops.length - 1 ? "0" : "8px"};">
+              <h5 style="font-weight:600; margin:0 0 2px 0; font-size:0.8rem;">${legLabel}: ${stop.name}</h5>
+              <div style="font-size:0.75rem; color:#64748b; line-height: 1.3;">
+                Radius: ${stop.geofence_radius_meters}m • Type: ${stop.stop_type}
+              </div>
+              ${legText}
+            </div>
+          `;
+        });
+      } else {
+        const stop = group.stops[0];
+        let legLabel = `Stop #${stop.sequence_no}`;
+        if (stop.sequence_no === 1) legLabel = "Start (Stop #1)";
+        else if (stop.sequence_no === routeStops.length && routeStops.length > 1) legLabel = `End (Stop #${stop.sequence_no})`;
+
+        const legText = stop.sequence_no > 1 
+          ? `<div style="font-size:0.75rem; color:#6366f1; font-weight:600; margin-top:2px;">
+              Leg: ${(stop.distance_from_prev_meters ? stop.distance_from_prev_meters / 1000 : 0).toFixed(2)} km (${Math.round((stop.duration_from_prev_seconds ? stop.duration_from_prev_seconds : 0) / 60)} mins)
+             </div>`
+          : `<div style="font-size:0.75rem; color:#64748b; font-style:italic; margin-top:2px;">Route Start</div>`;
+
+        popupHTML += `
+          <h4 style="font-weight:600; margin:0 0 2px 0; font-size:0.875rem;">${legLabel}: ${stop.name}</h4>
           <span style="font-size:0.75rem; color:#64748b;">Radius: ${stop.geofence_radius_meters}m • Type: ${stop.stop_type}</span>
           ${legText}
-         </div>`
-      );
+        `;
+      }
+      popupHTML += `</div>`;
+
+      const popup = new mapboxglModule.Popup({ offset: 15 }).setHTML(popupHTML);
 
       const marker = new mapboxglModule.Marker(el)
-        .setLngLat(stop.location.coordinates as [number, number])
+        .setLngLat(group.coordinates)
         .setPopup(popup)
         .addTo(map);
 
       stopMarkersRef.current.push(marker);
     });
+
+    // Auto-fit the map bounds to contain all stops on the route, or the route line coordinates if no stops yet
+    if (routeStops.length > 0) {
+      const bounds = new mapboxglModule.LngLatBounds();
+      routeStops.forEach(stop => {
+        if (stop.location && stop.location.coordinates) {
+          bounds.extend(stop.location.coordinates as [number, number]);
+        }
+      });
+      map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1000 });
+    } else if (currentRoute && currentRoute.path && currentRoute.path.coordinates && currentRoute.path.coordinates.length > 0) {
+      const bounds = new mapboxglModule.LngLatBounds();
+      currentRoute.path.coordinates.forEach(coord => bounds.extend(coord));
+      map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1000 });
+    }
   };
 
   // Automatically update map markers and route lines if Mapbox is running and stops/route change
@@ -1041,6 +1127,7 @@ function RoutesManagement() {
         await resequenceRouteStops(selectedRouteId, newRouteStops);
         
         setShowStopDrawer(false);
+        setSearchLocation("");
         setStopForm({
           name: "",
           longitude: 36.8045,
@@ -1555,7 +1642,7 @@ function RoutesManagement() {
                       <div style={{ flex: 1 }}>
                         <span style={{ fontWeight: 600, display: "block", color: "var(--text-primary)" }}>{route.name}</span>
                         <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                          {stops.filter(s => s.route_id === route.id).length} stops • {schedules.filter(s => s.route_id === route.id).length} run schedules
+                          {stops.filter(s => s.route_id === route.id).length} stops • {schedules.filter(s => s.route_id === route.id).length} trips
                         </span>
                       </div>
                       <div 
@@ -1728,7 +1815,7 @@ function RoutesManagement() {
                       onClick={() => setActiveTab("schedules")} 
                       className={`tab-btn ${activeTab === "schedules" ? "active" : ""}`}
                     >
-                      Timing Schedules ({routeSchedules.length})
+                      Trips ({routeSchedules.length})
                     </button>
                   </div>
                 )}
@@ -1744,6 +1831,7 @@ function RoutesManagement() {
                         geofence_radius_meters: 50,
                         stop_type: "BOTH"
                       });
+                      setSearchLocation("");
                       setStopDrawerMode("add");
                       setCurrentEditStopId(null);
                       setShowStopDrawer(true);
@@ -1795,7 +1883,7 @@ function RoutesManagement() {
                     }}
                   >
                     <Plus size={14} />
-                    Add Run Schedule
+                    Add Trip
                   </button>
                 ) : (
                   <button 
@@ -1881,11 +1969,26 @@ function RoutesManagement() {
                               {stop.sequence_no === 1 ? (
                                 <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Route Start</span>
                               ) : (
-                                <span>
-                                  {stop.distance_from_prev_meters ? (stop.distance_from_prev_meters / 1000).toFixed(2) : "0.00"} km
-                                  <span style={{ color: "var(--text-muted)", margin: "0 6px" }}>•</span>
-                                  {stop.duration_from_prev_seconds ? Math.round(stop.duration_from_prev_seconds / 60) : "0"} mins
-                                </span>
+                                (() => {
+                                  const isLastStop = routeStops.length > 1 && stop.sequence_no === routeStops.length;
+                                  const isLastStopAndSchool = isLastStop && 
+                                    routeStops[0]?.location?.coordinates && 
+                                    stop.location?.coordinates && 
+                                    Math.abs(routeStops[0].location.coordinates[0] - stop.location.coordinates[0]) < 1e-6 && 
+                                    Math.abs(routeStops[0].location.coordinates[1] - stop.location.coordinates[1]) < 1e-6;
+
+                                  if (isLastStopAndSchool) {
+                                    return <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>Route End</span>;
+                                  }
+
+                                  return (
+                                    <span>
+                                      {stop.distance_from_prev_meters ? (stop.distance_from_prev_meters / 1000).toFixed(2) : "0.00"} km
+                                      <span style={{ color: "var(--text-muted)", margin: "0 6px" }}>•</span>
+                                      {stop.duration_from_prev_seconds ? Math.round(stop.duration_from_prev_seconds / 60) : "0"} mins
+                                    </span>
+                                  );
+                                })()
                               )}
                             </td>
                             <td style={{ padding: "12px 10px" }}>
@@ -1923,14 +2026,14 @@ function RoutesManagement() {
               ) : activeTab === "schedules" ? (
                 routeSchedules.length === 0 ? (
                   <div style={{ display: "flex", justifyContent: "center", padding: "30px 0", color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                    No timing run schedules configured. Click "Add Run Schedule" to start session planner.
+                    No trips configured. Click "Add Trip" to start session planner.
                   </div>
                 ) : (
                   <div style={{ overflowX: "auto" }}>
                     <table className="student-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                       <thead>
                         <tr style={{ borderBottom: "1px solid var(--border-default)" }}>
-                          <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Schedule Name</th>
+                          <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Trip Name</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Dep. Time</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Direction</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Assigned Bus</th>
@@ -2104,6 +2207,7 @@ function RoutesManagement() {
                           geofence_radius_meters: existingStop.geofence_radius_meters,
                           stop_type: existingStop.stop_type
                         }));
+                        setSearchLocation(existingStop.name);
                         if (mapRef.current) {
                           mapRef.current.flyTo({
                             center: existingStop.location.coordinates,
@@ -2128,14 +2232,13 @@ function RoutesManagement() {
               )}
 
               <div className="form-group">
-                <label className="form-label">Stop Name *</label>
+                <label className="form-label">Search Location</label>
                 <input 
                   type="text" 
-                  required
-                  placeholder="Search location or type name..."
+                  placeholder="Search for a location on the map..."
                   className="form-input"
-                  value={stopForm.name}
-                  onChange={(e) => handleStopNameChange(e.target.value)}
+                  value={searchLocation}
+                  onChange={(e) => handleSearchLocationChange(e.target.value)}
                   onFocus={() => {
                     if (stopSuggestions.length > 0) setShowSuggestionsList(true);
                   }}
@@ -2158,6 +2261,18 @@ function RoutesManagement() {
                     ))}
                   </div>
                 )}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Stop Name *</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="e.g. Ruaka Joyland"
+                  className="form-input"
+                  value={stopForm.name}
+                  onChange={(e) => setStopForm(prev => ({ ...prev, name: e.target.value }))}
+                />
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
@@ -2270,7 +2385,7 @@ function RoutesManagement() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid var(--border-default)", paddingBottom: "12px" }}>
               <h2 style={{ fontSize: "1.1rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
                 <Clock size={18} style={{ color: "var(--accent-primary)" }} />
-                {scheduleDrawerMode === "edit" ? "Edit timing Run Schedule" : "Add timing Run Schedule"}
+                {scheduleDrawerMode === "edit" ? "Edit Trip" : "Add Trip"}
               </h2>
               <button onClick={() => setShowScheduleDrawer(false)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
                 <X size={18} />
@@ -2279,7 +2394,7 @@ function RoutesManagement() {
 
             <form onSubmit={handleAddSchedule} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
               <div className="form-group">
-                <label className="form-label">Schedule Name *</label>
+                <label className="form-label">Trip Name *</label>
                 <input 
                   type="text" 
                   required
@@ -2370,7 +2485,7 @@ function RoutesManagement() {
                   ))}
                 </select>
                 <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
-                  Links this schedule run to a specific bus. The driver of this bus will automatically run this schedule upon login.
+                  Links this trip to a specific bus. The driver of this bus will automatically run this trip upon login.
                 </span>
               </div>
 
@@ -2406,7 +2521,7 @@ function RoutesManagement() {
                     fontSize: "0.85rem"
                   }}
                 >
-                  {isSubmitLoading ? "Saving Schedule..." : (scheduleDrawerMode === "edit" ? "Update Run Schedule" : "Save Run Schedule")}
+                  {isSubmitLoading ? "Saving Trip..." : (scheduleDrawerMode === "edit" ? "Update Trip" : "Save Trip")}
                 </button>
               </div>
             </form>

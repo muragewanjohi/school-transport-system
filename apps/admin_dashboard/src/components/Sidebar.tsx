@@ -40,12 +40,20 @@ function SidebarContent() {
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const [staffExpanded, setStaffExpanded] = useState(false);
+  const [routesExpanded, setRoutesExpanded] = useState(false);
   const { signOut, profile } = useAuth();
 
   // Keep staff menu expanded if currently active on staff sub-routes
   useEffect(() => {
     if (pathname && pathname.startsWith("/staff")) {
       setStaffExpanded(true);
+    }
+  }, [pathname]);
+
+  // Keep routes menu expanded if currently active on route sub-routes
+  useEffect(() => {
+    if (pathname && (pathname.startsWith("/routes") || pathname === "/routes")) {
+      setRoutesExpanded(true);
     }
   }, [pathname]);
 
@@ -138,26 +146,62 @@ function SidebarContent() {
             </Link>
           </li>
 
-          {/* Route Planning */}
+          {/* Route Planning Collapsible Section */}
           <li>
-            <Link 
-              href="/routes" 
-              className={`menu-item ${pathname === "/routes" && tabParam !== "schools" ? "active" : ""}`}
+            <div 
+              onClick={() => setRoutesExpanded(!routesExpanded)}
+              className={`menu-item ${pathname.startsWith("/routes") ? "active" : ""}`}
+              style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
             >
-              <Compass size={18} />
-              <span>Route Planning</span>
-            </Link>
-          </li>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Compass size={18} />
+                <span>Route Planning</span>
+              </div>
+              {routesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </div>
 
-          {/* School Locations */}
-          <li>
-            <Link 
-              href="/routes?tab=schools" 
-              className={`menu-item ${pathname === "/routes" && tabParam === "schools" ? "active" : ""}`}
-            >
-              <MapPin size={18} />
-              <span>School Locations</span>
-            </Link>
+            {routesExpanded && (
+              <ul style={{ 
+                listStyle: "none", 
+                paddingLeft: "24px", 
+                marginTop: "4px", 
+                marginBottom: "4px", 
+                display: "flex", 
+                flexDirection: "column", 
+                gap: "2px" 
+              }}>
+                <li>
+                  <Link 
+                    href="/routes" 
+                    className={`menu-item ${pathname === "/routes" && tabParam !== "schools" ? "active" : ""}`}
+                    style={{ padding: "6px 12px", fontSize: "0.85rem" }}
+                  >
+                    <Compass size={14} style={{ color: "var(--accent-secondary)" }} />
+                    <span>Active Routes</span>
+                  </Link>
+                </li>
+                <li>
+                  <Link 
+                    href="/routes/stops" 
+                    className={`menu-item ${pathname === "/routes/stops" ? "active" : ""}`}
+                    style={{ padding: "6px 12px", fontSize: "0.85rem" }}
+                  >
+                    <MapPin size={14} style={{ color: "var(--accent-primary)" }} />
+                    <span>Stops & Stages</span>
+                  </Link>
+                </li>
+                <li>
+                  <Link 
+                    href="/routes?tab=schools" 
+                    className={`menu-item ${pathname === "/routes" && tabParam === "schools" ? "active" : ""}`}
+                    style={{ padding: "6px 12px", fontSize: "0.85rem" }}
+                  >
+                    <MapPin size={14} style={{ color: "var(--text-muted)" }} />
+                    <span>School Locations</span>
+                  </Link>
+                </li>
+              </ul>
+            )}
           </li>
 
           {/* Admin Management */}

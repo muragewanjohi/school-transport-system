@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -8,6 +10,7 @@ import 'package:driver_app/services/supabase_service.dart';
 import 'package:driver_app/services/location_service.dart';
 import 'package:driver_app/screens/login_screen.dart';
 import 'package:driver_app/widgets/student_checklist_widget.dart';
+import 'package:http/http.dart' as http;
 
 // Riverpod provider for managing active trip state
 final tripActiveProvider = StateProvider<bool>((ref) => false);
@@ -114,6 +117,14 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   String _driverRole = "driver";
   StreamSubscription? _telemetrySub;
 
+  // Route and Trip selection states
+  List<dynamic> _routes = [];
+  List<dynamic> _trips = [];
+  String? _selectedRouteId;
+  String? _selectedTripId;
+  bool _isLoadingRoutes = false;
+  bool _isLoadingTrips = false;
+
   @override
   void initState() {
     super.initState();
@@ -131,17 +142,105 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     super.dispose();
   }
 
+  // Get the base API URL mapping localhost correctly for Android emulator and iOS simulator
+  String _getApiBaseUrl() {
+    try {
+      if (Platform.isAndroid) {
+        return 'http://10.0.2.2:3000';
+      }
+    } catch (_) {}
+    return 'http://localhost:3000';
+  }
+
   /// Load authenticated driver details from SharedPreferences
   Future<void> _loadSessionDetails() async {
     final prefs = await SharedPreferences.getInstance();
+    final savedRouteId = prefs.getString('route_id') ?? '';
     setState(() {
       _driverName = prefs.getString('driver_name') ?? "Unknown Driver";
       _driverPhone = prefs.getString('driver_phone') ?? "";
       _driverRole = prefs.getString('driver_role') ?? "driver";
       _tenantController.text = prefs.getString('tenant_id') ?? '8c9ad841-f762-4217-a021-9876251b5bcf';
       _vehicleController.text = prefs.getString('vehicle_id') ?? 'e5015e10-c09a-4c22-901d-5573752e379c';
-      _routeController.text = prefs.getString('route_id') ?? '782cd841-f762-4217-a021-9876251b5bca';
+      _routeController.text = savedRouteId;
+      _selectedRouteId = savedRouteId.isNotEmpty ? savedRouteId : null;
     });
+
+    // Fetch all routes
+    await _fetchRoutes();
+
+    // Fetch trips for initial route if we have one
+    if (_selectedRouteId != null && _selectedRouteId!.isNotEmpty) {
+      _fetchTrips(_selectedRouteId!);
+    }
+  }
+
+  Future<void> _fetchRoutes() async {
+    if (!mounted) return;
+    setState(() => _isLoadingRoutes = true);
+    try {
+      final baseUrl = _getApiBaseUrl();
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/routes'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+        if (result['success'] == true && result['data'] != null) {
+          final fetchedRoutes = result['data'] as List<dynamic>;
+          setState(() {
+            _routes = fetchedRoutes;
+            // Validate if selected route ID is in the fetched list
+            final routeExists = fetchedRoutes.any((r) => r['id'] == _selectedRouteId);
+            if (!routeExists) {
+              _selectedRouteId = null;
+              _selectedTripId = null;
+              _trips = [];
+            }
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching routes: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingRoutes = false);
+      }
+    }
+  }
+
+  Future<void> _fetchTrips(String routeId) async {
+    if (!mounted) return;
+    setState(() => _isLoadingTrips = true);
+    try {
+      final baseUrl = _getApiBaseUrl();
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/schedules?route_id=$routeId'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode == 200) {
+        final result = json.decode(response.body);
+        if (result['success'] == true && result['data'] != null) {
+          final fetchedTrips = result['data'] as List<dynamic>;
+          setState(() {
+            _trips = fetchedTrips;
+            // Validate if selected trip ID is in the fetched list
+            final tripExists = fetchedTrips.any((t) => t['id'] == _selectedTripId);
+            if (!tripExists) {
+              _selectedTripId = null;
+            }
+          });
+        }
+      }
+    } catch (e) {
+      debugPrint("Error fetching trips: $e");
+    } finally {
+      if (mounted) {
+        setState(() => _isLoadingTrips = false);
+      }
+    }
   }
 
   /// Sync local UI state with the background service's running status
@@ -270,6 +369,17 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     final isTripActive = ref.watch(tripActiveProvider);
     final isSos = ref.watch(emergencyActiveProvider);
     final telemetry = ref.watch(telemetryCoordsProvider);
+
+    final activeRoute = _routes.firstWhere(
+      (r) => r['id'] == _selectedRouteId,
+      orElse: () => null,
+    );
+    final activeTrip = _trips.firstWhere(
+      (t) => t['id'] == _selectedTripId,
+      orElse: () => null,
+    );
+    final routeName = activeRoute != null ? activeRoute['name'] as String : 'Active Route';
+    final tripName = activeTrip != null ? activeTrip['name'] as String : 'Active Trip';
 
     return Scaffold(
       appBar: AppBar(
@@ -401,6 +511,19 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                       ),
                     ],
                   ),
+                  if (isTripActive) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      '$routeName\n$tripName',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.blueGrey,
+                        height: 1.3
+                      ),
+                    ),
+                  ],
                   if (isTripActive && telemetry != null) ...[
                     const Divider(height: 24, color: Color(0xFFE2E8F0)),
                     Text(
@@ -445,12 +568,100 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
             // Oversized Chunky Control Buttons
             if (!isTripActive) ...[
+              // Route & Trip Dropdowns Panel
+              Container(
+                padding: const EdgeInsets.all(16.0),
+                margin: const EdgeInsets.only(bottom: 16.0),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'SELECT TRIP DETAILS',
+                      style: TextStyle(
+                        fontSize: 12, 
+                        fontWeight: FontWeight.bold, 
+                        color: Colors.blueGrey,
+                        letterSpacing: 0.5
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    
+                    // Route Dropdown
+                    const Text('Route', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                    const SizedBox(height: 4),
+                    _isLoadingRoutes 
+                      ? const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()))
+                      : DropdownButtonFormField<String>(
+                          value: _selectedRouteId,
+                          hint: const Text('Select a Route'),
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          isExpanded: true,
+                          items: _routes.map<DropdownMenuItem<String>>((route) {
+                            return DropdownMenuItem<String>(
+                              value: route['id'] as String,
+                              child: Text(route['name'] ?? 'Unnamed Route'),
+                            );
+                          }).toList(),
+                          onChanged: (val) {
+                            if (val == null) return;
+                            setState(() {
+                              _selectedRouteId = val;
+                              _routeController.text = val;
+                              _selectedTripId = null;
+                              _trips = [];
+                            });
+                            // Save selected route_id to SharedPreferences
+                            SharedPreferences.getInstance().then((prefs) {
+                              prefs.setString('route_id', val);
+                            });
+                            _fetchTrips(val);
+                          },
+                        ),
+                    const SizedBox(height: 16),
+                    
+                    // Trip (Schedule) Dropdown
+                    const Text('Trip', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
+                    const SizedBox(height: 4),
+                    _isLoadingTrips
+                      ? const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()))
+                      : DropdownButtonFormField<String>(
+                          value: _selectedTripId,
+                          hint: Text(_selectedRouteId == null ? 'Select a Route First' : 'Select a Trip'),
+                          decoration: const InputDecoration(
+                            border: OutlineInputBorder(),
+                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          isExpanded: true,
+                          items: _trips.map<DropdownMenuItem<String>>((trip) {
+                            return DropdownMenuItem<String>(
+                              value: trip['id'] as String,
+                              child: Text('${trip['name'] ?? 'Trip'} (${trip['departure_time']?.toString().substring(0, 5) ?? ''})'),
+                            );
+                          }).toList(),
+                          onChanged: _selectedRouteId == null ? null : (val) {
+                            setState(() {
+                              _selectedTripId = val;
+                            });
+                          },
+                        ),
+                  ],
+                ),
+              ),
+
               ElevatedButton.icon(
-                onPressed: _startTrip,
+                onPressed: (_selectedRouteId == null || _selectedTripId == null) ? null : _startTrip,
                 icon: const Icon(Icons.play_arrow, size: 28),
                 label: const Text('START TRIP', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
+                  backgroundColor: (_selectedRouteId == null || _selectedTripId == null) ? Colors.grey : const Color(0xFF10B981),
                   foregroundColor: Colors.white,
                   minimumSize: const Size(double.infinity, 64),
                 ),
