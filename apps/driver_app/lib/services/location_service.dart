@@ -1,9 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:http/http.dart' as http;
 import 'package:driver_app/services/supabase_service.dart';
 
 class LocationTrackingService {
@@ -36,14 +37,6 @@ void onStart(ServiceInstance service) async {
   // Ensure Dart plugin APIs are initialized inside the separate background isolate
   DartPluginRegistrant.ensureInitialized();
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Initialize Supabase within the background isolate to bypass thread isolation boundaries
-  await Supabase.initialize(
-    url: SupabaseService.url,
-    publishableKey: SupabaseService.anonKey,
-  );
-
-  final supabase = Supabase.instance.client;
 
   // Track active trip parameters
   String? tenantId;
@@ -111,17 +104,25 @@ void onStart(ServiceInstance service) async {
         );
       }
 
-      // Insert GPS telemetry into PostgreSQL + PostGIS database
-      // PostGIS Point coordinates: 'POINT(longitude latitude)'
-      await supabase.from('live_coordinates').insert({
-        'tenant_id': tenantId,
-        'vehicle_id': vehicleId,
-        'route_id': routeId,
-        'coordinates': 'POINT(${position.longitude} ${position.latitude})',
-        'speed': position.speed,
-        'bearing': position.heading,
-        'is_emergency': isEmergency,
-      });
+      // Insert GPS telemetry into PostgreSQL + PostGIS database via REST API
+      await http.post(
+        Uri.parse('${SupabaseService.url}/rest/v1/live_coordinates'),
+        headers: {
+          'apikey': SupabaseService.anonKey,
+          'Authorization': 'Bearer ${SupabaseService.anonKey}',
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal',
+        },
+        body: json.encode({
+          'tenant_id': tenantId,
+          'vehicle_id': vehicleId,
+          'route_id': routeId,
+          'coordinates': 'POINT(${position.longitude} ${position.latitude})',
+          'speed': position.speed,
+          'bearing': position.heading,
+          'is_emergency': isEmergency,
+        }),
+      );
 
       // Broadcast coordinate updates back to the main UI thread for local updates
       service.invoke('telemetryUpdate', {

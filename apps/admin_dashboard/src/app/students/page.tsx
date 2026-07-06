@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { 
   User, 
   Plus, 
@@ -61,6 +62,7 @@ interface DBStudent {
 }
 
 export default function StudentsManagement() {
+  const router = useRouter();
   const [students, setStudents] = useState<DBStudent[]>([]);
   const [routes, setRoutes] = useState<DBRoute[]>([]);
   const [stops, setStops] = useState<any[]>([]);
@@ -74,6 +76,7 @@ export default function StudentsManagement() {
   const [showDrawer, setShowDrawer] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"add" | "edit">("add");
   const [currentEditId, setCurrentEditId] = useState<string | null>(null);
+  const [loadingEditId, setLoadingEditId] = useState<string | null>(null);
   
   // Form State
   const [formValues, setFormValues] = useState({
@@ -496,6 +499,18 @@ export default function StudentsManagement() {
       <Sidebar />
 
       <style jsx global>{`
+        .btn-spinner {
+          border: 2px solid rgba(255, 255, 255, 0.1);
+          border-top: 2px solid var(--accent-primary);
+          border-radius: 50%;
+          width: 14px;
+          height: 14px;
+          animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
         .student-card {
           background: rgba(12, 17, 34, 0.7);
           border: 1px solid var(--border-default);
@@ -1049,31 +1064,18 @@ export default function StudentsManagement() {
                             <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
                               <button
                                 onClick={() => {
-                                  setDrawerMode("edit");
-                                  setCurrentEditId(student.id);
-
-                                  setFormValues({ 
-                                    name: student.name, 
-                                    route_id: student.route_id,
-                                    nfc_card_hash: student.nfc_card_hash || "",
-                                    pickup_stop_id: student.pickup_stop_id || "",
-                                    dropoff_stop_id: student.dropoff_stop_id || "",
-                                    status: student.status || "Present",
-                                    grade: student.grade || "",
-                                    class_name: student.class_name || "",
-                                    schedule_ids: student.schedule_ids || []
-                                  });
-                                  setFormGuardians(student.guardians && student.guardians.length > 0 
-                                    ? student.guardians.map(g => ({ ...g }))
-                                    : [{ name: "", phone: "" }]
-                                  );
-                                  setFormErrors({});
-                                  setShowDrawer(true);
+                                  setLoadingEditId(student.id);
+                                  router.push(`/students/${student.id}/edit`);
                                 }}
-                                style={{ background: "rgba(255,255,255,0.03)", border: "none", borderRadius: "6px", padding: "6px", cursor: "pointer", color: "var(--text-muted)" }}
+                                style={{ background: "rgba(255,255,255,0.03)", border: "none", borderRadius: "6px", padding: "6px", cursor: "pointer", color: "var(--text-muted)", display: "flex", alignItems: "center", justifyContent: "center", width: "26px", height: "26px" }}
                                 title="Edit Profile"
+                                disabled={loadingEditId !== null}
                               >
-                                <Edit size={14} />
+                                {loadingEditId === student.id ? (
+                                  <div className="btn-spinner"></div>
+                                ) : (
+                                  <Edit size={14} />
+                                )}
                               </button>
                               <button
                                 onClick={() => handleDeleteStudent(student.id)}
@@ -1290,53 +1292,130 @@ export default function StudentsManagement() {
                 </div>
               </div>
 
-              {/* Transit Schedules Checkboxes */}
-              <div className="form-group">
-                <label className="form-label">Transit Schedules & Sessions</label>
-                <div style={{
-                  background: "rgba(6, 9, 19, 0.6)",
-                  border: "1px solid var(--border-default)",
-                  borderRadius: "6px",
-                  padding: "12px",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: "8px",
-                  maxHeight: "150px",
-                  overflowY: "auto"
-                }}>
-                  {formValues.route_id ? (
-                    (() => {
-                      const routeSchedules = schedules.filter(s => s.route_id === formValues.route_id);
-                      if (routeSchedules.length === 0) {
-                        return <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>No schedules configured for this route.</span>;
-                      }
-                      return routeSchedules.map(sched => (
-                        <label key={sched.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                          <input
-                            type="checkbox"
-                            checked={formValues.schedule_ids.includes(sched.id)}
-                            onChange={(e) => {
-                              const checked = e.target.checked;
-                              setFormValues(prev => ({
-                                ...prev,
-                                schedule_ids: checked 
-                                  ? [...prev.schedule_ids, sched.id]
-                                  : prev.schedule_ids.filter(id => id !== sched.id)
-                              }));
-                            }}
-                          />
-                          <div>
-                            <span style={{ fontWeight: 500 }}>{sched.name}</span>
-                            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginLeft: "6px" }}>({sched.departure_time})</span>
-                          </div>
-                        </label>
-                      ));
-                    })()
-                  ) : (
-                    <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Select a transit route first to view schedules.</span>
-                  )}
-                </div>
-              </div>
+              {/* Resolve selected pickup & dropoff IDs for the radio button states */}
+              {(() => {
+                const routeSchedules = schedules.filter(s => s.route_id === formValues.route_id);
+                const pickupSchedules = routeSchedules.filter(s => s.direction === "HOME_TO_SCHOOL");
+                const dropoffSchedules = routeSchedules.filter(s => s.direction === "SCHOOL_TO_HOME");
+
+                const selectedPickupId = formValues.schedule_ids.find(id => pickupSchedules.some(s => s.id === id)) || "";
+                const selectedDropoffId = formValues.schedule_ids.find(id => dropoffSchedules.some(s => s.id === id)) || "";
+
+                // Helper to update schedule_ids based on pickup/dropoff selections
+                const handlePickupChange = (newPickupId: string) => {
+                  const newIds = [newPickupId, selectedDropoffId].filter(Boolean);
+                  setFormValues(prev => ({ ...prev, schedule_ids: newIds }));
+                };
+
+                const handleDropoffChange = (newDropoffId: string) => {
+                  const newIds = [selectedPickupId, newDropoffId].filter(Boolean);
+                  setFormValues(prev => ({ ...prev, schedule_ids: newIds }));
+                };
+
+                return (
+                  <>
+                    {/* Pick up trip selection */}
+                    <div className="form-group">
+                      <label className="form-label">Pick up trip</label>
+                      <div style={{
+                        background: "rgba(6, 9, 19, 0.6)",
+                        border: "1px solid var(--border-default)",
+                        borderRadius: "6px",
+                        padding: "12px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
+                        maxHeight: "150px",
+                        overflowY: "auto"
+                      }}>
+                        {formValues.route_id ? (
+                          pickupSchedules.length === 0 ? (
+                            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>No pick-up schedules configured for this route.</span>
+                          ) : (
+                            <>
+                              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
+                                <input
+                                  type="radio"
+                                  name="pickup_trip"
+                                  checked={selectedPickupId === ""}
+                                  onChange={() => handlePickupChange("")}
+                                />
+                                <span style={{ fontWeight: 500, color: "var(--text-muted)" }}>None (No Pick up)</span>
+                              </label>
+                              {pickupSchedules.map(sched => (
+                                <label key={sched.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
+                                  <input
+                                    type="radio"
+                                    name="pickup_trip"
+                                    checked={selectedPickupId === sched.id}
+                                    onChange={() => handlePickupChange(sched.id)}
+                                  />
+                                  <div>
+                                    <span style={{ fontWeight: 500 }}>{sched.name}</span>
+                                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginLeft: "6px" }}>({sched.departure_time})</span>
+                                  </div>
+                                </label>
+                              ))}
+                            </>
+                          )
+                        ) : (
+                          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Select a transit route first to view schedules.</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Drop off trip selection */}
+                    <div className="form-group">
+                      <label className="form-label">Drop off trip</label>
+                      <div style={{
+                        background: "rgba(6, 9, 19, 0.6)",
+                        border: "1px solid var(--border-default)",
+                        borderRadius: "6px",
+                        padding: "12px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "8px",
+                        maxHeight: "150px",
+                        overflowY: "auto"
+                      }}>
+                        {formValues.route_id ? (
+                          dropoffSchedules.length === 0 ? (
+                            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>No drop-off schedules configured for this route.</span>
+                          ) : (
+                            <>
+                              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
+                                <input
+                                  type="radio"
+                                  name="dropoff_trip"
+                                  checked={selectedDropoffId === ""}
+                                  onChange={() => handleDropoffChange("")}
+                                />
+                                <span style={{ fontWeight: 500, color: "var(--text-muted)" }}>None (No Drop off)</span>
+                              </label>
+                              {dropoffSchedules.map(sched => (
+                                <label key={sched.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
+                                  <input
+                                    type="radio"
+                                    name="dropoff_trip"
+                                    checked={selectedDropoffId === sched.id}
+                                    onChange={() => handleDropoffChange(sched.id)}
+                                  />
+                                  <div>
+                                    <span style={{ fontWeight: 500 }}>{sched.name}</span>
+                                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginLeft: "6px" }}>({sched.departure_time})</span>
+                                  </div>
+                                </label>
+                              ))}
+                            </>
+                          )
+                        ) : (
+                          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Select a transit route first to view schedules.</span>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
 
               {/* NFC card */}
               <div className="form-group">

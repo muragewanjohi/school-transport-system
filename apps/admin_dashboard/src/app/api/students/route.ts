@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import { getLocalStudents, saveLocalStudents } from "@/lib/jsonDb";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -94,7 +95,7 @@ export async function GET(request: Request) {
     const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
-      return NextResponse.json({ success: true, source: "mock", data: mockStudents });
+      return NextResponse.json({ success: true, source: "mock", data: getLocalStudents() });
     }
 
     const client = getSupabaseClient(token);
@@ -106,12 +107,12 @@ export async function GET(request: Request) {
 
     if (studentsError) {
       console.warn("Supabase students fetch error:", studentsError.message);
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: mockStudents });
+      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: getLocalStudents() });
     }
 
     const studentsList = students && students.length > 0 ? students : [];
     if (studentsList.length === 0) {
-      return NextResponse.json({ success: true, source: "supabase_empty_fallback", data: mockStudents });
+      return NextResponse.json({ success: true, source: "supabase_empty_fallback", data: getLocalStudents() });
     }
 
     // Fetch routes in parallel for manual client-side mapping
@@ -156,8 +157,9 @@ export async function POST(request: Request) {
     const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
+      const generatedId = `std-${Math.floor(Math.random() * 1000)}`;
       const newMockStudent = {
-        id: `std-${Math.floor(Math.random() * 1000)}`,
+        id: generatedId,
         name: result.data.name,
         route_id: result.data.route_id,
         nfc_card_hash: result.data.nfc_card_hash || null,
@@ -169,6 +171,11 @@ export async function POST(request: Request) {
         grade: result.data.grade || null,
         class_name: result.data.class_name || null,
       };
+      
+      const localStudents = getLocalStudents();
+      localStudents.push(newMockStudent);
+      saveLocalStudents(localStudents);
+
       return NextResponse.json({ success: true, source: "mock", data: newMockStudent });
     }
 
@@ -204,10 +211,15 @@ export async function POST(request: Request) {
 
     if (error) {
       console.warn("Supabase student insert error, falling back to mock save:", error.message);
+      
       const mockStudent = {
-        ...payload,
-        id: `std-db-fallback-${Math.floor(Math.random() * 1000)}`
+        ...payload
       };
+
+      const localStudents = getLocalStudents();
+      localStudents.push(mockStudent);
+      saveLocalStudents(localStudents);
+
       return NextResponse.json({ success: true, source: "supabase_error_fallback", data: mockStudent });
     }
 

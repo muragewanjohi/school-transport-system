@@ -9,7 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:driver_app/services/supabase_service.dart';
 import 'package:driver_app/services/location_service.dart';
 import 'package:driver_app/screens/login_screen.dart';
-import 'package:driver_app/widgets/student_checklist_widget.dart';
+import 'package:driver_app/screens/student_selection_screen.dart';
 import 'package:http/http.dart' as http;
 
 // Riverpod provider for managing active trip state
@@ -125,6 +125,12 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   bool _isLoadingRoutes = false;
   bool _isLoadingTrips = false;
 
+  int _stopsCount = 0;
+  int _studentsCount = 0;
+  int _estimatedDuration = 0;
+  bool _isLoadingDetails = false;
+  String _selectedRunType = "PICKUP"; // "PICKUP" or "DROPOFF"
+
   @override
   void initState() {
     super.initState();
@@ -156,6 +162,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   Future<void> _loadSessionDetails() async {
     final prefs = await SharedPreferences.getInstance();
     final savedRouteId = prefs.getString('route_id') ?? '';
+    final savedTripId = prefs.getString('trip_id') ?? '';
+    final savedRunType = prefs.getString('run_type') ?? 'PICKUP';
     setState(() {
       _driverName = prefs.getString('driver_name') ?? "Unknown Driver";
       _driverPhone = prefs.getString('driver_phone') ?? "";
@@ -164,6 +172,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       _vehicleController.text = prefs.getString('vehicle_id') ?? 'e5015e10-c09a-4c22-901d-5573752e379c';
       _routeController.text = savedRouteId;
       _selectedRouteId = savedRouteId.isNotEmpty ? savedRouteId : null;
+      _selectedTripId = savedTripId.isNotEmpty ? savedTripId : null;
+      _selectedRunType = savedRunType;
     });
 
     // Fetch all routes
@@ -171,7 +181,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
     // Fetch trips for initial route if we have one
     if (_selectedRouteId != null && _selectedRouteId!.isNotEmpty) {
-      _fetchTrips(_selectedRouteId!);
+      await _fetchTrips(_selectedRouteId!);
+      if (_selectedTripId != null && _selectedTripId!.isNotEmpty) {
+        _fetchTripDetails(_selectedRouteId!, _selectedTripId!);
+      }
     }
   }
 
@@ -232,6 +245,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               _selectedTripId = null;
             }
           });
+          if (_selectedRouteId != null && _selectedTripId != null) {
+            _fetchTripDetails(_selectedRouteId!, _selectedTripId!);
+          }
         }
       }
     } catch (e) {
@@ -239,6 +255,73 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     } finally {
       if (mounted) {
         setState(() => _isLoadingTrips = false);
+      }
+    }
+  }
+
+  Future<void> _fetchTripDetails(String routeId, String tripId) async {
+    if (!mounted) return;
+    setState(() {
+      _isLoadingDetails = true;
+      _stopsCount = 0;
+      _studentsCount = 0;
+      _estimatedDuration = 0;
+    });
+
+    try {
+      final baseUrl = _getApiBaseUrl();
+
+      // 1. Fetch stops count
+      final stopsResponse = await http.get(
+        Uri.parse('$baseUrl/api/stops?route_id=$routeId'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 8));
+
+      int stopsCount = 0;
+      if (stopsResponse.statusCode == 200) {
+        final stopsResult = json.decode(stopsResponse.body);
+        if (stopsResult['success'] == true && stopsResult['data'] != null) {
+          stopsCount = (stopsResult['data'] as List<dynamic>).length;
+        }
+      }
+
+      // 2. Fetch students count
+      final studentsResponse = await http.get(
+        Uri.parse('$baseUrl/api/students'),
+        headers: {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 8));
+
+      int studentsCount = 0;
+      if (studentsResponse.statusCode == 200) {
+        final studentsResult = json.decode(studentsResponse.body);
+        if (studentsResult['success'] == true && studentsResult['data'] != null) {
+          final allStudents = studentsResult['data'] as List<dynamic>;
+          
+          studentsCount = allStudents.where((student) {
+            final String studentRouteId = student['route_id'] ?? '';
+            if (studentRouteId != routeId) return false;
+
+            final dynamic scheduleIds = student['schedule_ids'];
+            if (scheduleIds is List) {
+              return scheduleIds.contains(tripId);
+            }
+            return false;
+          }).length;
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _stopsCount = stopsCount;
+          _studentsCount = studentsCount;
+          _estimatedDuration = (stopsCount * 4) + 15 + studentsCount;
+          _isLoadingDetails = false;
+        });
+      }
+    } catch (e) {
+      debugPrint("Error fetching trip details: $e");
+      if (mounted) {
+        setState(() => _isLoadingDetails = false);
       }
     }
   }
@@ -467,51 +550,51 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 ),
               ),
 
-            // Status Indicator Header Panel
-            Container(
-              padding: const EdgeInsets.all(20.0),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: const BorderRadius.all(Radius.circular(12)),
-                border: Border.all(
-                  color: isSos ? Colors.red : const Color(0xFFE2E8F0), 
-                  width: isSos ? 2.0 : 1.5
-                ),
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        width: 14,
-                        height: 14,
-                        decoration: BoxDecoration(
-                          color: isTripActive ? Colors.green : Colors.red,
-                          shape: BoxShape.circle,
-                          boxShadow: isTripActive
-                              ? [
-                                  BoxShadow(
-                                    color: Colors.green.withAlpha(128),
-                                    blurRadius: 8,
-                                    spreadRadius: 2,
-                                  )
-                                ]
-                              : [],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        isTripActive ? 'TRACKING TELEMETRY ACTIVE' : 'TRIP NOT STARTED',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: isTripActive ? Colors.green : Colors.red,
-                        ),
-                      ),
-                    ],
+
+
+            // Status Indicator Header Panel (shown only when trip is active)
+            if (isTripActive) ...[
+              Container(
+                padding: const EdgeInsets.all(20.0),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: const BorderRadius.all(Radius.circular(12)),
+                  border: Border.all(
+                    color: isSos ? Colors.red : const Color(0xFFE2E8F0), 
+                    width: isSos ? 2.0 : 1.5
                   ),
-                  if (isTripActive) ...[
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 14,
+                          height: 14,
+                          decoration: BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.green.withAlpha(128),
+                                blurRadius: 8,
+                                spreadRadius: 2,
+                              )
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          'TRACKING TELEMETRY ACTIVE',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: 8),
                     Text(
                       '$routeName\n$tripName',
@@ -523,149 +606,446 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                         height: 1.3
                       ),
                     ),
+                    if (telemetry != null) ...[
+                      const Divider(height: 24, color: Color(0xFFE2E8F0)),
+                      Text(
+                        'Lat: ${telemetry.latitude.toStringAsFixed(6)}',
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                      ),
+                      Text(
+                        'Lng: ${telemetry.longitude.toStringAsFixed(6)}',
+                        style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                        children: [
+                          Text(
+                            'Speed: ${(telemetry.speed * 3.6).toStringAsFixed(1)} km/h',
+                            style: const TextStyle(fontSize: 14, color: Colors.blueGrey, fontWeight: FontWeight.w600),
+                          ),
+                          Text(
+                            'Bearing: ${telemetry.bearing.toStringAsFixed(0)}°',
+                            style: const TextStyle(fontSize: 14, color: Colors.blueGrey, fontWeight: FontWeight.w600),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Last Sync: ${telemetry.timestamp.split('T').last.substring(0, 8)}',
+                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                    ] else ...[
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Waiting for GPS coordinates...',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: 13, color: Colors.grey),
+                      ),
+                    ],
                   ],
-                  if (isTripActive && telemetry != null) ...[
-                    const Divider(height: 24, color: Color(0xFFE2E8F0)),
-                    Text(
-                      'Lat: ${telemetry.latitude.toStringAsFixed(6)}',
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-                    ),
-                    Text(
-                      'Lng: ${telemetry.longitude.toStringAsFixed(6)}',
-                      style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        Text(
-                          'Speed: ${(telemetry.speed * 3.6).toStringAsFixed(1)} km/h',
-                          style: const TextStyle(fontSize: 14, color: Colors.blueGrey, fontWeight: FontWeight.w600),
-                        ),
-                        Text(
-                          'Bearing: ${telemetry.bearing.toStringAsFixed(0)}°',
-                          style: const TextStyle(fontSize: 14, color: Colors.blueGrey, fontWeight: FontWeight.w600),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Last Sync: ${telemetry.timestamp.split('T').last.substring(0, 8)}',
-                      style: const TextStyle(fontSize: 12, color: Colors.grey),
-                    ),
-                  ] else ...[
-                    const SizedBox(height: 8),
-                    const Text(
-                      'Press the Start button below to request hardware permissions and activate background geolocation streaming.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13, color: Colors.grey),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Oversized Chunky Control Buttons
-            if (!isTripActive) ...[
-              // Route & Trip Dropdowns Panel
-              Container(
-                padding: const EdgeInsets.all(16.0),
-                margin: const EdgeInsets.only(bottom: 16.0),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            if (!isTripActive) ...[
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8.0),
+                child: Text(
+                  'SELECT ASSIGNED ROUTE',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blueGrey,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // Route Dropdown
+              _isLoadingRoutes
+                  ? const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator()))
+                  : DropdownButtonFormField<String>(
+                      initialValue: _routes.any((route) => route['id'] == _selectedRouteId) ? _selectedRouteId : null,
+                      hint: const Text('Select a Route'),
+                      decoration: const InputDecoration(
+                        border: OutlineInputBorder(),
+                        contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                        fillColor: Color(0xFFF8FAFC),
+                        filled: true,
+                      ),
+                      isExpanded: true,
+                      items: _routes.map<DropdownMenuItem<String>>((route) {
+                        return DropdownMenuItem<String>(
+                          value: route['id'] as String,
+                          child: Text(route['name'] ?? 'Unnamed Route'),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val == null) return;
+                        setState(() {
+                          _selectedRouteId = val;
+                          _routeController.text = val;
+                          _selectedTripId = null;
+                          _trips = [];
+                          _stopsCount = 0;
+                          _studentsCount = 0;
+                          _estimatedDuration = 0;
+                        });
+                        SharedPreferences.getInstance().then((prefs) {
+                          prefs.setString('route_id', val);
+                          prefs.remove('trip_id');
+                        });
+                        _fetchTrips(val);
+                      },
+                    ),
+              const SizedBox(height: 20),
+
+              if (_selectedRouteId != null) ...[
+                const Text(
+                  'TRIP RUN TYPE',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blueGrey,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+                const SizedBox(height: 8),
+
+                // Pick Up / Drop Off Toggle Row
+                Row(
                   children: [
-                    const Text(
-                      'SELECT TRIP DETAILS',
-                      style: TextStyle(
-                        fontSize: 12, 
-                        fontWeight: FontWeight.bold, 
-                        color: Colors.blueGrey,
-                        letterSpacing: 0.5
+                    // Pick Up Run Toggle Button
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedRunType = "PICKUP";
+                            _selectedTripId = null;
+                            _stopsCount = 0;
+                            _studentsCount = 0;
+                            _estimatedDuration = 0;
+                          });
+                          SharedPreferences.getInstance().then((prefs) {
+                            prefs.setString('run_type', 'PICKUP');
+                            prefs.remove('trip_id');
+                          });
+                        },
+                        child: Container(
+                          height: 50,
+                          decoration: BoxDecoration(
+                            color: _selectedRunType == "PICKUP"
+                                ? const Color(0xFF10B981) // Safaricom Green
+                                : const Color(0xFFF1F5F9), // Light Grey
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _selectedRunType == "PICKUP"
+                                  ? const Color(0xFF047857)
+                                  : const Color(0xFFE2E8F0),
+                              width: 1.5,
+                            ),
+                          ),
+                          alignment: Alignment.center,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.login,
+                                color: _selectedRunType == "PICKUP" ? Colors.white : Colors.blueGrey,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Pick Up',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: _selectedRunType == "PICKUP" ? Colors.white : Colors.blueGrey,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 12),
-                    
-                    // Route Dropdown
-                    const Text('Route', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                    const SizedBox(height: 4),
-                    _isLoadingRoutes 
-                      ? const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()))
-                      : DropdownButtonFormField<String>(
-                          value: _selectedRouteId,
-                          hint: const Text('Select a Route'),
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    const SizedBox(width: 12),
+                    // Drop Off Run Toggle Button
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedRunType = "DROPOFF";
+                            _selectedTripId = null;
+                            _stopsCount = 0;
+                            _studentsCount = 0;
+                            _estimatedDuration = 0;
+                          });
+                          SharedPreferences.getInstance().then((prefs) {
+                            prefs.setString('run_type', 'DROPOFF');
+                            prefs.remove('trip_id');
+                          });
+                        },
+                        child: Container(
+                          height: 50,
+                          decoration: BoxDecoration(
+                            color: _selectedRunType == "DROPOFF"
+                                ? const Color(0xFF10B981) // Safaricom Green
+                                : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _selectedRunType == "DROPOFF"
+                                  ? const Color(0xFF047857)
+                                  : const Color(0xFFE2E8F0),
+                              width: 1.5,
+                            ),
                           ),
-                          isExpanded: true,
-                          items: _routes.map<DropdownMenuItem<String>>((route) {
-                            return DropdownMenuItem<String>(
-                              value: route['id'] as String,
-                              child: Text(route['name'] ?? 'Unnamed Route'),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val == null) return;
-                            setState(() {
-                              _selectedRouteId = val;
-                              _routeController.text = val;
-                              _selectedTripId = null;
-                              _trips = [];
-                            });
-                            // Save selected route_id to SharedPreferences
-                            SharedPreferences.getInstance().then((prefs) {
-                              prefs.setString('route_id', val);
-                            });
-                            _fetchTrips(val);
-                          },
-                        ),
-                    const SizedBox(height: 16),
-                    
-                    // Trip (Schedule) Dropdown
-                    const Text('Trip', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.grey)),
-                    const SizedBox(height: 4),
-                    _isLoadingTrips
-                      ? const Center(child: Padding(padding: EdgeInsets.all(8.0), child: CircularProgressIndicator()))
-                      : DropdownButtonFormField<String>(
-                          value: _selectedTripId,
-                          hint: Text(_selectedRouteId == null ? 'Select a Route First' : 'Select a Trip'),
-                          decoration: const InputDecoration(
-                            border: OutlineInputBorder(),
-                            contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          alignment: Alignment.center,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.logout,
+                                color: _selectedRunType == "DROPOFF" ? Colors.white : Colors.blueGrey,
+                                size: 20,
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                'Drop Off',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: _selectedRunType == "DROPOFF" ? Colors.white : Colors.blueGrey,
+                                ),
+                              ),
+                            ],
                           ),
-                          isExpanded: true,
-                          items: _trips.map<DropdownMenuItem<String>>((trip) {
-                            return DropdownMenuItem<String>(
-                              value: trip['id'] as String,
-                              child: Text('${trip['name'] ?? 'Trip'} (${trip['departure_time']?.toString().substring(0, 5) ?? ''})'),
-                            );
-                          }).toList(),
-                          onChanged: _selectedRouteId == null ? null : (val) {
-                            setState(() {
-                              _selectedTripId = val;
-                            });
-                          },
                         ),
+                      ),
+                    ),
                   ],
                 ),
-              ),
+                const SizedBox(height: 20),
 
-              ElevatedButton.icon(
-                onPressed: (_selectedRouteId == null || _selectedTripId == null) ? null : _startTrip,
-                icon: const Icon(Icons.play_arrow, size: 28),
-                label: const Text('START TRIP', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: (_selectedRouteId == null || _selectedTripId == null) ? Colors.grey : const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 64),
+                const Text(
+                  'SELECT TRIP RUN',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blueGrey,
+                    letterSpacing: 0.5,
+                  ),
                 ),
-              ),
+                const SizedBox(height: 8),
+
+                // Filtered Trip Dropdown
+                Builder(
+                  builder: (context) {
+                    final filteredTrips = _trips.where((trip) {
+                      final direction = trip['direction'] ?? '';
+                      if (_selectedRunType == "PICKUP") {
+                        return direction == 'HOME_TO_SCHOOL';
+                      } else {
+                        return direction == 'SCHOOL_TO_HOME';
+                      }
+                    }).toList();
+
+                    return _isLoadingTrips
+                        ? const Center(child: Padding(padding: EdgeInsets.all(12.0), child: CircularProgressIndicator()))
+                        : DropdownButtonFormField<String>(
+                            initialValue: filteredTrips.any((t) => t['id'] == _selectedTripId) ? _selectedTripId : null,
+                            hint: Text(filteredTrips.isEmpty
+                                ? 'No ${_selectedRunType == "PICKUP" ? "Pick Up" : "Drop Off"} Trips Configured'
+                                : 'Select a Trip'),
+                            decoration: const InputDecoration(
+                              border: OutlineInputBorder(),
+                              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                              fillColor: Color(0xFFF8FAFC),
+                              filled: true,
+                            ),
+                            isExpanded: true,
+                            items: filteredTrips.map<DropdownMenuItem<String>>((trip) {
+                              return DropdownMenuItem<String>(
+                                value: trip['id'] as String,
+                                child: Text('${trip['name'] ?? 'Trip'} (${trip['departure_time']?.toString().substring(0, 5) ?? ''})'),
+                              );
+                            }).toList(),
+                            onChanged: filteredTrips.isEmpty ? null : (val) {
+                              if (val == null) return;
+                              setState(() {
+                                _selectedTripId = val;
+                              });
+                              SharedPreferences.getInstance().then((prefs) {
+                                prefs.setString('trip_id', val);
+                              });
+                              _fetchTripDetails(_selectedRouteId!, val);
+                            },
+                          );
+                  },
+                ),
+                const SizedBox(height: 20),
+              ],
+
+              if (_selectedRouteId != null && _selectedTripId != null) ...[
+                _isLoadingDetails
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24.0),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
+                    : Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            children: [
+                              // Scheduled Card
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Colors.black12,
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      )
+                                    ],
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Row(
+                                        children: [
+                                          Icon(Icons.people_outline, color: Colors.blueGrey, size: 20),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Scheduled',
+                                            style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '$_studentsCount Students',
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1E293B),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              // Total Stops Card
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.all(16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Colors.black12,
+                                        blurRadius: 4,
+                                        offset: Offset(0, 2),
+                                      )
+                                    ],
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Row(
+                                        children: [
+                                          Icon(Icons.location_on_outlined, color: Colors.blueGrey, size: 20),
+                                          SizedBox(width: 8),
+                                          Text(
+                                            'Total Stops',
+                                            style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '$_stopsCount Stops',
+                                        style: const TextStyle(
+                                          fontSize: 18,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF1E293B),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 12),
+                          // Estimated Time Card
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                              boxShadow: const [
+                                BoxShadow(
+                                  color: Colors.black12,
+                                  blurRadius: 4,
+                                  offset: Offset(0, 2),
+                                )
+                              ],
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Row(
+                                  children: [
+                                    Icon(Icons.access_time, color: Colors.blueGrey, size: 20),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Estimated Time',
+                                      style: TextStyle(fontSize: 12, color: Colors.grey, fontWeight: FontWeight.w500),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  '$_estimatedDuration mins',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1E293B),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          // Big Start Trip Button
+                          ElevatedButton.icon(
+                            onPressed: _startTrip,
+                            icon: const Icon(Icons.play_arrow, size: 28),
+                            label: const Text('START TRIP', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF10B981), // Safaricom Green
+                              foregroundColor: Colors.white,
+                              minimumSize: const Size(double.infinity, 64),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              elevation: 4,
+                            ),
+                          ),
+                        ],
+                      ),
+              ],
             ] else ...[
               Row(
                 children: [
@@ -724,67 +1104,31 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               ),
             ],
             
-            // Student checklist manifest panel (shown only during active trips)
-            if (isTripActive) ...[
-              const SizedBox(height: 24),
-              StudentChecklistWidget(
-                routeId: _routeController.text.trim(),
-                tenantId: _tenantController.text.trim(),
-              ),
-            ],
+            // Manifest removed from main view (routed to FAB + dedicated screen)
 
             const SizedBox(height: 24),
-
-            // Configure Routing Parameters Form Panel (Read-only during trip)
-            const Text(
-              'Trip Ingress Configurations (B2B Scopes)',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.blueGrey),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.all(16.0),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF8FAFC),
-                borderRadius: const BorderRadius.all(Radius.circular(12)),
-                border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
-              ),
-              child: Column(
-                children: [
-                  TextField(
-                    controller: _tenantController,
-                    enabled: false, // Locked: controlled by auth session
-                    decoration: const InputDecoration(
-                      labelText: 'Tenant ID (UUID)',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _vehicleController,
-                    enabled: false, // Locked: controlled by auth session
-                    decoration: const InputDecoration(
-                      labelText: 'Vehicle ID (UUID)',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _routeController,
-                    enabled: false, // Locked: controlled by auth session
-                    decoration: const InputDecoration(
-                      labelText: 'Route ID (UUID)',
-                      border: OutlineInputBorder(),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
+      floatingActionButton: (isTripActive && _selectedRouteId != null)
+          ? FloatingActionButton.extended(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => StudentSelectionScreen(
+                      routeId: _selectedRouteId!,
+                      tenantId: _tenantController.text.trim(),
+                      tripId: _selectedTripId ?? '',
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.people),
+              label: const Text('Board Students'),
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+            )
+          : null,
     );
   }
 }

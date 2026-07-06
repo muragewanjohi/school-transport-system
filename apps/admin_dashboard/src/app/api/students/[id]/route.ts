@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import { getLocalStudents, saveLocalStudents } from "@/lib/jsonDb";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -20,6 +21,125 @@ const studentUpdateSchema = z.object({
   class_name: z.string().optional().or(z.literal("")),
 });
 
+const mockStudents = [
+  {
+    id: "std-1",
+    name: "Liam Mwangi",
+    route_id: "route-1",
+    nfc_card_hash: "A1B2C3D4",
+    status: "Present",
+    grade: "Grade 4",
+    class_name: "4 Blue",
+    pickup_stop_id: "stop-1-1",
+    dropoff_stop_id: "stop-1-2",
+    schedule_ids: ["sched-1-1", "sched-1-3"],
+    guardians: [
+      { name: "James Mwangi", phone: "+254 700 111 222" },
+      { name: "Sarah Mwangi", phone: "+254 700 111 333" }
+    ],
+  },
+  {
+    id: "std-2",
+    name: "Emma Kamau",
+    route_id: "route-2",
+    nfc_card_hash: "E5F6G7H8",
+    status: "Present",
+    grade: "Grade 3",
+    class_name: "3 Red",
+    pickup_stop_id: "stop-2-1",
+    dropoff_stop_id: "stop-2-2",
+    schedule_ids: ["sched-2-1"],
+    guardians: [
+      { name: "Mary Kamau", phone: "+254 711 222 333" }
+    ],
+  },
+  {
+    id: "std-3",
+    name: "Noah Ochieng",
+    route_id: "route-4",
+    nfc_card_hash: "I9J0K1L2",
+    status: "Absent",
+    grade: "Grade 5",
+    class_name: "5 Yellow",
+    pickup_stop_id: "stop-4-1",
+    dropoff_stop_id: "stop-4-2",
+    schedule_ids: ["sched-4-1"],
+    guardians: [
+      { name: "Alice Ochieng", phone: "+254 722 333 444" }
+    ],
+  },
+  {
+    id: "std-4",
+    name: "Ava Ndwiga",
+    route_id: "route-1",
+    nfc_card_hash: "M3N4O5P6",
+    status: "Present",
+    grade: "Grade 4",
+    class_name: "4 Blue",
+    pickup_stop_id: "stop-1-2",
+    dropoff_stop_id: "stop-1-1",
+    schedule_ids: ["sched-1-2", "sched-1-4"],
+    guardians: [
+      { name: "Robert Ndwiga", phone: "+254 733 444 555" }
+    ],
+  }
+];
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const authHeader = request.headers.get("authorization");
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
+
+    if (!isSupabaseConfigured) {
+      const student = getLocalStudents().find(s => s.id === id);
+      if (!student) {
+        return NextResponse.json({ success: false, error: "Student not found" }, { status: 404 });
+      }
+      return NextResponse.json({ success: true, source: "mock", data: student });
+    }
+
+    const client = getSupabaseClient(token);
+
+    const { data: student, error } = await client
+      .from("students")
+      .select("id, name, route_id, nfc_card_hash, pickup_stop_id, dropoff_stop_id, schedule_ids, guardians, status, grade, class_name")
+      .eq("id", id)
+      .single();
+
+    if (error) {
+      console.warn(`Supabase student fetch error for ${id}:`, error.message);
+      const student = getLocalStudents().find(s => s.id === id);
+      if (!student) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 404 });
+      }
+      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: student });
+    }
+
+    let parsedGuardians = [];
+    if (student.guardians) {
+      parsedGuardians = typeof student.guardians === "string" 
+        ? JSON.parse(student.guardians) 
+        : student.guardians;
+    }
+
+    const mappedStudent = {
+      ...student,
+      guardians: parsedGuardians,
+      status: student.status || "Present"
+    };
+
+    return NextResponse.json({ success: true, source: "supabase", data: mappedStudent });
+
+  } catch (err: unknown) {
+    const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
+    return NextResponse.json({ success: false, error: errorMessage }, { status: 500 });
+  }
+}
+
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -37,7 +157,14 @@ export async function PUT(
     const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
-      return NextResponse.json({ success: true, source: "mock", data: { id, ...result.data } });
+      const localStudents = getLocalStudents();
+      const idx = localStudents.findIndex((s: any) => s.id === id);
+      if (idx !== -1) {
+        localStudents[idx] = { ...localStudents[idx], ...result.data };
+        saveLocalStudents(localStudents);
+        return NextResponse.json({ success: true, source: "mock", data: localStudents[idx] });
+      }
+      return NextResponse.json({ success: false, error: "Student not found in mock list" }, { status: 404 });
     }
 
     const client = getSupabaseClient(token);
@@ -64,6 +191,15 @@ export async function PUT(
 
     if (error) {
       console.warn(`Supabase student update error for ${id}, falling back to mock:`, error.message);
+      
+      const localStudents = getLocalStudents();
+      const idx = localStudents.findIndex((s: any) => s.id === id);
+      if (idx !== -1) {
+        localStudents[idx] = { ...localStudents[idx], ...result.data };
+        saveLocalStudents(localStudents);
+        return NextResponse.json({ success: true, source: "supabase_error_fallback", data: localStudents[idx] });
+      }
+      
       return NextResponse.json({ success: true, source: "supabase_error_fallback", data: { id, ...result.data } });
     }
 
@@ -85,6 +221,9 @@ export async function DELETE(
     const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
+      const localStudents = getLocalStudents();
+      const updated = localStudents.filter((s: any) => s.id !== id);
+      saveLocalStudents(updated);
       return NextResponse.json({ success: true, source: "mock" });
     }
 
@@ -97,6 +236,11 @@ export async function DELETE(
 
     if (error) {
       console.warn(`Supabase student delete error for ${id}, falling back to mock:`, error.message);
+      
+      const localStudents = getLocalStudents();
+      const updated = localStudents.filter((s: any) => s.id !== id);
+      saveLocalStudents(updated);
+
       return NextResponse.json({ success: true, source: "supabase_error_fallback" });
     }
 

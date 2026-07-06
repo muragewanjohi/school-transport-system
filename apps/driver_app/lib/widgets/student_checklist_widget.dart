@@ -10,6 +10,7 @@ class Student {
   final String grade;
   final String className;
   String status; // "Present" (Boarded) | "Absent" (Off Bus / Not Boarded)
+  final List<String> scheduleIds;
 
   Student({
     required this.id,
@@ -18,9 +19,15 @@ class Student {
     required this.grade,
     required this.className,
     required this.status,
+    required this.scheduleIds,
   });
 
   factory Student.fromJson(Map<String, dynamic> json) {
+    final dynamic rawScheduleIds = json['schedule_ids'];
+    List<String> parsedScheduleIds = [];
+    if (rawScheduleIds is List) {
+      parsedScheduleIds = rawScheduleIds.map((e) => e.toString()).toList();
+    }
     return Student(
       id: json['id'] ?? '',
       name: json['name'] ?? 'Unknown Student',
@@ -28,6 +35,7 @@ class Student {
       grade: json['grade'] ?? 'N/A',
       className: json['class_name'] ?? 'N/A',
       status: json['status'] ?? 'Absent',
+      scheduleIds: parsedScheduleIds,
     );
   }
 }
@@ -35,11 +43,13 @@ class Student {
 class StudentChecklistWidget extends StatefulWidget {
   final String routeId;
   final String tenantId;
+  final String tripId;
 
   const StudentChecklistWidget({
     super.key,
     required this.routeId,
     required this.tenantId,
+    required this.tripId,
   });
 
   @override
@@ -88,9 +98,9 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
           final List<dynamic> data = result['data'];
           final allStudents = data.map((item) => Student.fromJson(item)).toList();
           
-          // Filter students assigned to this route on the client
+          // Filter students assigned to this route and active trip run on the client
           final routeStudents = allStudents
-              .where((s) => s.routeId == widget.routeId)
+              .where((s) => s.routeId == widget.routeId && s.scheduleIds.contains(widget.tripId))
               .toList();
 
           setState(() {

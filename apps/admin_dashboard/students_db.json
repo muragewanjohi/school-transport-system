@@ -1,0 +1,121 @@
+[
+  {
+    "id": "std-1",
+    "name": "Liam Mwangi",
+    "route_id": "1072429f-3d6b-46de-95fb-eb289b47f2b7",
+    "nfc_card_hash": "A1B2C3D4",
+    "status": "Present",
+    "grade": "Grade 4",
+    "class_name": "4 Blue",
+    "pickup_stop_id": "30ef29aa-a831-4aab-9ccc-f3ca06a5641e",
+    "dropoff_stop_id": "30ef29aa-a831-4aab-9ccc-f3ca06a5641e",
+    "schedule_ids": [
+      "cc0bc771-4c5f-462a-99e5-52dbb8a4bbd6",
+      "0f445cbf-59f3-4a77-9554-837fd13433ac"
+    ],
+    "guardians": [
+      {
+        "name": "James Mwangi",
+        "phone": "+254 700 111 222"
+      },
+      {
+        "name": "Sarah Mwangi",
+        "phone": "+254 700 111 333"
+      }
+    ],
+    "route": {
+      "name": "Morning Route 1 (Kileleshwa)"
+    }
+  },
+  {
+    "id": "std-2",
+    "name": "Emma Kamau",
+    "route_id": "route-2",
+    "nfc_card_hash": "E5F6G7H8",
+    "status": "Present",
+    "grade": "Grade 3",
+    "class_name": "3 Red",
+    "pickup_stop_id": "stop-2-1",
+    "dropoff_stop_id": "stop-2-2",
+    "schedule_ids": [
+      "sched-2-1"
+    ],
+    "guardians": [
+      {
+        "name": "Mary Kamau",
+        "phone": "+254 711 222 333"
+      }
+    ],
+    "route": {
+      "name": "Morning Route 2 (Westlands)"
+    }
+  },
+  {
+    "id": "std-3",
+    "name": "Noah Ochieng",
+    "route_id": "route-4",
+    "nfc_card_hash": "I9J0K1L2",
+    "status": "Absent",
+    "grade": "Grade 5",
+    "class_name": "5 Yellow",
+    "pickup_stop_id": "stop-4-1",
+    "dropoff_stop_id": "stop-4-2",
+    "schedule_ids": [
+      "sched-4-1"
+    ],
+    "guardians": [
+      {
+        "name": "Alice Ochieng",
+        "phone": "+254 722 333 444"
+      }
+    ],
+    "route": {
+      "name": "Morning Route 4 (Kilimani)"
+    }
+  },
+  {
+    "id": "std-4",
+    "name": "Ava Ndwiga",
+    "route_id": "route-1",
+    "nfc_card_hash": "M3N4O5P6",
+    "status": "Present",
+    "grade": "Grade 4",
+    "class_name": "4 Blue",
+    "pickup_stop_id": "stop-1-2",
+    "dropoff_stop_id": "stop-1-1",
+    "schedule_ids": [
+      "sched-1-2",
+      "sched-1-4"
+    ],
+    "guardians": [
+      {
+        "name": "Robert Ndwiga",
+        "phone": "+254 733 444 555"
+      }
+    ],
+    "route": {
+      "name": "Morning Route 1 (Kileleshwa)"
+    }
+  },
+  {
+    "id": "b7a8c386-37c1-44af-9c95-1d30921b2b34",
+    "tenant_id": "8c9ad841-f762-4217-a021-9876251b5bcf",
+    "name": "Test Transit Student",
+    "route_id": "1072429f-3d6b-46de-95fb-eb289b47f2b7",
+    "nfc_card_hash": null,
+    "pickup_stop_id": "c2177cad-0b8b-4baa-884e-d68a5195d4f1",
+    "dropoff_stop_id": "30ef29aa-a831-4aab-9ccc-f3ca06a5641e",
+    "schedule_ids": [
+      "8e592b5e-7d88-4fd6-8e6f-d332a0ce8a17"
+    ],
+    "status": "Present",
+    "guardians": [
+      {
+        "name": "Test Parent",
+        "phone": "+254711222333"
+      }
+    ],
+    "grade": "Grade 4",
+    "class_name": "4 Blue"
+  }
+]
