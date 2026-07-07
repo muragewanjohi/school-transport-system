@@ -1,6 +1,6 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 
@@ -39,6 +39,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const pathname = usePathname();
   const router = useRouter();
+  const tokenRef = useRef<string | null>(null);
 
   // Patch window.fetch to automatically append JWT access tokens
   useEffect(() => {
@@ -50,8 +51,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
         // Only intercept local API route handler calls
         if (url.startsWith("/api/") && isSupabaseConfigured) {
           try {
-            const { data: { session } } = await supabase.auth.getSession();
-            const token = session?.access_token;
+            const token = tokenRef.current;
             
             if (token) {
               init = init || {};
@@ -74,7 +74,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Main auth listener / session checker
+  // Sync token and check initial session on mount
   useEffect(() => {
     let authSubscription: any = null;
 
@@ -102,35 +102,17 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
         const { data: { session } } = await supabase.auth.getSession();
         
         if (session) {
+          tokenRef.current = session.access_token;
           setUser(session.user);
-          // Fetch profile details from public.profiles
-          const { data: userProfile, error: profileErr } = await supabase
-            .from("profiles")
-            .select("id, name, email, phone, role, admin_role, tenant_id")
-            .eq("id", session.user.id)
-            .single();
-
-          if (profileErr || !userProfile) {
-            console.error("Failed to load authenticated user profile:", profileErr?.message);
-            setErrorMsg("Your administrator profile could not be loaded from the database.");
-            setProfile(null);
-          } else {
-            // Verify roles: Only school_admin or super_admin are allowed
-            if (userProfile.role !== "school_admin" && userProfile.role !== "super_admin") {
-              setErrorMsg("Access Denied: You do not have permission to access the Admin Console.");
-              setProfile(null);
-            } else {
-              setProfile(userProfile as AuthProfile);
-            }
-          }
         } else {
+          tokenRef.current = null;
           setUser(null);
           setProfile(null);
+          setLoading(false);
         }
       } catch (err) {
         console.error("Error checking auth session:", err);
         setErrorMsg("An unexpected authentication error occurred.");
-      } finally {
         setLoading(false);
       }
     };
@@ -139,30 +121,19 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
 
     // Listen for auth state changes if Supabase is active
     if (isSupabaseConfigured) {
-      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
         if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
           if (session) {
+            tokenRef.current = session.access_token;
             setUser(session.user);
-            const { data: userProfile } = await supabase
-              .from("profiles")
-              .select("id, name, email, phone, role, admin_role, tenant_id")
-              .eq("id", session.user.id)
-              .maybeSingle();
-
-            if (userProfile && (userProfile.role === "school_admin" || userProfile.role === "super_admin")) {
-              setProfile(userProfile as AuthProfile);
-              setErrorMsg(null);
-            } else if (userProfile) {
-              setErrorMsg("Access Denied: You do not have permission to access the Admin Console.");
-              setProfile(null);
-            }
           }
         } else if (event === "SIGNED_OUT") {
+          tokenRef.current = null;
           setUser(null);
           setProfile(null);
           setErrorMsg(null);
+          setLoading(false);
         }
-        setLoading(false);
       });
       authSubscription = subscription;
     }
@@ -173,6 +144,56 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
   }, []);
+
+  // Separate effect to handle async database query for loading user profile.
+  // This prevents deadlocks inside Supabase auth listener / getSession.
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+
+    if (!user) {
+      setProfile(null);
+      return;
+    }
+
+    // If profile is already loaded for this user, don't refetch it
+    if (profile && profile.id === user.id) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchProfile = async () => {
+      setLoading(true);
+      try {
+        const { data: userProfile, error: profileErr } = await supabase
+          .from("profiles")
+          .select("id, name, email, phone, role, admin_role, tenant_id")
+          .eq("id", user.id)
+          .single();
+
+        if (profileErr || !userProfile) {
+          console.error("Failed to load authenticated user profile:", profileErr?.message);
+          setErrorMsg("Your administrator profile could not be loaded from the database.");
+          setProfile(null);
+        } else {
+          // Verify roles: Only school_admin or super_admin are allowed
+          if (userProfile.role !== "school_admin" && userProfile.role !== "super_admin") {
+            setErrorMsg("Access Denied: You do not have permission to access the Admin Console.");
+            setProfile(null);
+          } else {
+            setProfile(userProfile as AuthProfile);
+            setErrorMsg(null);
+          }
+        }
+      } catch (err) {
+        console.error("Error loading profile:", err);
+        setErrorMsg("An unexpected profile loading error occurred.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProfile();
+  }, [user, profile]);
 
   // Handle page redirects based on authentication state
   useEffect(() => {

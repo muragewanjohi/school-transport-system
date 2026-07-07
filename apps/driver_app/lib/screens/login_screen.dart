@@ -110,12 +110,14 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: const Color(0xFF0A0E1A), // Dark Navy
       appBar: AppBar(
         title: const Text(
           'Safaricom Track Login',
-          style: TextStyle(fontWeight: FontWeight.bold),
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
+        backgroundColor: const Color(0xFF0A0E1A),
+        foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
       ),
@@ -141,7 +143,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: TextStyle(
                     fontSize: 26,
                     fontWeight: FontWeight.w900,
-                    color: Color(0xFF1E293B),
+                    color: Colors.white,
                     letterSpacing: -0.5,
                   ),
                 ),
@@ -151,7 +153,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
-                    color: Colors.grey,
+                    color: Color(0xFF94A3B8),
                   ),
                 ),
                 const SizedBox(height: 36),
@@ -162,7 +164,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: Colors.blueGrey,
+                    color: Color(0xFF94A3B8),
                     letterSpacing: 0.5,
                   ),
                 ),
@@ -174,13 +176,27 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: const TextStyle(
                     fontSize: 18, 
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF1E293B)
+                    color: Colors.white
                   ),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.phone_android, color: Colors.grey),
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.phone_android, color: Color(0xFF64748B)),
                     hintText: 'e.g. +254 712 345 678',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                    hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                    filled: true,
+                    fillColor: const Color(0xFF151C2C),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -200,7 +216,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: Colors.blueGrey,
+                    color: Color(0xFF94A3B8),
                     letterSpacing: 0.5,
                   ),
                 ),
@@ -214,15 +230,29 @@ class _LoginScreenState extends State<LoginScreen> {
                     fontSize: 22, 
                     fontWeight: FontWeight.bold, 
                     letterSpacing: 8,
-                    color: Color(0xFF1E293B)
+                    color: Colors.white
                   ),
                   textAlign: TextAlign.center,
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.lock_clock, color: Colors.grey),
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.lock_clock, color: Color(0xFF64748B)),
                     hintText: '123456',
+                    hintStyle: const TextStyle(color: Color(0xFF64748B)),
                     counterText: '',
-                    border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                    filled: true,
+                    fillColor: const Color(0xFF151C2C),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -245,7 +275,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     minimumSize: const Size(double.infinity, 60),
                     elevation: 2,
                     shape: const RoundedRectangleBorder(
-                      borderRadius: BorderRadius.all(Radius.circular(8)),
+                      borderRadius: BorderRadius.all(Radius.circular(12)),
                     ),
                   ),
                   child: _isLoading
@@ -272,18 +302,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    color: const Color(0xFF151C2C),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF223049), width: 1.5),
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.info_outline, size: 20, color: Colors.blueGrey),
+                      Icon(Icons.info_outline, size: 20, color: Color(0xFF10B981)),
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           'Developer Sandbox Note:\nUse "123456" as the OTP code to bypass SMS authentication.',
-                          style: TextStyle(fontSize: 11, color: Colors.blueGrey, height: 1.4),
+                          style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), height: 1.4),
                         ),
                       ),
                     ],

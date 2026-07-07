@@ -182,9 +182,9 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+        color: const Color(0xFF151C2C), // Dark Navy
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF223049), width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -194,7 +194,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
             children: [
               const Text(
                 'Student Roster Manifest',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B)),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
               ),
               IconButton(
                 icon: const Icon(Icons.refresh, size: 20, color: Color(0xFF10B981)),
@@ -209,20 +209,35 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
           TextField(
             controller: _searchController,
             onChanged: (val) => setState(() => _searchQuery = val),
+            style: const TextStyle(color: Colors.white),
             decoration: InputDecoration(
               hintText: 'Search student by name...',
-              prefixIcon: const Icon(Icons.search, size: 20),
+              hintStyle: const TextStyle(color: Color(0xFF64748B)),
+              prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF64748B)),
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18),
+                      icon: const Icon(Icons.clear, size: 18, color: Color(0xFF64748B)),
                       onPressed: () {
                         _searchController.clear();
                         setState(() => _searchQuery = "");
                       },
                     )
                   : null,
-              border: const OutlineInputBorder(),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              filled: true,
+              fillColor: const Color(0xFF0F172A),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             ),
           ),
           const SizedBox(height: 16),
@@ -241,7 +256,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                 padding: const EdgeInsets.symmetric(vertical: 32.0),
                 child: Text(
                   _searchQuery.isNotEmpty ? 'No matches found.' : 'No students registered on this route.',
-                  style: const TextStyle(color: Colors.grey, fontSize: 13),
+                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
                 ),
               ),
             )
@@ -250,7 +265,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: filtered.length,
-              separatorBuilder: (context, index) => const Divider(height: 16, color: Color(0xFFF1F5F9)),
+              separatorBuilder: (context, index) => const Divider(height: 16, color: Color(0xFF223049)),
               itemBuilder: (context, index) {
                 final student = filtered[index];
                 final isBoarded = student.status == "Present";
@@ -268,7 +283,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                             style: const TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
-                              color: Color(0xFF1E293B),
+                              color: Colors.white,
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -276,17 +291,17 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                             children: [
                               Text(
                                 '${student.grade} • ${student.className}',
-                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
                               ),
                               const SizedBox(width: 8),
                               // Status badge
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: isBoarded ? Colors.green.shade50 : Colors.grey.shade100,
+                                  color: isBoarded ? Colors.green.withAlpha(26) : Colors.white.withAlpha(13),
                                   borderRadius: BorderRadius.circular(4),
                                   border: Border.all(
-                                    color: isBoarded ? Colors.green.shade200 : Colors.grey.shade300,
+                                    color: isBoarded ? Colors.green : Colors.white24,
                                   ),
                                 ),
                                 child: Text(
@@ -294,7 +309,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                                   style: TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.bold,
-                                    color: isBoarded ? Colors.green.shade700 : Colors.grey.shade600,
+                                    color: isBoarded ? Colors.green : const Color(0xFF94A3B8),
                                   ),
                                 ),
                               ),
@@ -315,6 +330,9 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                               minimumSize: Size.zero,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                             ),
                             child: const Text('PICK UP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                           )
@@ -322,10 +340,13 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                           ElevatedButton(
                             onPressed: () => _updateStudentStatus(student, "Absent"),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.blueGrey,
+                              backgroundColor: const Color(0xFF334155), // Slate Button
                               foregroundColor: Colors.white,
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                               minimumSize: Size.zero,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                             ),
                             child: const Text('DROP OFF', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                           ),
