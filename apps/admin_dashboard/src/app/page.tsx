@@ -146,15 +146,19 @@ export default function Home() {
   useEffect(() => {
     if (!hasMapboxToken || !mapContainerRef.current) return;
 
-    let mapInstance: mapboxgl.Map;
+    let isMounted = true;
+    let mapInstance: mapboxgl.Map | null = null;
 
     const initMap = async () => {
       // Dynamic import to prevent SSR window issues
       const mapboxglModule = (await import("mapbox-gl")).default;
+      
+      if (!isMounted || !mapContainerRef.current) return;
+
       mapboxglModule.accessToken = mapboxToken;
 
       mapInstance = new mapboxglModule.Map({
-        container: mapContainerRef.current!,
+        container: mapContainerRef.current,
         style: "mapbox://styles/mapbox/dark-v11",
         center: [36.8045, -1.2721], // Nairobi center
         zoom: 12.5,
@@ -168,13 +172,16 @@ export default function Home() {
       mapInstance.addControl(new mapboxglModule.NavigationControl(), "top-right");
 
       mapInstance.on("load", () => {
+        if (!isMounted || !mapInstance) return;
+
         // Fetch and draw the student transit routes
         fetch("/api/routes")
           .then((res) => res.json())
           .then((json) => {
+            if (!isMounted || !mapInstance) return;
             if (json.success && Array.isArray(json.data)) {
               json.data.forEach((route: DBRoute) => {
-                if (route.path) {
+                if (route.path && mapInstance) {
                   // Determine polyline display color
                   const routeColor = 
                     route.id === "route-4" || route.id.includes("4") 
@@ -218,6 +225,8 @@ export default function Home() {
         ];
 
         defaultBuses.forEach((bus) => {
+          if (!isMounted || !mapInstance) return;
+
           const el = document.createElement("div");
           el.className = "map-bus-node-marker";
           el.innerHTML = `
@@ -239,9 +248,11 @@ export default function Home() {
     initMap();
 
     return () => {
+      isMounted = false;
       if (mapInstance) {
         mapInstance.remove();
       }
+      mapRef.current = null;
     };
   }, [hasMapboxToken, mapboxToken]);
 

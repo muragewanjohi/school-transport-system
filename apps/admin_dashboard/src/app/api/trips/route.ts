@@ -9,6 +9,9 @@ const tripCreateSchema = z.object({
   driver_id: z.string().optional().nullable(),
   conductor_1_id: z.string().optional().nullable(),
   status: z.enum(["scheduled", "in_progress", "completed", "cancelled"]).default("in_progress"),
+  status_override: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  custom_departure_time: z.string().optional().nullable(),
 });
 
 const manifestUpdateSchema = z.object({
@@ -17,6 +20,9 @@ const manifestUpdateSchema = z.object({
   status: z.enum(["scheduled", "in_progress", "completed", "cancelled"]).optional(),
   student_id: z.string().optional(),
   attendance: z.enum(["pending", "boarded", "dropped_off", "absent", "no_show"]).optional(),
+  status_override: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  custom_departure_time: z.string().optional().nullable(),
 });
 
 export const mockTrips = [
@@ -122,7 +128,7 @@ export async function GET(request: Request) {
     }
 
     // List all trips
-    let query = client.from("trips").select("id, tenant_id, schedule_id, route_id, vehicle_id, driver_id, conductor_1_id, trip_date, status, started_at, completed_at, created_at");
+    let query = client.from("trips").select("id, tenant_id, schedule_id, route_id, vehicle_id, driver_id, conductor_1_id, trip_date, status, started_at, completed_at, created_at, status_override, description, custom_departure_time");
     
     if (scheduleId) {
       query = query.eq("schedule_id", scheduleId);
@@ -220,7 +226,10 @@ export async function POST(request: Request) {
       conductor_1_id: result.data.conductor_1_id || null,
       status: result.data.status,
       started_at: result.data.status === "in_progress" ? new Date().toISOString() : null,
-      trip_date: new Date().toISOString().split("T")[0]
+      trip_date: new Date().toISOString().split("T")[0],
+      status_override: result.data.status_override || null,
+      description: result.data.description || null,
+      custom_departure_time: result.data.custom_departure_time || null,
     };
 
     const { data: tripInsert, error: tripInsertError } = await client
@@ -339,12 +348,24 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: true, source: "supabase", data: manifestUpdate });
     }
 
-    if (result.data.trip_id && result.data.status) {
-      const updateData: Record<string, any> = { status: result.data.status };
-      if (result.data.status === "in_progress") {
-        updateData.started_at = new Date().toISOString();
-      } else if (result.data.status === "completed") {
-        updateData.completed_at = new Date().toISOString();
+    if (result.data.trip_id) {
+      const updateData: Record<string, any> = {};
+      if (result.data.status !== undefined) {
+        updateData.status = result.data.status;
+        if (result.data.status === "in_progress") {
+          updateData.started_at = new Date().toISOString();
+        } else if (result.data.status === "completed") {
+          updateData.completed_at = new Date().toISOString();
+        }
+      }
+      if (result.data.status_override !== undefined) {
+        updateData.status_override = result.data.status_override;
+      }
+      if (result.data.description !== undefined) {
+        updateData.description = result.data.description;
+      }
+      if (result.data.custom_departure_time !== undefined) {
+        updateData.custom_departure_time = result.data.custom_departure_time;
       }
 
       const { data: tripUpdate, error: tripError } = await client
@@ -358,36 +379,7 @@ export async function PUT(request: Request) {
         return NextResponse.json({ success: false, error: tripError.message }, { status: 400 });
       }
 
-      // If the trip is started, notify all parents on the route
-      if (result.data.status === "in_progress" && tripUpdate) {
-        const { data: students } = await client
-          .from("students")
-          .select("id, name, parent_id")
-          .eq("route_id", tripUpdate.route_id);
-
-        if (students && students.length > 0) {
-          const alertPayloads = students
-            .filter(std => std.parent_id)
-            .map(std => ({
-              id: crypto.randomUUID(),
-              tenant_id: tripUpdate.tenant_id,
-              student_id: std.id,
-              parent_id: std.parent_id,
-              message_type: "proximity",
-              custom_message: `Safaricom Track: The school bus has departed from school and started the trip for your child ${std.name}'s route.`,
-              processed: false
-            }));
-
-          if (alertPayloads.length > 0) {
-            const { error: alertErr } = await client
-              .from("alerts_queue")
-              .insert(alertPayloads);
-            if (alertErr) {
-              console.warn("Failed to queue departure alerts for parents:", alertErr.message);
-            }
-          }
-        }
-      }
+      await sendTripNotifications(client, tripUpdate);
 
       return NextResponse.json({ success: true, source: "supabase", data: tripUpdate });
     }
@@ -397,5 +389,84 @@ export async function PUT(request: Request) {
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
     return NextResponse.json({ success: false, error: errorMessage }, { status: 500 });
+  }
+}
+
+async function sendTripNotifications(
+  client: any, 
+  trip: { 
+    id: string; 
+    tenant_id: string; 
+    route_id: string; 
+    driver_id?: string | null; 
+    conductor_1_id?: string | null;
+    status: string; 
+    status_override?: string | null; 
+    description?: string | null; 
+    custom_departure_time?: string | null; 
+  }
+) {
+  try {
+    // 1. Fetch route details
+    let routeName = "assigned route";
+    const { data: routeData } = await client
+      .from("routes")
+      .select("name")
+      .eq("id", trip.route_id)
+      .single();
+    if (routeData) {
+      routeName = routeData.name;
+    }
+
+    // 2. Build custom message
+    let customMsg = "";
+    const statusLabel = trip.status_override || trip.status || "updated";
+    if (statusLabel.toLowerCase().includes("delay") && trip.custom_departure_time) {
+      customMsg = `Safaricom Track Alert: Today's trip on route ${routeName} is delayed. New scheduled departure time: ${trip.custom_departure_time}.`;
+    } else if (statusLabel.toLowerCase() === "cancelled") {
+      customMsg = `Safaricom Track Alert: Today's trip on route ${routeName} has been cancelled.`;
+    } else if (trip.status === "in_progress") {
+      customMsg = `Safaricom Track Alert: Today's trip on route ${routeName} has started. Bus is active on route.`;
+    } else {
+      customMsg = `Safaricom Track Alert: Today's trip on route ${routeName} status is now ${statusLabel}.`;
+    }
+
+    if (trip.description) {
+      customMsg += ` Note: ${trip.description}`;
+    }
+
+    // 3. Query all students on this route
+    const { data: students } = await client
+      .from("students")
+      .select("id, name, parent_id")
+      .eq("route_id", trip.route_id);
+
+    if (students && students.length > 0) {
+      const alertPayloads = students
+        .filter((std: any) => std.parent_id)
+        .map((std: any) => ({
+          id: crypto.randomUUID(),
+          tenant_id: trip.tenant_id,
+          student_id: std.id,
+          parent_id: std.parent_id,
+          message_type: "proximity",
+          custom_message: customMsg,
+          processed: false
+        }));
+
+      if (alertPayloads.length > 0) {
+        const { error: alertErr } = await client
+          .from("alerts_queue")
+          .insert(alertPayloads);
+        if (alertErr) {
+          console.warn("Failed to queue departure alerts for parents:", alertErr.message);
+        }
+      }
+    }
+
+    // 4. Log simulation to Driver & Conductor
+    console.log(`[Notification Simulator] Dispatch alert sent to Driver (ID: ${trip.driver_id}) and Conductor (ID: ${trip.conductor_1_id}): ${customMsg}`);
+  } catch (err) {
+    console.error("Error sending trip notifications:", err);
   }
 }

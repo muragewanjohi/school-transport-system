@@ -113,6 +113,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   final TextEditingController _vehicleController = TextEditingController();
   final TextEditingController _routeController = TextEditingController();
 
+  String _driverId = "";
   String _driverName = "";
   String _driverPhone = "";
   String _driverRole = "driver";
@@ -121,16 +122,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   StreamSubscription? _telemetrySub;
 
   // Route and Trip selection states
-  List<dynamic> _routes = [];
-  List<dynamic> _trips = [];
   String? _selectedRouteId;
   String? _selectedTripId;
-  bool _isLoadingRoutes = false;
-  bool _isLoadingTrips = false;
+  String? _selectedTripRunId;
 
-  int _stopsCount = 0;
-  int _studentsCount = 0;
-  int _estimatedDuration = 0;
   bool _isLoadingDetails = false;
   String _selectedRunType = "PICKUP"; // "PICKUP" or "DROPOFF"
 
@@ -140,6 +135,17 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
   final TextEditingController _studentsSearchController = TextEditingController();
   String _studentsSearchQuery = "";
+
+  // Scheduled routes and trips state variables
+  List<dynamic> _driverTrips = [];
+  bool _isLoadingDriverTrips = false;
+  bool _showClockWarning = false;
+  Timer? _countdownTimer;
+  String _countdownText = "";
+
+  dynamic _activeTrip;
+  dynamic _nextTrip;
+  dynamic _lastCompletedTrip;
 
   @override
   void initState() {
@@ -152,6 +158,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   @override
   void dispose() {
     _telemetrySub?.cancel();
+    _countdownTimer?.cancel();
     _tenantController.dispose();
     _vehicleController.dispose();
     _routeController.dispose();
@@ -172,10 +179,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   /// Load authenticated driver details from SharedPreferences
   Future<void> _loadSessionDetails() async {
     final prefs = await SharedPreferences.getInstance();
-    final savedRouteId = prefs.getString('route_id') ?? '';
-    final savedTripId = prefs.getString('trip_id') ?? '';
-    final savedRunType = prefs.getString('run_type') ?? 'PICKUP';
     setState(() {
+      _driverId = prefs.getString('driver_id') ?? '';
       _driverName = prefs.getString('driver_name') ?? "Unknown Driver";
       _driverPhone = prefs.getString('driver_phone') ?? "";
       _driverRole = prefs.getString('driver_role') ?? "driver";
@@ -183,22 +188,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       _vehicleController.text = prefs.getString('vehicle_id') ?? 'e5015e10-c09a-4c22-901d-5573752e379c';
       _vehiclePlate = prefs.getString('vehicle_plate') ?? 'KBC 123X';
       _schoolName = prefs.getString('school_name') ?? 'Safaricom Track Console';
-      _routeController.text = savedRouteId;
-      _selectedRouteId = savedRouteId.isNotEmpty ? savedRouteId : null;
-      _selectedTripId = savedTripId.isNotEmpty ? savedTripId : null;
-      _selectedRunType = savedRunType;
     });
 
-    // Fetch all routes
-    await _fetchRoutes();
-
-    // Fetch trips for initial route if we have one
-    if (_selectedRouteId != null && _selectedRouteId!.isNotEmpty) {
-      await _fetchTrips(_selectedRouteId!);
-      if (_selectedTripId != null && _selectedTripId!.isNotEmpty) {
-        _fetchTripDetails(_selectedRouteId!, _selectedTripId!);
-      }
-    }
+    // Fetch today's scheduled routes and trips
+    await _fetchDriverTrips();
 
     // Fetch live vehicle details to update the plate number
     if (_vehicleController.text.isNotEmpty) {
@@ -267,74 +260,283 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     }
   }
 
-  Future<void> _fetchRoutes() async {
+  /// Fetch scheduled routes and trips assigned to this bus
+  Future<void> _fetchDriverTrips() async {
     if (!mounted) return;
-    setState(() => _isLoadingRoutes = true);
+    setState(() {
+      _isLoadingDriverTrips = true;
+    });
+
     try {
       final baseUrl = _getApiBaseUrl();
+      final vehicleId = _vehicleController.text.trim();
       final response = await http.get(
-        Uri.parse('$baseUrl/api/routes'),
+        Uri.parse('$baseUrl/api/driver/trips?vehicle_id=$vehicleId&driver_id=$_driverId'),
         headers: {'Content-Type': 'application/json'},
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
         final result = json.decode(response.body);
         if (result['success'] == true && result['data'] != null) {
-          final fetchedRoutes = result['data'] as List<dynamic>;
-          setState(() {
-            _routes = fetchedRoutes;
-            // Validate if selected route ID is in the fetched list
-            final routeExists = fetchedRoutes.any((r) => r['id'] == _selectedRouteId);
-            if (!routeExists) {
-              _selectedRouteId = null;
-              _selectedTripId = null;
-              _trips = [];
+          final trips = result['data'] as List<dynamic>;
+          final serverTimeStr = result['server_time'] as String?;
+
+          DateTime? serverTimeParsed;
+          if (serverTimeStr != null) {
+            serverTimeParsed = DateTime.parse(serverTimeStr).toLocal();
+          }
+
+          // Check clock drift
+          bool showWarning = false;
+          if (serverTimeParsed != null) {
+            final drift = DateTime.now().difference(serverTimeParsed).inMinutes.abs();
+            if (drift > 5) {
+              showWarning = true;
             }
+          }
+
+          setState(() {
+            _driverTrips = trips;
+            _showClockWarning = showWarning;
           });
+
+          _processTripStates();
         }
       }
     } catch (e) {
-      debugPrint("Error fetching routes: $e");
+      debugPrint("Error fetching driver trips: $e");
     } finally {
       if (mounted) {
-        setState(() => _isLoadingRoutes = false);
+        setState(() {
+          _isLoadingDriverTrips = false;
+        });
       }
     }
   }
 
-  Future<void> _fetchTrips(String routeId) async {
-    if (!mounted) return;
-    setState(() => _isLoadingTrips = true);
+  void _processTripStates() {
+    dynamic activeTrip;
+    dynamic nextTrip;
+    dynamic lastCompletedTrip;
+
+    // Find any trip that is in_progress
+    for (final trip in _driverTrips) {
+      if (trip['status'] == 'in_progress') {
+        activeTrip = trip;
+        break;
+      }
+    }
+
+    // Filter all scheduled trips
+    final scheduledTrips = _driverTrips.where((t) => t['status'] == 'scheduled').toList();
+
+    if (scheduledTrips.isNotEmpty) {
+      // If no trip run is selected, or the selected one is no longer scheduled, default to the first
+      final isCurrentlyScheduled = scheduledTrips.any((t) => t['id'] == _selectedTripRunId);
+      if (_selectedTripRunId == null || !isCurrentlyScheduled) {
+        _selectedTripRunId = scheduledTrips.first['id'];
+      }
+      nextTrip = scheduledTrips.firstWhere(
+        (t) => t['id'] == _selectedTripRunId,
+        orElse: () => scheduledTrips.first,
+      );
+    }
+
+    // Find the last completed trip
+    for (final trip in _driverTrips) {
+      if (trip['status'] == 'completed') {
+        lastCompletedTrip = trip;
+      }
+    }
+
+    setState(() {
+      _activeTrip = activeTrip;
+      _nextTrip = nextTrip;
+      _lastCompletedTrip = lastCompletedTrip;
+    });
+
+    // Update active trip provider state
+    final hasActiveTrip = activeTrip != null;
+    ref.read(tripActiveProvider.notifier).state = hasActiveTrip;
+
+    // Start/restart countdown timer if nextTrip is available
+    _startCountdownTimer();
+
+    // Automatically set selectedRouteId and selectedTripId for students and stops sequence tabs
+    if (activeTrip != null) {
+      final routeId = activeTrip['route']['id'];
+      final tripId = activeTrip['schedule']['id'];
+      final direction = activeTrip['schedule']['direction'] ?? 'PICKUP';
+      
+      setState(() {
+        _selectedRouteId = routeId;
+        _selectedTripId = tripId;
+        _selectedRunType = direction == 'HOME_TO_SCHOOL' ? 'PICKUP' : 'DROPOFF';
+        _routeController.text = routeId;
+      });
+      _fetchTripDetails(routeId, tripId);
+    } else if (nextTrip != null) {
+      final routeId = nextTrip['route']['id'];
+      final tripId = nextTrip['schedule']['id'];
+      final direction = nextTrip['schedule']['direction'] ?? 'PICKUP';
+      
+      setState(() {
+        _selectedRouteId = routeId;
+        _selectedTripId = tripId;
+        _selectedRunType = direction == 'HOME_TO_SCHOOL' ? 'PICKUP' : 'DROPOFF';
+        _routeController.text = routeId;
+      });
+      _fetchTripDetails(routeId, tripId);
+    } else {
+      setState(() {
+        _selectedRouteId = null;
+        _selectedTripId = null;
+      });
+    }
+  }
+
+  void _startCountdownTimer() {
+    _countdownTimer?.cancel();
+    if (_nextTrip == null) {
+      setState(() {
+        _countdownText = "";
+      });
+      return;
+    }
+
+    final departureTimeStr = _nextTrip['schedule']['departure_time'] as String; // e.g. "06:45:00"
+    final timeParts = departureTimeStr.split(':');
+    if (timeParts.length < 2) return;
+
+    final hour = int.parse(timeParts[0]);
+    final minute = int.parse(timeParts[1]);
+
+    // Construct target DateTime today
+    final now = DateTime.now();
+    final targetTime = DateTime(now.year, now.month, now.day, hour, minute);
+
+    void updateCountdown() {
+      final timeNow = DateTime.now();
+      final diff = targetTime.difference(timeNow);
+      if (diff.isNegative) {
+        setState(() {
+          _countdownText = "Departing soon";
+        });
+      } else {
+        final hours = diff.inHours;
+        final minutes = diff.inMinutes % 60;
+        final seconds = diff.inSeconds % 60;
+
+        String text = "Starts in ";
+        if (hours > 0) text += "${hours}h ";
+        text += "${minutes}m ${seconds}s";
+
+        setState(() {
+          _countdownText = text;
+        });
+      }
+    }
+
+    updateCountdown();
+    _countdownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted || _nextTrip == null) {
+        timer.cancel();
+        return;
+      }
+      updateCountdown();
+    });
+  }
+
+  Future<void> _handleStartTrip(String tripId, String routeId, String scheduleId) async {
+    setState(() => _isLoadingDriverTrips = true);
     try {
       final baseUrl = _getApiBaseUrl();
-      final response = await http.get(
-        Uri.parse('$baseUrl/api/schedules?route_id=$routeId'),
+      final response = await http.put(
+        Uri.parse('$baseUrl/api/trips'),
         headers: {'Content-Type': 'application/json'},
-      ).timeout(const Duration(seconds: 10));
+        body: json.encode({
+          'trip_id': tripId,
+          'status': 'in_progress',
+        }),
+      ).timeout(const Duration(seconds: 8));
 
-      if (response.statusCode == 200) {
-        final result = json.decode(response.body);
-        if (result['success'] == true && result['data'] != null) {
-          final fetchedTrips = result['data'] as List<dynamic>;
-          setState(() {
-            _trips = fetchedTrips;
-            // Validate if selected trip ID is in the fetched list
-            final tripExists = fetchedTrips.any((t) => t['id'] == _selectedTripId);
-            if (!tripExists) {
-              _selectedTripId = null;
-            }
-          });
-          if (_selectedRouteId != null && _selectedTripId != null) {
-            _fetchTripDetails(_selectedRouteId!, _selectedTripId!);
-          }
-        }
+      final result = json.decode(response.body);
+      if (response.statusCode == 200 && result['success'] == true) {
+        // Save route/trip configuration locally in SharedPreferences for telemetry & background service mapping
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString('route_id', routeId);
+        await prefs.setString('trip_id', scheduleId); // background service config uses schedule_id mapping
+        
+        setState(() {
+          _selectedRouteId = routeId;
+          _selectedTripId = scheduleId;
+          _routeController.text = routeId;
+        });
+
+        // Trigger native startTrip (starts background location tracking)
+        await _startTrip();
+
+        // Refresh trips from server
+        await _fetchDriverTrips();
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to start trip: ${result['error'] ?? 'Server error'}')),
+        );
       }
     } catch (e) {
-      debugPrint("Error fetching trips: $e");
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Network error: Failed to start trip. $e')),
+      );
     } finally {
-      if (mounted) {
-        setState(() => _isLoadingTrips = false);
+      setState(() => _isLoadingDriverTrips = false);
+    }
+  }
+
+  Future<void> _handleEndTrip(String tripId) async {
+    setState(() => _isLoadingDriverTrips = true);
+    try {
+      final baseUrl = _getApiBaseUrl();
+      final response = await http.put(
+        Uri.parse('$baseUrl/api/trips'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({
+          'trip_id': tripId,
+          'status': 'completed',
+        }),
+      ).timeout(const Duration(seconds: 8));
+
+      final result = json.decode(response.body);
+      if (response.statusCode == 200 && result['success'] == true) {
+        // Stop location tracking background service
+        await _endTrip();
+
+        // Clean preferences
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('route_id');
+        await prefs.remove('trip_id');
+
+        setState(() {
+          _selectedRouteId = null;
+          _selectedTripId = null;
+        });
+
+        // Refresh trips from server
+        await _fetchDriverTrips();
+      } else {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to end trip: ${result['error'] ?? 'Server error'}')),
+        );
       }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Network error: Failed to end trip. $e')),
+      );
+    } finally {
+      setState(() => _isLoadingDriverTrips = false);
     }
   }
 
@@ -342,9 +544,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     if (!mounted) return;
     setState(() {
       _isLoadingDetails = true;
-      _stopsCount = 0;
-      _studentsCount = 0;
-      _estimatedDuration = 0;
     });
 
     try {
@@ -356,13 +555,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         headers: {'Content-Type': 'application/json'},
       ).timeout(const Duration(seconds: 8));
 
-      int stopsCount = 0;
       List<dynamic> stopsList = [];
       if (stopsResponse.statusCode == 200) {
         final stopsResult = json.decode(stopsResponse.body);
         if (stopsResult['success'] == true && stopsResult['data'] != null) {
           stopsList = stopsResult['data'] as List<dynamic>;
-          stopsCount = stopsList.length;
         }
       }
 
@@ -372,7 +569,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         headers: {'Content-Type': 'application/json'},
       ).timeout(const Duration(seconds: 8));
 
-      int studentsCount = 0;
       List<dynamic> studentsList = [];
       if (studentsResponse.statusCode == 200) {
         final studentsResult = json.decode(studentsResponse.body);
@@ -389,7 +585,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             }
             return false;
           }).toList();
-          studentsCount = studentsList.length;
         }
       }
 
@@ -397,9 +592,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         setState(() {
           _stopsList = stopsList;
           _studentsList = studentsList;
-          _stopsCount = stopsCount;
-          _studentsCount = studentsCount;
-          _estimatedDuration = (stopsCount * 4) + 15 + studentsCount;
           _isLoadingDetails = false;
         });
       }
@@ -922,7 +1114,18 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 ),
                 child: IconButton(
                   icon: const Icon(Icons.sync, color: Colors.white),
-                  onPressed: _checkActiveTripStatus,
+                  onPressed: () async {
+                    await _checkActiveTripStatus();
+                    await _fetchDriverTrips();
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Console and scheduled trips refreshed'),
+                          duration: Duration(seconds: 1),
+                        ),
+                      );
+                    }
+                  },
                   tooltip: 'Sync service status',
                 ),
               ),
@@ -1047,6 +1250,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // SOS warning banner
         if (isSos) ...[
           Container(
             padding: const EdgeInsets.all(12),
@@ -1071,506 +1275,66 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           ),
         ],
 
-        if (!isTripActive) ...[
-          Row(
-            children: [
-              const Icon(Icons.alt_route, color: Color(0xFF10B981), size: 16),
-              const SizedBox(width: 8),
-              Text(
-                'SELECT ASSIGNED ROUTE',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF94A3B8),
-                  letterSpacing: 0.5,
+        // Clock Sync warning banner
+        if (_showClockWarning) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.orange.withAlpha(26),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.orange, width: 2),
+            ),
+            child: const Row(
+              children: [
+                Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Your phone clock appears to be out of sync. Trip times are based on server time.',
+                    style: TextStyle(color: Colors.orange, fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          const SizedBox(height: 8),
+        ],
 
-          _isLoadingRoutes
-              ? const Center(child: Padding(padding: EdgeInsets.all(16.0), child: CircularProgressIndicator()))
-              : DropdownButtonFormField<String>(
-                  initialValue: _routes.any((route) => route['id'] == _selectedRouteId) ? _selectedRouteId : null,
-                  hint: const Text('Select a Route', style: TextStyle(color: Color(0xFF64748B))),
-                  decoration: InputDecoration(
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                    fillColor: const Color(0xFF151C2C),
-                    filled: true,
-                  ),
-                  dropdownColor: const Color(0xFF151C2C),
-                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                  isExpanded: true,
-                  items: _routes.map<DropdownMenuItem<String>>((route) {
-                    return DropdownMenuItem<String>(
-                      value: route['id'] as String,
-                      child: Text(route['name'] ?? 'Unnamed Route'),
-                    );
-                  }).toList(),
-                  onChanged: (val) {
-                    if (val == null) return;
-                    setState(() {
-                      _selectedRouteId = val;
-                      _routeController.text = val;
-                      _selectedTripId = null;
-                      _trips = [];
-                      _stopsCount = 0;
-                      _studentsCount = 0;
-                      _estimatedDuration = 0;
-                      _stopsList = [];
-                      _studentsList = [];
-                    });
-                    SharedPreferences.getInstance().then((prefs) {
-                      prefs.setString('route_id', val);
-                      prefs.remove('trip_id');
-                    });
-                    _fetchTrips(val);
-                  },
-                ),
-          const SizedBox(height: 20),
-
-          if (_selectedRouteId != null) ...[
-            Row(
-              children: [
-                const Icon(Icons.swap_horiz, color: Color(0xFF10B981), size: 16),
-                const SizedBox(width: 8),
-                Text(
-                  'TRIP RUN TYPE',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF94A3B8),
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
+        // Trip Completed banner
+        if (!isTripActive && _lastCompletedTrip != null) ...[
+          Container(
+            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 16),
+            decoration: BoxDecoration(
+              color: Colors.green.withAlpha(26),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.green, width: 1.5),
             ),
-            const SizedBox(height: 8),
-
-            Row(
+            child: Row(
               children: [
+                const Icon(Icons.check_circle, color: Colors.green, size: 20),
+                const SizedBox(width: 10),
                 Expanded(
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _selectedRunType = "PICKUP";
-                        _selectedTripId = null;
-                        _stopsCount = 0;
-                        _studentsCount = 0;
-                        _estimatedDuration = 0;
-                        _stopsList = [];
-                        _studentsList = [];
-                      });
-                      SharedPreferences.getInstance().then((prefs) {
-                        prefs.setString('run_type', 'PICKUP');
-                        prefs.remove('trip_id');
-                      });
-                    },
-                    child: Container(
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: _selectedRunType == "PICKUP"
-                            ? const Color(0xFF10B981)
-                            : const Color(0xFF151C2C),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _selectedRunType == "PICKUP"
-                              ? const Color(0xFF10B981)
-                              : const Color(0xFF223049),
-                          width: 1.5,
-                        ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.login,
-                            color: _selectedRunType == "PICKUP" ? Colors.white : const Color(0xFF94A3B8),
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Pick Up',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: _selectedRunType == "PICKUP" ? Colors.white : const Color(0xFF94A3B8),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _selectedRunType = "DROPOFF";
-                        _selectedTripId = null;
-                        _stopsCount = 0;
-                        _studentsCount = 0;
-                        _estimatedDuration = 0;
-                        _stopsList = [];
-                        _studentsList = [];
-                      });
-                      SharedPreferences.getInstance().then((prefs) {
-                        prefs.setString('run_type', 'DROPOFF');
-                        prefs.remove('trip_id');
-                      });
-                    },
-                    child: Container(
-                      height: 50,
-                      decoration: BoxDecoration(
-                        color: _selectedRunType == "DROPOFF"
-                            ? const Color(0xFF10B981)
-                            : const Color(0xFF151C2C),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: _selectedRunType == "DROPOFF"
-                              ? const Color(0xFF10B981)
-                              : const Color(0xFF223049),
-                          width: 1.5,
-                        ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.logout,
-                            color: _selectedRunType == "DROPOFF" ? Colors.white : const Color(0xFF94A3B8),
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Drop Off',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: _selectedRunType == "DROPOFF" ? Colors.white : const Color(0xFF94A3B8),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  child: Text(
+                    '✓ ${_lastCompletedTrip['route']?['name'] ?? 'Route'} - ${_lastCompletedTrip['schedule']?['name'] ?? 'Trip'} Completed',
+                    style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+          ),
+        ],
 
-            Row(
-              children: [
-                const Icon(Icons.watch_later, color: Color(0xFF10B981), size: 16),
-                const SizedBox(width: 8),
-                Text(
-                  'SELECT TRIP RUN SLOT',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF94A3B8),
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
+        // Loading state
+        if (_isLoadingDriverTrips) ...[
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 40.0),
+              child: CircularProgressIndicator(),
             ),
-            const SizedBox(height: 8),
-
-            Builder(
-              builder: (context) {
-                final filteredTrips = _trips.where((trip) {
-                  final direction = trip['direction'] ?? '';
-                  if (_selectedRunType == "PICKUP") {
-                    return direction == 'HOME_TO_SCHOOL';
-                  } else {
-                    return direction == 'SCHOOL_TO_HOME';
-                  }
-                }).toList();
-
-                return _isLoadingTrips
-                    ? const Center(child: Padding(padding: EdgeInsets.all(12.0), child: CircularProgressIndicator()))
-                    : DropdownButtonFormField<String>(
-                        initialValue: filteredTrips.any((t) => t['id'] == _selectedTripId) ? _selectedTripId : null,
-                        hint: Text(
-                          filteredTrips.isEmpty
-                              ? 'No ${_selectedRunType == "PICKUP" ? "Pick Up" : "Drop Off"} Trips Configured'
-                              : 'Select a Trip',
-                          style: const TextStyle(color: Color(0xFF64748B)),
-                        ),
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                          fillColor: const Color(0xFF151C2C),
-                          filled: true,
-                        ),
-                        dropdownColor: const Color(0xFF151C2C),
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                        isExpanded: true,
-                        items: filteredTrips.map<DropdownMenuItem<String>>((trip) {
-                          return DropdownMenuItem<String>(
-                            value: trip['id'] as String,
-                            child: Text('${trip['name'] ?? 'Trip'} (${trip['departure_time']?.toString().substring(0, 5) ?? ''})'),
-                          );
-                        }).toList(),
-                        onChanged: filteredTrips.isEmpty ? null : (val) {
-                          if (val == null) return;
-                          setState(() {
-                            _selectedTripId = val;
-                          });
-                          SharedPreferences.getInstance().then((prefs) {
-                            prefs.setString('trip_id', val);
-                          });
-                          _fetchTripDetails(_selectedRouteId!, val);
-                        },
-                      );
-              },
-            ),
-            const SizedBox(height: 20),
-          ],
-
-          if (_selectedRouteId != null && _selectedTripId != null) ...[
-            _isLoadingDetails
-                ? const Center(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(vertical: 24.0),
-                      child: CircularProgressIndicator(),
-                    ),
-                  )
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF151C2C),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: const Color(0xFF223049), width: 1.5),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(6),
-                                        decoration: const BoxDecoration(
-                                          color: Color(0xFF0F172A),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(Icons.people, color: Color(0xFF10B981), size: 16),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        'STUDENTS',
-                                        style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    '$_studentsCount Students',
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: BoxDecoration(
-                                color: const Color(0xFF151C2C),
-                                borderRadius: BorderRadius.circular(16),
-                                border: Border.all(color: const Color(0xFF223049), width: 1.5),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(6),
-                                        decoration: const BoxDecoration(
-                                          color: Color(0xFF0F172A),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Icon(Icons.pin_drop, color: Color(0xFF10B981), size: 16),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      const Text(
-                                        'TOTAL STOPS',
-                                        style: TextStyle(fontSize: 10, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 12),
-                                  Text(
-                                    '$_stopsCount Stops',
-                                    style: const TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF151C2C),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFF223049), width: 1.5),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(8),
-                                    decoration: const BoxDecoration(
-                                      color: Color(0xFF0F172A),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(Icons.timer, color: Color(0xFF10B981), size: 20),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      const Text(
-                                        'ESTIMATED ROUTE TIME',
-                                        style: TextStyle(fontSize: 9, color: Color(0xFF94A3B8), fontWeight: FontWeight.bold),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '$_estimatedDuration mins',
-                                        style: const TextStyle(
-                                          fontSize: 18,
-                                          fontWeight: FontWeight.bold,
-                                          color: Colors.white,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle),
-                                ),
-                                Container(width: 20, height: 1.5, color: const Color(0xFF334155)),
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: const BoxDecoration(color: Color(0xFF64748B), shape: BoxShape.circle),
-                                ),
-                                Container(width: 20, height: 1.5, color: const Color(0xFF334155)),
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: const BoxDecoration(color: Color(0xFF64748B), shape: BoxShape.circle),
-                                ),
-                                Container(width: 20, height: 1.5, color: const Color(0xFF334155)),
-                                Container(
-                                  width: 6,
-                                  height: 6,
-                                  decoration: const BoxDecoration(color: Color(0xFF10B981), shape: BoxShape.circle),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      if (_selectedRunType == "DROPOFF") ...[
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (context) => StudentSelectionScreen(
-                                  routeId: _selectedRouteId!,
-                                  tenantId: _tenantController.text.trim(),
-                                  tripId: _selectedTripId ?? '',
-                                ),
-                              ),
-                            );
-                          },
-                          icon: const Icon(Icons.people, size: 28),
-                          label: const Text('Board Students', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF10B981),
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(double.infinity, 64),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            elevation: 4,
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      ElevatedButton.icon(
-                        onPressed: _startTrip,
-                        icon: const Icon(Icons.play_arrow, size: 28),
-                        label: const Text('START TRIP', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF10B981),
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(double.infinity, 64),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 4,
-                        ),
-                      ),
-                    ],
-                  ),
-          ],
-        ] else ...[
+          ),
+        ] else if (isTripActive && _activeTrip != null) ...[
+          // TRIP IN PROGRESS (ACTIVE STATE)
           Container(
             padding: const EdgeInsets.all(20.0),
             decoration: BoxDecoration(
@@ -1602,28 +1366,109 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  '$routeName\n$tripName',
+                  '${_activeTrip['route']?['name'] ?? 'Active Route'}\n${_activeTrip['schedule']?['name'] ?? 'Active Trip'}',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
-                    fontSize: 16,
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
                     color: Colors.white,
                     height: 1.3
                   ),
                 ),
-                const SizedBox(height: 16),
-                ElevatedButton(
+                const SizedBox(height: 20),
+                ElevatedButton.icon(
                   onPressed: () {
                     setState(() {
-                      _currentTab = 1;
+                      _currentTab = 1; // Switch to active trip tracking tab
                     });
                   },
+                  icon: const Icon(Icons.map_outlined),
+                  label: const Text('View Active Tracking Console', style: TextStyle(fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF10B981),
                     foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 50),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  child: const Text('View Active Tracking Map'),
+                ),
+              ],
+            ),
+          ),
+        ] else if (_nextTrip != null) ...[
+          // LIST OF SCHEDULED TRIPS (ACCORDION STYLE)
+          const Text(
+            'SCHEDULED TRIPS TODAY',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF64748B),
+              letterSpacing: 0.5,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Builder(
+            builder: (context) {
+              final scheduledTrips = _driverTrips
+                  .where((t) => t['status'] == 'scheduled')
+                  .toList();
+
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: scheduledTrips.length,
+                separatorBuilder: (context, idx) => const SizedBox(height: 10),
+                itemBuilder: (context, idx) {
+                  final trip = scheduledTrips[idx];
+                  final isSelected = trip['id'] == _selectedTripRunId;
+
+                  if (isSelected) {
+                    return _buildSelectedTripCard(trip);
+                  } else {
+                    return _buildCollapsedTripCard(trip);
+                  }
+                },
+              );
+            },
+          ),
+        ] else ...[
+          // NO TRIPS SCHEDULED TODAY
+          Container(
+            padding: const EdgeInsets.all(24.0),
+            decoration: BoxDecoration(
+              color: const Color(0xFF151C2C),
+              borderRadius: const BorderRadius.all(Radius.circular(16)),
+              border: Border.all(color: const Color(0xFF223049), width: 1.5),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.info_outline, size: 60, color: Color(0xFF10B981)),
+                const SizedBox(height: 16),
+                const Text(
+                  'No Trips Scheduled Today',
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'You have no assigned route schedules for this bus today. Please contact your school administrator if this is an error.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 13, color: Color(0xFF94A3B8), height: 1.4),
+                ),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Calling School Dispatch Administrator...')),
+                    );
+                  },
+                  icon: const Icon(Icons.phone),
+                  label: const Text('CONTACT ADMINISTRATOR', style: TextStyle(fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(double.infinity, 50),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
                 ),
               ],
             ),
@@ -1776,7 +1621,13 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             Expanded(
               flex: 2,
               child: ElevatedButton.icon(
-                onPressed: _endTrip,
+                onPressed: () async {
+                  if (_activeTrip != null) {
+                    await _handleEndTrip(_activeTrip['id']);
+                  } else {
+                    await _endTrip();
+                  }
+                },
                 icon: const Icon(Icons.stop, size: 28),
                 label: const Text('END', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 style: ElevatedButton.styleFrom(
@@ -2271,16 +2122,16 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     final isSos = ref.watch(emergencyActiveProvider);
     final telemetry = ref.watch(telemetryCoordsProvider);
 
-    final activeRoute = _routes.firstWhere(
-      (r) => r['id'] == _selectedRouteId,
-      orElse: () => null,
-    );
-    final activeTrip = _trips.firstWhere(
-      (t) => t['id'] == _selectedTripId,
-      orElse: () => null,
-    );
-    final routeName = activeRoute != null ? activeRoute['name'] as String : 'Active Route';
-    final tripName = activeTrip != null ? activeTrip['name'] as String : 'Active Trip';
+    String routeName = 'Active Route';
+    String tripName = 'Active Trip';
+
+    if (isTripActive && _activeTrip != null) {
+      routeName = _activeTrip['route']?['name'] ?? 'Active Route';
+      tripName = _activeTrip['schedule']?['name'] ?? 'Active Trip';
+    } else if (_nextTrip != null) {
+      routeName = _nextTrip['route']?['name'] ?? 'Scheduled Route';
+      tripName = _nextTrip['schedule']?['name'] ?? 'Scheduled Trip';
+    }
 
     return Scaffold(
       body: Column(
@@ -2352,6 +2203,272 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               foregroundColor: Colors.white,
             )
           : null,
+    );
+  }
+
+  Widget _buildSelectedTripCard(dynamic trip) {
+    final schedule = trip['schedule'] ?? {};
+    final route = trip['route'] ?? {};
+    final departureTime = schedule['departure_time']?.toString().substring(0, 5) ?? '00:00';
+    final direction = schedule['direction'] ?? 'HOME_TO_SCHOOL';
+    final isPickup = direction == 'HOME_TO_SCHOOL';
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFF151C2C),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFF10B981), width: 2.0),
+        boxShadow: [
+          BoxShadow(color: const Color(0xFF10B981).withAlpha(30), blurRadius: 10, spreadRadius: 1)
+        ]
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Text(
+                  route['name'] ?? 'Route',
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isPickup ? const Color(0xFF047857) : const Color(0xFFB45309),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  isPickup ? 'Pickup' : 'Dropoff',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              const Icon(Icons.access_time_filled, color: Color(0xFF10B981), size: 16),
+              const SizedBox(width: 6),
+              Text(
+                'Depart $departureTime',
+                style: const TextStyle(fontSize: 14, color: Color(0xFF34D399), fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(width: 16),
+              const Icon(Icons.calendar_month, color: Color(0xFF10B981), size: 16),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  schedule['name'] ?? 'Trip Run',
+                  style: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF223049)),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        '${trip['students_count'] ?? 0}',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'STUDENTS',
+                        style: TextStyle(fontSize: 9, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF223049)),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        '${trip['stops_count'] ?? 0}',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'STOPS',
+                        style: TextStyle(fontSize: 9, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F172A),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF223049)),
+                  ),
+                  child: Column(
+                    children: [
+                      Text(
+                        '${trip['estimated_duration'] ?? 0}m',
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'EST. TIME',
+                        style: TextStyle(fontSize: 9, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_countdownText.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            Center(
+              child: Text(
+                _countdownText,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.amber,
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 20),
+          if (!isPickup) ...[
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => StudentSelectionScreen(
+                      routeId: route['id'],
+                      tenantId: _tenantController.text.trim(),
+                      tripId: schedule['id'],
+                    ),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.people_outline, size: 24),
+              label: const Text('BOARD STUDENTS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0F172A),
+                foregroundColor: Colors.white,
+                side: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                minimumSize: const Size(double.infinity, 54),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
+          ElevatedButton.icon(
+            onPressed: () => _handleStartTrip(trip['id'], route['id'], schedule['id']),
+            icon: const Icon(Icons.play_arrow, size: 24),
+            label: const Text('START TRIP', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF10B981),
+              foregroundColor: Colors.white,
+              minimumSize: const Size(double.infinity, 54),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              elevation: 2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCollapsedTripCard(dynamic trip) {
+    final schedule = trip['schedule'] ?? {};
+    final route = trip['route'] ?? {};
+    final departureTime = schedule['departure_time']?.toString().substring(0, 5) ?? '00:00';
+    final direction = schedule['direction'] ?? 'HOME_TO_SCHOOL';
+    final isPickup = direction == 'HOME_TO_SCHOOL';
+
+    return InkWell(
+      onTap: () {
+        setState(() {
+          _selectedTripRunId = trip['id'];
+          _processTripStates();
+        });
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: const Color(0xFF151C2C),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFF223049)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: isPickup ? const Color(0xFF10B981) : const Color(0xFFF59E0B),
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    route['name'] ?? 'Route',
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$departureTime • ${schedule['name'] ?? 'Trip'} • ${trip['students_count'] ?? 0} students',
+                    style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: isPickup ? const Color(0xFF047857).withAlpha(40) : const Color(0xFFB45309).withAlpha(40),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                isPickup ? 'AM' : 'PM',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  color: isPickup ? const Color(0xFF34D399) : const Color(0xFFF59E0B)
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

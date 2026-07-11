@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import { getLocalVehicles, saveLocalVehicles } from "@/lib/jsonDb";
 
 const vehicleUpdateSchema = z.object({
   license_plate: z.string().min(3).optional(),
@@ -32,10 +33,19 @@ export async function PUT(
     const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
+      const vehicles = getLocalVehicles();
+      const updatedVehicles = vehicles.map(v => {
+        if (v.id === id) {
+          return { ...v, ...result.data };
+        }
+        return v;
+      });
+      saveLocalVehicles(updatedVehicles);
+      const updated = updatedVehicles.find(v => v.id === id) || { id, ...result.data };
       return NextResponse.json({
         success: true,
         source: "mock",
-        data: { id, ...result.data }
+        data: updated
       });
     }
 
@@ -55,10 +65,19 @@ export async function PUT(
 
     if (error) {
       if (error.code === "42501" || error.message.includes("violates row-level security")) {
+        const vehicles = getLocalVehicles();
+        const updatedVehicles = vehicles.map(v => {
+          if (v.id === id) {
+            return { ...v, ...result.data };
+          }
+          return v;
+        });
+        saveLocalVehicles(updatedVehicles);
+        const updated = updatedVehicles.find(v => v.id === id) || { id, ...result.data };
         return NextResponse.json({
           success: true,
           source: "supabase_rls_mock_fallback",
-          data: { id, ...result.data }
+          data: updated
         });
       }
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
@@ -82,6 +101,9 @@ export async function DELETE(
     const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
+      const vehicles = getLocalVehicles();
+      const updatedVehicles = vehicles.filter(v => v.id !== id);
+      saveLocalVehicles(updatedVehicles);
       return NextResponse.json({
         success: true,
         source: "mock",
@@ -98,6 +120,9 @@ export async function DELETE(
 
     if (error) {
       if (error.code === "42501" || error.message.includes("violates row-level security")) {
+        const vehicles = getLocalVehicles();
+        const updatedVehicles = vehicles.filter(v => v.id !== id);
+        saveLocalVehicles(updatedVehicles);
         return NextResponse.json({
           success: true,
           source: "supabase_rls_mock_fallback",

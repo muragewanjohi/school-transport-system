@@ -203,6 +203,35 @@ export async function PUT(
       return NextResponse.json({ success: true, source: "supabase_error_fallback", data: { id, ...result.data } });
     }
 
+    // Sync trip manifest attendance if student status changes and there is an active trip today
+    if (result.data.status && studentUpdate) {
+      const attendanceStatus = result.data.status === "Present" ? "boarded" : "dropped_off";
+      const todayStr = new Date().toISOString().split("T")[0];
+      
+      const { data: activeTrips } = await client
+        .from("trips")
+        .select("id")
+        .eq("route_id", studentUpdate.route_id)
+        .eq("trip_date", todayStr)
+        .eq("status", "in_progress");
+
+      if (activeTrips && activeTrips.length > 0) {
+        const tripIds = activeTrips.map(t => t.id);
+        const updateData: Record<string, any> = { attendance: attendanceStatus };
+        if (attendanceStatus === "boarded") {
+          updateData.boarded_at = new Date().toISOString();
+        } else {
+          updateData.dropped_off_at = new Date().toISOString();
+        }
+        
+        await client
+          .from("trip_manifests")
+          .update(updateData)
+          .in("trip_id", tripIds)
+          .eq("student_id", id);
+      }
+    }
+
     return NextResponse.json({ success: true, source: "supabase", data: studentUpdate });
 
   } catch (err: unknown) {

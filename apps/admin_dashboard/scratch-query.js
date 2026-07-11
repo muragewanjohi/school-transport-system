@@ -7,12 +7,12 @@ const supabase = createClient(url, anonKey);
 
 async function run() {
   const { data, error } = await supabase
-    .from("routes")
-    .select("id, name");
+    .from("trips")
+    .select("id, schedule_id, trip_date, status");
   if (error) {
-    console.error("Error querying routes:", error);
+    console.error("Error querying trips:", error);
   } else {
-    console.log("All visible routes:", JSON.stringify(data, null, 2));
+    console.log("All visible trips:", JSON.stringify(data, null, 2));
   }
 }
 

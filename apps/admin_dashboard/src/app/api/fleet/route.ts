@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import { getLocalVehicles, saveLocalVehicles } from "@/lib/jsonDb";
 
 const vehicleSchema = z.object({
   license_plate: z.string().min(3, "License plate must be at least 3 characters"),
@@ -115,7 +116,7 @@ export async function GET(request: Request) {
     const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
-      return NextResponse.json({ success: true, source: "mock", data: mockVehicles });
+      return NextResponse.json({ success: true, source: "mock", data: getLocalVehicles() });
     }
 
     const client = getSupabaseClient(token);
@@ -141,7 +142,7 @@ export async function GET(request: Request) {
 
     if (error) {
       console.warn("Supabase vehicles fetch failed (likely missing columns). Falling back to mock data:", error.message);
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: mockVehicles });
+      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: getLocalVehicles() });
     }
 
     // Try joining details from profiles if we have vehicles in Supabase
@@ -164,7 +165,7 @@ export async function GET(request: Request) {
     }
 
     // If Supabase table is empty, return the rich mock fleet to keep development functional
-    return NextResponse.json({ success: true, source: "supabase_mock_fallback", data: mockVehicles });
+    return NextResponse.json({ success: true, source: "supabase_mock_fallback", data: getLocalVehicles() });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
@@ -192,6 +193,8 @@ export async function POST(request: Request) {
         conductor_1: result.data.conductor_1_id ? { id: result.data.conductor_1_id, name: "Assigned Conductor 1", phone: "" } : null,
         conductor_2: result.data.conductor_2_id ? { id: result.data.conductor_2_id, name: "Assigned Conductor 2", phone: "" } : null,
       };
+      const currentLocal = getLocalVehicles();
+      saveLocalVehicles([...currentLocal, newMockVehicle]);
       return NextResponse.json({ success: true, source: "mock", data: newMockVehicle });
     }
 
@@ -234,6 +237,8 @@ export async function POST(request: Request) {
           conductor_1: payload.conductor_1_id ? { id: payload.conductor_1_id, name: "Assigned Conductor 1", phone: "" } : null,
           conductor_2: payload.conductor_2_id ? { id: payload.conductor_2_id, name: "Assigned Conductor 2", phone: "" } : null,
         };
+        const currentLocal = getLocalVehicles();
+        saveLocalVehicles([...currentLocal, mockPersistedVehicle]);
         return NextResponse.json({ success: true, source: "supabase_rls_mock_fallback", data: mockPersistedVehicle });
       }
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });

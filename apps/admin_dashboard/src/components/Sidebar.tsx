@@ -17,7 +17,8 @@ import {
   User,
   MapPin,
   Shield,
-  CreditCard
+  CreditCard,
+  Clock
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -36,23 +37,20 @@ export default function Sidebar() {
 }
 
 function SidebarContent() {
+  const { profile, signOut } = useAuth();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
+
   const [staffExpanded, setStaffExpanded] = useState(false);
   const [routesExpanded, setRoutesExpanded] = useState(false);
-  const { signOut, profile } = useAuth();
 
-  // Keep staff menu expanded if currently active on staff sub-routes
+  // Automatically expand sections based on active pathname
   useEffect(() => {
-    if (pathname && pathname.startsWith("/staff")) {
+    if (pathname.startsWith("/staff")) {
       setStaffExpanded(true);
     }
-  }, [pathname]);
-
-  // Keep routes menu expanded if currently active on route sub-routes
-  useEffect(() => {
-    if (pathname && (pathname.startsWith("/routes") || pathname === "/routes")) {
+    if (pathname.startsWith("/routes")) {
       setRoutesExpanded(true);
     }
   }, [pathname]);
@@ -63,31 +61,32 @@ function SidebarContent() {
         <div className="brand-icon">S</div>
         <span className="brand-title">Safaricom Track</span>
       </div>
-      <nav style={{ flex: 1 }}>
-        <ul className="sidebar-menu">
-          {/* Command Console */}
+
+      <nav className="sidebar-menu">
+        <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "4px" }}>
+          {/* Real-time Tracking */}
           <li>
             <Link 
               href="/" 
               className={`menu-item ${pathname === "/" ? "active" : ""}`}
             >
               <Navigation size={18} />
-              <span>Command Console</span>
+              <span>Real-time Tracking</span>
             </Link>
           </li>
 
-          {/* Manage Fleet */}
+          {/* Fleet Management */}
           <li>
             <Link 
               href="/fleet" 
               className={`menu-item ${pathname === "/fleet" ? "active" : ""}`}
             >
               <Bus size={18} />
-              <span>Manage Fleet</span>
+              <span>Fleet Management</span>
             </Link>
           </li>
 
-          {/* Staff Collapsible Section */}
+          {/* Staff Roster Collapsible Section */}
           <li>
             <div 
               onClick={() => setStaffExpanded(!staffExpanded)}
@@ -96,7 +95,7 @@ function SidebarContent() {
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Users size={18} />
-                <span>Staff Management</span>
+                <span>Staff Roster</span>
               </div>
               {staffExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </div>
@@ -146,7 +145,7 @@ function SidebarContent() {
             </Link>
           </li>
 
-          {/* Route Planning Collapsible Section */}
+          {/* Routes Collapsible Section */}
           <li>
             <div 
               onClick={() => setRoutesExpanded(!routesExpanded)}
@@ -155,7 +154,7 @@ function SidebarContent() {
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Compass size={18} />
-                <span>Route Planning</span>
+                <span>Routes</span>
               </div>
               {routesExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
             </div>
@@ -177,7 +176,7 @@ function SidebarContent() {
                     style={{ padding: "6px 12px", fontSize: "0.85rem" }}
                   >
                     <Compass size={14} style={{ color: "var(--accent-secondary)" }} />
-                    <span>Active Routes</span>
+                    <span>All Routes</span>
                   </Link>
                 </li>
                 <li>
@@ -188,6 +187,16 @@ function SidebarContent() {
                   >
                     <MapPin size={14} style={{ color: "var(--accent-primary)" }} />
                     <span>Stops & Stages</span>
+                  </Link>
+                </li>
+                <li>
+                  <Link 
+                    href="/routes/today-trips" 
+                    className={`menu-item ${pathname === "/routes/today-trips" ? "active" : ""}`}
+                    style={{ padding: "6px 12px", fontSize: "0.85rem" }}
+                  >
+                    <Clock size={14} style={{ color: "var(--accent-secondary)" }} />
+                    <span>Today's Trips</span>
                   </Link>
                 </li>
                 <li>

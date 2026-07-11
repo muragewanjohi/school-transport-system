@@ -240,6 +240,9 @@ function RoutesManagement() {
   const initializeDraggableMarker = async (lng: number, lat: number) => {
     if (!mapRef.current) return;
     const mapboxglModule = (await import("mapbox-gl")).default;
+    
+    // Check again after async import to ensure component wasn't unmounted/map removed
+    if (!mapRef.current) return;
 
     if (draggableMarkerRef.current) {
       draggableMarkerRef.current.remove();
@@ -473,6 +476,9 @@ function RoutesManagement() {
   const initializeDraggableSchoolMarker = async (lng: number, lat: number) => {
     if (!mapRef.current) return;
     const mapboxglModule = (await import("mapbox-gl")).default;
+
+    // Check again after async import to ensure component wasn't unmounted/map removed
+    if (!mapRef.current) return;
 
     if (draggableSchoolMarkerRef.current) {
       draggableSchoolMarkerRef.current.remove();
@@ -803,16 +809,20 @@ function RoutesManagement() {
   useEffect(() => {
     if (!hasMapboxToken || !mapContainerRef.current || !currentRoute) return;
 
-    let mapInstance: mapboxgl.Map;
+    let isMounted = true;
+    let mapInstance: mapboxgl.Map | null = null;
 
     const initMap = async () => {
       const mapboxglModule = (await import("mapbox-gl")).default;
+      
+      if (!isMounted || !mapContainerRef.current) return;
+
       mapboxglModule.accessToken = mapboxToken;
 
       const centerCoord = currentRoute.path?.coordinates[0] || [36.8045, -1.2721];
 
       mapInstance = new mapboxglModule.Map({
-        container: mapContainerRef.current!,
+        container: mapContainerRef.current,
         style: "mapbox://styles/mapbox/dark-v11",
         center: centerCoord as [number, number],
         zoom: 13,
@@ -823,6 +833,8 @@ function RoutesManagement() {
       mapInstance.addControl(new mapboxglModule.NavigationControl(), "top-right");
 
       mapInstance.on("load", () => {
+        if (!isMounted || !mapInstance) return;
+
         // Draw the selected route path line (always add source so we can update it)
         mapInstance.addSource(`active-route-src`, {
           type: "geojson",
@@ -857,9 +869,11 @@ function RoutesManagement() {
     initMap();
 
     return () => {
+      isMounted = false;
       if (mapInstance) {
         mapInstance.remove();
       }
+      mapRef.current = null;
     };
   }, [selectedRouteId, routes, hasMapboxToken]);
 
@@ -1045,8 +1059,9 @@ function RoutesManagement() {
   useEffect(() => {
     if (mapRef.current) {
       import("mapbox-gl").then(module => {
-        updateMapMarkers(mapRef.current!, module.default);
-        updateRouteLine(mapRef.current!, routeStops);
+        if (!mapRef.current) return;
+        updateMapMarkers(mapRef.current, module.default);
+        updateRouteLine(mapRef.current, routeStops);
       });
     }
   }, [stops, selectedRouteId, activeTab, schoolLocations]);
@@ -2455,7 +2470,9 @@ function RoutesManagement() {
                     { num: 2, label: "Tue" },
                     { num: 3, label: "Wed" },
                     { num: 4, label: "Thu" },
-                    { num: 5, label: "Fri" }
+                    { num: 5, label: "Fri" },
+                    { num: 6, label: "Sat" },
+                    { num: 7, label: "Sun" }
                   ].map(day => (
                     <label key={day.num} style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "0.8rem", color: "var(--text-primary)", cursor: "pointer" }}>
                       <input 
