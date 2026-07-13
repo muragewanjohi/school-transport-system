@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "465945931477",
+    "project_id": "school-transport-system-f606a",
+    "storage_bucket": "school-transport-system-f606a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:465945931477:android:a75da1dd2c4c55965cbc5c",
+        "android_client_info": {
+          "package_name": "com.schooltrack.driver_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC9PEVpSbXQg5gMVm1W26eLCAZVbMQwZ3g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

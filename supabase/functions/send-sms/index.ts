@@ -34,24 +34,43 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Fetch student name and parent profile details (bypassing RLS with service role client)
-    const { data: student, error: studentError } = await supabase
-      .from("students")
-      .select("name, parent:profiles!parent_id(phone, name)")
-      .eq("id", student_id)
-      .single();
+    // Fetch recipient phone and details (bypassing RLS with service role client)
+    let parentPhone = "";
+    let studentName = "";
 
-    if (studentError || !student) {
-      throw new Error(`Failed to fetch student details: ${studentError?.message || "Not found"}`);
+    if (student_id) {
+      const { data: student, error: studentError } = await supabase
+        .from("students")
+        .select("name, parent:profiles!parent_id(phone, name)")
+        .eq("id", student_id)
+        .single();
+
+      if (studentError || !student) {
+        throw new Error(`Failed to fetch student details: ${studentError?.message || "Not found"}`);
+      }
+
+      // Cast the nested parent profiles join
+      const parentProfile = student.parent as unknown as { phone: string; name: string } | null;
+      parentPhone = parentProfile?.phone || "";
+      studentName = student.name || "";
+    } else if (parent_id) {
+      // General profile fallback (e.g. driver/conductor or direct message)
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .select("phone, name")
+        .eq("id", parent_id)
+        .single();
+
+      if (profileError || !profile) {
+        throw new Error(`Failed to fetch profile details: ${profileError?.message || "Not found"}`);
+      }
+
+      parentPhone = profile.phone || "";
+      studentName = profile.name || "";
     }
 
-    // Cast the nested parent profiles join
-    const parentProfile = student.parent as unknown as { phone: string; name: string } | null;
-    const parentPhone = parentProfile?.phone;
-    const studentName = student.name;
-
     if (!parentPhone) {
-      throw new Error(`Parent phone number not found for student: ${studentName}`);
+      throw new Error(`Recipient phone number not found for ID: ${parent_id || student_id}`);
     }
 
     // Format the alert message

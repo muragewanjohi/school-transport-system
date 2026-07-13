@@ -11,6 +11,8 @@ import 'package:driver_app/services/location_service.dart';
 import 'package:driver_app/screens/login_screen.dart';
 import 'package:driver_app/screens/student_selection_screen.dart';
 import 'package:http/http.dart' as http;
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 
 // Riverpod provider for managing active trip state
 final tripActiveProvider = StateProvider<bool>((ref) => false);
@@ -39,6 +41,11 @@ final telemetryCoordsProvider = StateProvider<TelemetryCoords?>((ref) => null);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Firebase
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
 
   // Initialize Supabase client
   await Supabase.initialize(

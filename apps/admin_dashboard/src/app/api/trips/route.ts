@@ -406,6 +406,12 @@ async function sendTripNotifications(
     custom_departure_time?: string | null; 
   }
 ) {
+  // If Supabase is active, notifications are handled by the database trigger on public.trips updates
+  if (isSupabaseConfigured) {
+    console.log("[API] Supabase active; skipping manual Next.js trip status notifications (handled by DB trigger).");
+    return;
+  }
+
   try {
     // 1. Fetch route details
     let routeName = "assigned route";

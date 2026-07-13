@@ -36,10 +36,11 @@ export default function ConfigConsole() {
   const canEdit = profile?.admin_role === "Super Admin" || profile?.admin_role === "Operations Admin";
 
   // Tab State
-  const [activeTab, setActiveTab] = useState<"profile" | "alerts" | "schedule">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "alerts" | "schedule" | "notifications">("profile");
 
   // Form State
   const [schoolName, setSchoolName] = useState("");
+  const [smsNotificationsEnabled, setSmsNotificationsEnabled] = useState(false);
   const [schoolPhone, setSchoolPhone] = useState("");
   const [schoolEmail, setSchoolEmail] = useState("");
   const [schoolAddress, setSchoolAddress] = useState("");
@@ -49,8 +50,10 @@ export default function ConfigConsole() {
   const [notifyTripStart, setNotifyTripStart] = useState(true);
   const [notifyGeofenceEntry, setNotifyGeofenceEntry] = useState(true);
   const [notifyBoarded, setNotifyBoarded] = useState(true);
-  const [smsTemplateGeofence, setSmsTemplateGeofence] = useState("");
-  const [smsTemplateBoarded, setSmsTemplateBoarded] = useState("");
+  const [smsTemplateGeofence, setSmsTemplateGeofence] = useState("Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. Please prepare {student_name}.");
+  const [smsTemplateBoarded, setSmsTemplateBoarded] = useState("Hi {parent_name}, {student_name} has safely boarded the school bus {vehicle_plate}.");
+  const [smsTemplateTripStart, setSmsTemplateTripStart] = useState("Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} has started. Bus {vehicle_plate} is active.");
+  const [smsTemplateTripStatus, setSmsTemplateTripStatus] = useState("Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} is {status_override} due to {trip_description}. Bus {vehicle_plate}.");
 
   const [operatingHoursStart, setOperatingHoursStart] = useState("06:00");
   const [operatingHoursEnd, setOperatingHoursEnd] = useState("18:00");
@@ -85,12 +88,15 @@ export default function ConfigConsole() {
           setNotifyTripStart(config.notify_on_trip_start !== false);
           setNotifyGeofenceEntry(config.notify_on_geofence_entry !== false);
           setNotifyBoarded(config.notify_on_boarded !== false);
-          setSmsTemplateGeofence(config.sms_template_geofence || "");
-          setSmsTemplateBoarded(config.sms_template_boarded || "");
+          setSmsTemplateGeofence(config.sms_template_geofence || "Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. Please prepare {student_name}.");
+          setSmsTemplateBoarded(config.sms_template_boarded || "Hi {parent_name}, {student_name} has safely boarded the school bus {vehicle_plate}.");
+          setSmsTemplateTripStart(config.sms_template_trip_start || "Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} has started. Bus {vehicle_plate} is active.");
+          setSmsTemplateTripStatus(config.sms_template_trip_status || "Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} is {status_override} due to {trip_description}. Bus {vehicle_plate}.");
           setOperatingHoursStart(config.operating_hours_start?.slice(0, 5) || "06:00");
           setOperatingHoursEnd(config.operating_hours_end?.slice(0, 5) || "18:00");
           setOperatingDays(config.operating_days || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
           setHolidays(config.holidays || []);
+          setSmsNotificationsEnabled(config.sms_notifications_enabled || false);
         }
       } catch (err) {
         console.error("Failed to fetch system configurations:", err);
@@ -121,10 +127,13 @@ export default function ConfigConsole() {
       notify_on_boarded: notifyBoarded,
       sms_template_geofence: smsTemplateGeofence,
       sms_template_boarded: smsTemplateBoarded,
+      sms_template_trip_start: smsTemplateTripStart,
+      sms_template_trip_status: smsTemplateTripStatus,
       operating_hours_start: operatingHoursStart + ":00",
       operating_hours_end: operatingHoursEnd + ":00",
       operating_days: operatingDays,
-      holidays: holidays
+      holidays: holidays,
+      sms_notifications_enabled: smsNotificationsEnabled
     };
 
     try {
@@ -278,6 +287,14 @@ export default function ConfigConsole() {
                   <CalendarDays size={16} />
                   <span>Operational Hours</span>
                 </button>
+                <button
+                  type="button"
+                  className={`tab-btn ${activeTab === "notifications" ? "active" : ""}`}
+                  onClick={() => setActiveTab("notifications")}
+                >
+                  <BellRing size={16} />
+                  <span>Notifications</span>
+                </button>
               </div>
 
               {/* TAB 1: GENERAL PROFILE */}
@@ -392,50 +409,6 @@ export default function ConfigConsole() {
                     </span>
                   </div>
 
-                  <div className="form-group" style={{ marginBottom: "24px" }}>
-                    <label style={{ marginBottom: "12px", display: "block" }}>Automatic Notification Events</label>
-                    <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          disabled={!canEdit}
-                          checked={notifyTripStart}
-                          onChange={(e) => setNotifyTripStart(e.target.checked)}
-                        />
-                        <div>
-                          <span>Dispatch Morning Trip Start</span>
-                          <p>Notify parents instantly when the driver presses "Start Trip" on the driver console.</p>
-                        </div>
-                      </label>
-
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          disabled={!canEdit}
-                          checked={notifyGeofenceEntry}
-                          onChange={(e) => setNotifyGeofenceEntry(e.target.checked)}
-                        />
-                        <div>
-                          <span>Dispatch Geofence Proximity Warning</span>
-                          <p>Notify parents when the vehicle crosses the distance threshold computed via PostGIS.</p>
-                        </div>
-                      </label>
-
-                      <label className="checkbox-row">
-                        <input
-                          type="checkbox"
-                          disabled={!canEdit}
-                          checked={notifyBoarded}
-                          onChange={(e) => setNotifyBoarded(e.target.checked)}
-                        />
-                        <div>
-                          <span>Dispatch Boarding Receipts</span>
-                          <p>Notify parents when their child is scanned onto the bus by the conductor checklist.</p>
-                        </div>
-                      </label>
-                    </div>
-                  </div>
-
                   <div className="form-grid">
                     <div className="form-group" style={{ gridColumn: "span 2" }}>
                       <label>SMS Template: Proximity Approaching</label>
@@ -444,7 +417,7 @@ export default function ConfigConsole() {
                         rows={3}
                         value={smsTemplateGeofence}
                         onChange={(e) => setSmsTemplateGeofence(e.target.value)}
-                        placeholder="e.g. Hi {parent_name}, Bus {vehicle_plate} is approaching..."
+                        placeholder="Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. Please prepare {student_name}."
                         style={{
                           width: "100%",
                           background: "var(--background-card)",
@@ -469,7 +442,7 @@ export default function ConfigConsole() {
                         rows={3}
                         value={smsTemplateBoarded}
                         onChange={(e) => setSmsTemplateBoarded(e.target.value)}
-                        placeholder="e.g. Hi {parent_name}, {student_name} has safely boarded..."
+                        placeholder="Hi {parent_name}, {student_name} has safely boarded the school bus {vehicle_plate}."
                         style={{
                           width: "100%",
                           background: "var(--background-card)",
@@ -484,6 +457,56 @@ export default function ConfigConsole() {
                       />
                       <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
                         Variables supported: <code>{"{parent_name}"}</code>, <code>{"{student_name}"}</code>, <code>{"{vehicle_plate}"}</code>.
+                      </span>
+                    </div>
+
+                    <div className="form-group" style={{ gridColumn: "span 2" }}>
+                      <label>SMS Template: Bus Left School (Trip Start)</label>
+                      <textarea
+                        disabled={!canEdit}
+                        rows={3}
+                        value={smsTemplateTripStart}
+                        onChange={(e) => setSmsTemplateTripStart(e.target.value)}
+                        placeholder="Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} has started. Bus {vehicle_plate} is active."
+                        style={{
+                          width: "100%",
+                          background: "var(--background-card)",
+                          border: "1px solid var(--border-default)",
+                          borderRadius: "8px",
+                          padding: "10px",
+                          color: "var(--text-primary)",
+                          fontSize: "0.85rem",
+                          outline: "none",
+                          fontFamily: "monospace"
+                        }}
+                      />
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
+                        Variables supported: <code>{"{parent_name}"}</code>, <code>{"{student_name}"}</code>, <code>{"{route_name}"}</code>, <code>{"{vehicle_plate}"}</code>, <code>{"{trip_name}"}</code>.
+                      </span>
+                    </div>
+
+                    <div className="form-group" style={{ gridColumn: "span 2" }}>
+                      <label>SMS Template: Trip Update (Scheduled / Delayed / Cancelled)</label>
+                      <textarea
+                        disabled={!canEdit}
+                        rows={3}
+                        value={smsTemplateTripStatus}
+                        onChange={(e) => setSmsTemplateTripStatus(e.target.value)}
+                        placeholder="Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} is {status_override} due to {trip_description}. Bus {vehicle_plate}."
+                        style={{
+                          width: "100%",
+                          background: "var(--background-card)",
+                          border: "1px solid var(--border-default)",
+                          borderRadius: "8px",
+                          padding: "10px",
+                          color: "var(--text-primary)",
+                          fontSize: "0.85rem",
+                          outline: "none",
+                          fontFamily: "monospace"
+                        }}
+                      />
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
+                        Variables supported: <code>{"{parent_name}"}</code>, <code>{"{student_name}"}</code>, <code>{"{route_name}"}</code>, <code>{"{vehicle_plate}"}</code>, <code>{"{trip_name}"}</code>, <code>{"{status_override}"}</code>, <code>{"{trip_description}"}</code>, <code>{"{departure_time}"}</code>.
                       </span>
                     </div>
                   </div>
@@ -698,6 +721,102 @@ export default function ConfigConsole() {
                         </div>
                       </div>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 4: NOTIFICATIONS */}
+              {activeTab === "notifications" && (
+                <div className="config-panel">
+                  <span className="panel-title">Notification Configurations</span>
+                  <p className="panel-desc">Manage in-app real-time alerts and enable external SMS messaging for critical transit events.</p>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
+                    
+                    {/* App Notifications Section (Checkable) */}
+                    <div style={{
+                      background: "rgba(255, 255, 255, 0.01)",
+                      border: "1px solid var(--border-default)",
+                      borderRadius: "10px",
+                      padding: "20px"
+                    }}>
+                      <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "#ffffff", display: "block", marginBottom: "4px" }}>
+                        App Push Notifications (In-App & Background)
+                      </span>
+                      <span style={{ fontSize: "0.80rem", color: "var(--text-muted)", display: "block", marginBottom: "16px" }}>
+                        Configure which operational events will trigger push notifications to parents and staff mobile applications.
+                      </span>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                        <label className="checkbox-row" style={{ border: notifyTripStart ? "1px solid var(--accent-primary)" : "1px solid var(--border-default)", background: notifyTripStart ? "rgba(16, 185, 129, 0.03)" : "var(--background-card)" }}>
+                          <input
+                            type="checkbox"
+                            disabled={!canEdit}
+                            checked={notifyTripStart}
+                            onChange={(e) => setNotifyTripStart(e.target.checked)}
+                          />
+                          <div>
+                            <span>Trip Starts & Route Activation</span>
+                            <p>Notify parents instantly when the driver presses "Start Trip" on the driver console.</p>
+                          </div>
+                        </label>
+
+                        <label className="checkbox-row" style={{ border: notifyGeofenceEntry ? "1px solid var(--accent-primary)" : "1px solid var(--border-default)", background: notifyGeofenceEntry ? "rgba(16, 185, 129, 0.03)" : "var(--background-card)" }}>
+                          <input
+                            type="checkbox"
+                            disabled={!canEdit}
+                            checked={notifyGeofenceEntry}
+                            onChange={(e) => setNotifyGeofenceEntry(e.target.checked)}
+                          />
+                          <div>
+                            <span>Geofence Proximity Alerts (ETA)</span>
+                            <p>Notify parents when the vehicle crosses the distance threshold computed via PostGIS coordinates.</p>
+                          </div>
+                        </label>
+
+                        <label className="checkbox-row" style={{ border: notifyBoarded ? "1px solid var(--accent-primary)" : "1px solid var(--border-default)", background: notifyBoarded ? "rgba(16, 185, 129, 0.03)" : "var(--background-card)" }}>
+                          <input
+                            type="checkbox"
+                            disabled={!canEdit}
+                            checked={notifyBoarded}
+                            onChange={(e) => setNotifyBoarded(e.target.checked)}
+                          />
+                          <div>
+                            <span>Student Boarding & Dropoff Receipts</span>
+                            <p>Notify parents instantly when their child is scanned onto/off the bus by the conductor checklist.</p>
+                          </div>
+                        </label>
+                      </div>
+                    </div>
+
+                    {/* SMS Notifications Section (Toggleable) */}
+                    <div style={{
+                      background: "rgba(255, 255, 255, 0.01)",
+                      border: "1px solid var(--border-default)",
+                      borderRadius: "10px",
+                      padding: "20px"
+                    }}>
+                      <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "#ffffff", display: "block", marginBottom: "4px" }}>
+                        SMS Dispatch Services
+                      </span>
+                      <span style={{ fontSize: "0.80rem", color: "var(--text-muted)", display: "block", marginBottom: "16px" }}>
+                        Dispatch text alerts to registered parents and staff phone numbers using Africa's Talking API integration.
+                      </span>
+
+                      <label className="checkbox-row" style={{ border: smsNotificationsEnabled ? "1px solid var(--accent-primary)" : "1px solid var(--border-default)", background: smsNotificationsEnabled ? "rgba(16, 185, 129, 0.03)" : "var(--background-card)" }}>
+                        <input
+                          type="checkbox"
+                          disabled={!canEdit}
+                          checked={smsNotificationsEnabled}
+                          onChange={(e) => setSmsNotificationsEnabled(e.target.checked)}
+                        />
+                        <div>
+                          <span>Enable Global SMS Notifications</span>
+                          <p>When enabled, critical alerts will be enqueued to the SMS dispatcher system. High carrier volume rates may apply.</p>
+                        </div>
+                      </label>
+                    </div>
+
                   </div>
                 </div>
               )}
