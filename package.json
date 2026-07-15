@@ -7,8 +7,9 @@
     "apps/*"
   ],
   "scripts": {
-    "dev:dashboard": "npm run dev --workspace=apps/admin_dashboard",
-    "build:dashboard": "npm run build --workspace=apps/admin_dashboard"
+    "sync-assets": "node scripts/sync-assets.js",
+    "dev:dashboard": "npm run sync-assets && npm run dev --workspace=apps/admin_dashboard",
+    "build:dashboard": "npm run sync-assets && npm run build --workspace=apps/admin_dashboard"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

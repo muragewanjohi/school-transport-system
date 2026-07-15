@@ -84,6 +84,7 @@
 - Created PUT and DELETE API endpoints for driver/conductor detail routes (`/api/drivers/[id]` and `/api/conductors/[id]`).
 - Refactored the bulk CSV student importer to write imported rows directly to the database via API requests.
 - Verified successfully that both the Next.js admin dashboard and Flutter driver application compile and build with zero errors.
+- Integrated Mapbox Traffic & Directions Matrix API: configured asynchronous `eta_calculation_queue` table and triggers, created `calculate-eta` Edge Function to query Mapbox driving-traffic Matrix API with Haversine fallback, updated the configurations dashboard UI to document `{duration_mins}` and `{eta_time}` custom templates, styled dashboard maps with `traffic-night-v2` styles, and modified Flutter driver app maps to stream `traffic-day-v2` raster tiles.
 
 
 ## In Progress

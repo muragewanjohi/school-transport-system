@@ -20,7 +20,8 @@ import {
   Info,
   Clock,
   CheckSquare,
-  ShieldAlert
+  ShieldAlert,
+  Key
 } from "lucide-react";
 
 interface Holiday {
@@ -54,6 +55,7 @@ export default function ConfigConsole() {
   const [smsTemplateBoarded, setSmsTemplateBoarded] = useState("Hi {parent_name}, {student_name} has safely boarded the school bus {vehicle_plate}.");
   const [smsTemplateTripStart, setSmsTemplateTripStart] = useState("Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} has started. Bus {vehicle_plate} is active.");
   const [smsTemplateTripStatus, setSmsTemplateTripStatus] = useState("Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} is {status_override} due to {trip_description}. Bus {vehicle_plate}.");
+  const [mapboxAccessToken, setMapboxAccessToken] = useState("");
 
   const [operatingHoursStart, setOperatingHoursStart] = useState("06:00");
   const [operatingHoursEnd, setOperatingHoursEnd] = useState("18:00");
@@ -97,6 +99,7 @@ export default function ConfigConsole() {
           setOperatingDays(config.operating_days || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
           setHolidays(config.holidays || []);
           setSmsNotificationsEnabled(config.sms_notifications_enabled || false);
+          setMapboxAccessToken(config.mapbox_access_token || "");
         }
       } catch (err) {
         console.error("Failed to fetch system configurations:", err);
@@ -133,7 +136,8 @@ export default function ConfigConsole() {
       operating_hours_end: operatingHoursEnd + ":00",
       operating_days: operatingDays,
       holidays: holidays,
-      sms_notifications_enabled: smsNotificationsEnabled
+      sms_notifications_enabled: smsNotificationsEnabled,
+      mapbox_access_token: mapboxAccessToken
     };
 
     try {
@@ -385,6 +389,33 @@ export default function ConfigConsole() {
                   <p className="panel-desc">Define the operational radius triggers and configure custom message templates sent to parents.</p>
 
                   <div className="form-group" style={{ marginBottom: "28px" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" }}>
+                      <Key size={16} style={{ color: "var(--accent-primary)" }} />
+                      <span>Mapbox Access Token (for Live Traffic ETAs)</span>
+                    </label>
+                    <input
+                      type="text"
+                      disabled={!canEdit}
+                      value={mapboxAccessToken}
+                      onChange={(e) => setMapboxAccessToken(e.target.value)}
+                      placeholder="pk.ey..."
+                      style={{
+                        width: "100%",
+                        background: "var(--background-card)",
+                        border: "1px solid var(--border-default)",
+                        borderRadius: "8px",
+                        padding: "10px",
+                        color: "var(--text-primary)",
+                        fontSize: "0.85rem",
+                        outline: "none"
+                      }}
+                    />
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
+                      Add your Mapbox Public Token to enable live traffic routing matrix calculations. If empty, the system defaults to static stop duration estimates.
+                    </span>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: "28px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
                       <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                         <Sliders size={16} style={{ color: "var(--accent-primary)" }} />
@@ -431,7 +462,7 @@ export default function ConfigConsole() {
                         }}
                       />
                       <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
-                        Variables supported: <code>{"{parent_name}"}</code>, <code>{"{student_name}"}</code>, <code>{"{stop_name}"}</code>, <code>{"{vehicle_plate}"}</code>.
+                        Variables supported: <code>{"{parent_name}"}</code>, <code>{"{student_name}"}</code>, <code>{"{stop_name}"}</code>, <code>{"{vehicle_plate}"}</code>, <code>{"{duration_mins}"}</code>, <code>{"{eta_time}"}</code>.
                       </span>
                     </div>
 

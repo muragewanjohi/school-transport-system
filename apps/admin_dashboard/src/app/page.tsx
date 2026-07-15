@@ -159,7 +159,7 @@ export default function Home() {
 
       mapInstance = new mapboxglModule.Map({
         container: mapContainerRef.current,
-        style: "mapbox://styles/mapbox/dark-v11",
+        style: "mapbox://styles/mapbox/traffic-night-v2",
         center: [36.8045, -1.2721], // Nairobi center
         zoom: 12.5,
         pitch: 35,
@@ -217,11 +217,81 @@ export default function Home() {
           })
           .catch((err) => console.error("Error loading map routes:", err));
 
+        // Load configured school locations
+        const savedSchools = localStorage.getItem("safaricom_school_locations");
+        let schoolLocations = [
+          { id: "school-loc-1", name: "St. Mary's Academy (Upper School)", latitude: -1.2921, longitude: 36.8219 }
+        ];
+        if (savedSchools) {
+          try {
+            const parsed = JSON.parse(savedSchools);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              schoolLocations = parsed;
+            }
+          } catch (e) {
+            console.error("Failed to parse school locations:", e);
+          }
+        }
+
+        // Render school markers on the dashboard overview map
+        schoolLocations.forEach((loc) => {
+          if (!isMounted || !mapInstance) return;
+
+          const el = document.createElement("div");
+          el.className = "map-school-marker-container";
+          el.style.display = "flex";
+          el.style.flexDirection = "column";
+          el.style.alignItems = "center";
+          el.style.cursor = "pointer";
+
+          el.innerHTML = `
+            <div class="school-icon-wrapper" style="
+              width: 32px;
+              height: 32px;
+              border-radius: 50%;
+              background-color: #4f46e5;
+              border: 2px solid #ffffff;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              box-shadow: 0 0 10px rgba(79, 70, 229, 0.6);
+            ">
+              <img src="/assets/school-location-icon.png" alt="School" style="width: 20px; height: 20px; object-fit: contain;" />
+            </div>
+            <div class="school-label" style="
+              margin-top: 4px;
+              background-color: rgba(15, 23, 42, 0.85);
+              color: #ffffff;
+              padding: 2px 6px;
+              border-radius: 4px;
+              font-size: 10px;
+              font-weight: 600;
+              white-space: nowrap;
+              border: 1px solid rgba(255, 255, 255, 0.2);
+              box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            ">
+              ${loc.name}
+            </div>
+          `;
+
+          const popup = new mapboxglModule.Popup({ offset: 15 }).setHTML(
+            `<div style="color:#0f172a; font-family:var(--font-sans); padding:4px;">
+              <h4 style="font-weight:600; margin:0 0 2px 0;">School: ${loc.name}</h4>
+              <span style="font-size:0.75rem; color:#64748b;">Coordinates: ${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}</span>
+             </div>`
+          );
+
+          new mapboxglModule.Marker({ element: el })
+            .setLngLat([loc.longitude, loc.latitude])
+            .setPopup(popup)
+            .addTo(mapInstance);
+        });
+
         // Initialize default vehicle markers
         const defaultBuses = [
-          { id: "bus-4", name: "Bus 4 (Morning Run)", color: "var(--accent-primary)", lngLat: [36.7981, -1.2721] },
-          { id: "bus-2", name: "Bus 2 (Morning Run)", color: "var(--accent-secondary)", lngLat: [36.8115, -1.2699] },
-          { id: "bus-1", name: "Bus 1 (Parked)", color: "var(--text-muted)", lngLat: [36.8021, -1.2612] },
+          { id: "bus-4", name: "KBZ 445B (Morning Run)", color: "#10b981", lngLat: [36.7981, -1.2721] },
+          { id: "bus-2", name: "KCD 542A (Morning Run)", color: "#6366f1", lngLat: [36.8115, -1.2699] },
+          { id: "bus-1", name: "KBC 104D (Parked)", color: "#64748b", lngLat: [36.8021, -1.2612] },
         ];
 
         defaultBuses.forEach((bus) => {
@@ -230,8 +300,20 @@ export default function Home() {
           const el = document.createElement("div");
           el.className = "map-bus-node-marker";
           el.innerHTML = `
-            <div class="map-bus-node" style="cursor: pointer;">
-              <div class="bus-dot" style="background: ${bus.color}; box-shadow: 0 0 12px ${bus.color}"></div>
+            <div class="map-bus-node" style="cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px;">
+              <div class="bus-icon-container" style="
+                width: 28px;
+                height: 28px;
+                background-color: #eab308;
+                border: 2px solid ${bus.color};
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                box-shadow: 0 0 10px rgba(234, 179, 8, 0.7);
+              ">
+                <img src="/assets/bus-icon.png" alt="Bus" style="width: 18px; height: 18px; object-fit: contain;" />
+              </div>
               <div class="bus-label">${bus.name}</div>
             </div>
           `;
@@ -559,7 +641,7 @@ export default function Home() {
         (innerNode as HTMLElement).style.boxShadow = "0 0 16px var(--state-error)";
         (innerLabel as HTMLElement).style.color = "var(--state-error)";
         (innerLabel as HTMLElement).style.border = "1px solid var(--state-error)";
-        innerLabel.textContent = "Bus 4 - EMERGENCY SOS";
+        innerLabel.textContent = "KBZ 445B - EMERGENCY SOS";
       }
     }
   };
@@ -881,19 +963,19 @@ export default function Home() {
                   transition: "all 1s cubic-bezier(0.25, 0.8, 0.25, 1)"
                 }}>
                   <div className="bus-dot" style={{ background: "var(--accent-primary)", boxShadow: "0 0 16px var(--accent-primary)" }}></div>
-                  <div className="bus-label">Bus 4 (Morning Run)</div>
+                  <div className="bus-label">KBZ 445B (Morning Run)</div>
                 </div>
 
                 {/* Parked Bus Node 2 */}
                 <div className="map-bus-node" style={{ position: "absolute", top: "25%", left: "70%" }}>
                   <div className="bus-dot" style={{ background: "var(--text-muted)", boxShadow: "none" }}></div>
-                  <div className="bus-label">Bus 1 (Parked)</div>
+                  <div className="bus-label">KBC 104D (Parked)</div>
                 </div>
 
                 {/* Parked Bus Node 3 */}
                 <div className="map-bus-node" style={{ position: "absolute", top: "75%", left: "20%" }}>
                   <div className="bus-dot" style={{ background: "var(--accent-secondary)", boxShadow: "0 0 10px var(--accent-secondary)" }}></div>
-                  <div className="bus-label">Bus 2 (Morning Run)</div>
+                  <div className="bus-label">KCD 542A (Morning Run)</div>
                 </div>
 
                 {/* SOS Indicator (only shows when SOS triggered) */}
@@ -905,7 +987,7 @@ export default function Home() {
                       animation: "radar-pulse 1s infinite linear"
                     }}></div>
                     <div className="bus-label" style={{ border: "1px solid var(--state-error)", color: "var(--state-error)" }}>
-                      Bus 5 - EMERGENCY SOS
+                      KCA 998Y - EMERGENCY SOS
                     </div>
                   </div>
                 )}

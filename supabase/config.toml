@@ -13,11 +13,9 @@ shadow_port = 54320
 
 [auth]
 enabled = true
-port = 54324
 
 [realtime]
 enabled = true
-port = 54323
 
 [studio]
 enabled = true

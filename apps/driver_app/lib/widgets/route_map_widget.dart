@@ -9,12 +9,14 @@ class RouteMapWidget extends StatefulWidget {
   final String routeId;
   final double? liveLatitude;
   final double? liveLongitude;
+  final String? vehiclePlate;
 
   const RouteMapWidget({
     super.key,
     required this.routeId,
     this.liveLatitude,
     this.liveLongitude,
+    this.vehiclePlate,
   });
 
   @override
@@ -105,18 +107,53 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
       if (stop['location'] != null && stop['location']['coordinates'] != null) {
         final double lng = stop['location']['coordinates'][0] as double;
         final double lat = stop['location']['coordinates'][1] as double;
+        final String stopName = stop['name'] ?? 'Stop';
+        final bool isSchool = stopName.toLowerCase().contains('school') ||
+            stopName.toLowerCase().contains('academy') ||
+            stopName.toLowerCase().contains('kindergarten');
+
         markers.add(
           Marker(
             point: LatLng(lat, lng),
-            width: 45,
-            height: 45,
+            width: 120,
+            height: 65,
             child: Tooltip(
-              message: stop['name'] ?? 'Stop',
-              child: const Icon(
-                Icons.location_on,
-                color: Colors.red,
-                size: 32,
-              ),
+              message: stopName,
+              child: isSchool
+                  ? Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Image.asset(
+                          'assets/school-location-icon.png',
+                          width: 36,
+                          height: 36,
+                          fit: BoxFit.contain,
+                        ),
+                        const SizedBox(height: 2),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(0.75),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            stopName,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 8,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    )
+                  : const Icon(
+                      Icons.location_on,
+                      color: Colors.red,
+                      size: 32,
+                    ),
             ),
           ),
         );
@@ -130,19 +167,13 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
           point: LatLng(widget.liveLatitude!, widget.liveLongitude!),
           width: 50,
           height: 50,
-          child: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: const BoxDecoration(
-              color: Color(0xFF10B981), // Safaricom Green
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(color: Colors.black38, blurRadius: 6, spreadRadius: 1),
-              ],
-            ),
-            child: const Icon(
-              Icons.directions_bus,
-              color: Colors.white,
-              size: 24,
+          child: Tooltip(
+            message: widget.vehiclePlate ?? 'Live Bus',
+            child: Image.asset(
+              'assets/bus-icon.png',
+              width: 45,
+              height: 45,
+              fit: BoxFit.contain,
             ),
           ),
         ),
@@ -159,9 +190,9 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
       }
     }
 
-    // Mapbox Streets style url template
+    // Mapbox Traffic Day style url template
     final String mapboxUrlTemplate = 
-        'https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/{z}/{x}/{y}?access_token=$_mapboxToken';
+        'https://api.mapbox.com/styles/v1/mapbox/traffic-day-v2/tiles/{z}/{x}/{y}?access_token=$_mapboxToken';
 
     return Container(
       height: 280,

@@ -823,7 +823,7 @@ function RoutesManagement() {
 
       mapInstance = new mapboxglModule.Map({
         container: mapContainerRef.current,
-        style: "mapbox://styles/mapbox/dark-v11",
+        style: "mapbox://styles/mapbox/traffic-night-v2",
         center: centerCoord as [number, number],
         zoom: 13,
         pitch: 35,
@@ -886,24 +886,41 @@ function RoutesManagement() {
     if (activeTab === "schools") {
       schoolLocations.forEach((loc) => {
         const el = document.createElement("div");
-        el.className = "map-school-marker";
-        el.style.width = "26px";
-        el.style.height = "26px";
-        el.style.borderRadius = "50%";
-        el.style.backgroundColor = "rgba(99, 102, 241, 0.25)";
-        el.style.border = "3px solid #6366f1";
+        el.className = "map-school-marker-container";
         el.style.display = "flex";
+        el.style.flexDirection = "column";
         el.style.alignItems = "center";
-        el.style.justifyContent = "center";
-        el.style.color = "#ffffff";
-        el.style.boxShadow = "0 0 12px #6366f1";
+        el.style.cursor = "pointer";
         
-        const pinIcon = document.createElement("div");
-        pinIcon.style.width = "8px";
-        pinIcon.style.height = "8px";
-        pinIcon.style.backgroundColor = "#ffffff";
-        pinIcon.style.borderRadius = "50%";
-        el.appendChild(pinIcon);
+        el.innerHTML = `
+          <div class="school-icon-wrapper" style="
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background-color: #4f46e5;
+            border: 2px solid #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 10px rgba(79, 70, 229, 0.6);
+          ">
+            <img src="/assets/school-location-icon.png" alt="School" style="width: 20px; height: 20px; object-fit: contain;" />
+          </div>
+          <div class="school-label" style="
+            margin-top: 4px;
+            background-color: rgba(15, 23, 42, 0.85);
+            color: #ffffff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            white-space: nowrap;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          ">
+            ${loc.name}
+          </div>
+        `;
 
         const popup = new mapboxglModule.Popup({ offset: 15 }).setHTML(
           `<div style="color:#0f172a; font-family:var(--font-sans); padding:4px;">
@@ -953,36 +970,82 @@ function RoutesManagement() {
 
     groupedStops.forEach((group) => {
       const el = document.createElement("div");
-      el.className = "map-stop-marker";
-      el.style.height = "22px";
-      el.style.backgroundColor = "rgba(99, 102, 241, 0.25)";
-      el.style.border = "2px solid #6366f1";
-      el.style.display = "flex";
-      el.style.alignItems = "center";
-      el.style.justifyContent = "center";
-      el.style.color = "#ffffff";
-      el.style.fontWeight = "bold";
-      el.style.fontSize = "10px";
-      el.style.boxShadow = "0 0 8px #6366f1";
+      
+      // Check if coordinates match any school location
+      const matchingSchool = schoolLocations.find(school => 
+        Math.abs(school.longitude - group.coordinates[0]) < 1e-4 &&
+        Math.abs(school.latitude - group.coordinates[1]) < 1e-4
+      );
+      const isSchool = !!matchingSchool;
 
-      const labelParts = group.stops.map(s => {
-        if (s.sequence_no === 1) return "Start";
-        if (s.sequence_no === routeStops.length && routeStops.length > 1) return "End";
-        return s.sequence_no.toString();
-      });
-      const label = labelParts.join(", ");
-      el.textContent = label;
+      if (isSchool) {
+        el.className = "map-school-marker-container";
+        el.style.display = "flex";
+        el.style.flexDirection = "column";
+        el.style.alignItems = "center";
+        el.style.cursor = "pointer";
 
-      // Adjust shape/width if it is a pill (has text like "Start", "End" or multiple values)
-      const hasWordLabel = labelParts.some(l => l.length > 1);
-      if (group.stops.length > 1 || hasWordLabel) {
-        el.style.padding = "0 8px";
-        el.style.width = "auto";
-        el.style.minWidth = "22px";
-        el.style.borderRadius = "11px";
+        el.innerHTML = `
+          <div class="school-icon-wrapper" style="
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background-color: #4f46e5;
+            border: 2px solid #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 0 10px rgba(79, 70, 229, 0.6);
+          ">
+            <img src="/assets/school-location-icon.png" alt="School" style="width: 20px; height: 20px; object-fit: contain;" />
+          </div>
+          <div class="school-label" style="
+            margin-top: 4px;
+            background-color: rgba(15, 23, 42, 0.85);
+            color: #ffffff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            white-space: nowrap;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          ">
+            ${matchingSchool ? matchingSchool.name : 'School'}
+          </div>
+        `;
       } else {
-        el.style.width = "22px";
-        el.style.borderRadius = "50%";
+        el.className = "map-stop-marker";
+        el.style.height = "22px";
+        el.style.backgroundColor = "rgba(99, 102, 241, 0.25)";
+        el.style.border = "2px solid #6366f1";
+        el.style.display = "flex";
+        el.style.alignItems = "center";
+        el.style.justifyContent = "center";
+        el.style.color = "#ffffff";
+        el.style.fontWeight = "bold";
+        el.style.fontSize = "10px";
+        el.style.boxShadow = "0 0 8px #6366f1";
+
+        const labelParts = group.stops.map(s => {
+          if (s.sequence_no === 1) return "Start";
+          if (s.sequence_no === routeStops.length && routeStops.length > 1) return "End";
+          return s.sequence_no.toString();
+        });
+        const label = labelParts.join(", ");
+        el.textContent = label;
+
+        // Adjust shape/width if it is a pill (has text like "Start", "End" or multiple values)
+        const hasWordLabel = labelParts.some(l => l.length > 1);
+        if (group.stops.length > 1 || hasWordLabel) {
+          el.style.padding = "0 8px";
+          el.style.width = "auto";
+          el.style.minWidth = "22px";
+          el.style.borderRadius = "11px";
+        } else {
+          el.style.width = "22px";
+          el.style.borderRadius = "50%";
+        }
       }
 
       let popupHTML = `<div style="color:#0f172a; font-family:var(--font-sans); padding:4px; max-width:260px;">`;
