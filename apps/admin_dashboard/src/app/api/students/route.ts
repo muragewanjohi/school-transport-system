@@ -17,8 +17,8 @@ const studentCreateSchema = z.object({
   schedule_ids: z.array(z.string()).default([]),
   status: z.enum(["Present", "Absent"]).default("Present"),
   guardians: z.array(guardianSchema).min(1, "At least one guardian is required").max(3, "Maximum of 3 guardians"),
-  grade: z.string().optional().or(z.literal("")),
-  class_name: z.string().optional().or(z.literal("")),
+  grade: z.string().optional().or(z.literal("")).nullable(),
+  class_name: z.string().optional().or(z.literal("")).nullable(),
 });
 
 const mockStudents = [

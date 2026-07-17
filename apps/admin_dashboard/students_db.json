@@ -117,5 +117,31 @@
     ],
     "grade": "Grade 4",
     "class_name": "4 Blue"
+  },
+  {
+    "id": "84e0a434-ad9b-4e5e-8e99-00df331834a6",
+    "tenant_id": "8c9ad841-f762-4217-a021-9876251b5bcf",
+    "name": "Ryan Wanjohi",
+    "route_id": "1072429f-3d6b-46de-95fb-eb289b47f2b7",
+    "nfc_card_hash": null,
+    "pickup_stop_id": "c2177cad-0b8b-4baa-884e-d68a5195d4f1",
+    "dropoff_stop_id": "c2177cad-0b8b-4baa-884e-d68a5195d4f1",
+    "schedule_ids": [
+      "8e592b5e-7d88-4fd6-8e6f-d332a0ce8a17",
+      "0f445cbf-59f3-4a77-9554-837fd13433ac"
+    ],
+    "status": "Present",
+    "guardians": [
+      {
+        "name": "Murage Wanjohi",
+        "phone": "+254724511201"
+      },
+      {
+        "name": "Caroline Mukami",
+        "phone": "+254701689463"
+      }
+    ],
+    "grade": "Grade 1 ",
+    "class_name": "Nile"
   }
 ]

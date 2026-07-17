@@ -16,7 +16,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final _phoneController = TextEditingController();
   final _otpController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  
   bool _isLoading = false;
+  bool _otpSent = false;
+  String? _sandboxOtp;
+  String _selectedCountryCode = '+254';
 
   @override
   void dispose() {
@@ -35,13 +39,64 @@ class _LoginScreenState extends State<LoginScreen> {
     return 'http://localhost:3000';
   }
 
+  String _getFormattedPhoneNumber() {
+    var rawPhone = _phoneController.text.trim().replaceAll(RegExp(r'[\s\-()]+'), '');
+    if (rawPhone.startsWith('0')) {
+      rawPhone = rawPhone.substring(1);
+    }
+    return '$_selectedCountryCode$rawPhone';
+  }
+
+  Future<void> _handleRequestOtp() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final phone = _getFormattedPhoneNumber();
+      final baseUrl = _getApiBaseUrl();
+
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/auth/parent-request-otp'),
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode({'phone': phone}),
+      ).timeout(const Duration(seconds: 10));
+
+      final result = json.decode(response.body);
+
+      if (response.statusCode == 200 && result['success'] == true) {
+        setState(() {
+          _otpSent = true;
+          _sandboxOtp = result['sandbox_otp'];
+        });
+
+        _showSuccessSnackBar(result['message'] ?? 'OTP sent successfully!');
+      } else {
+        final errorMsg = result['error'] ?? 'Phone verification failed.';
+        _showErrorSnackBar(errorMsg);
+      }
+    } on SocketException {
+      _showErrorSnackBar('Network error: Unable to connect to host API server.');
+    } on HttpException {
+      _showErrorSnackBar('Connection protocol error occurred.');
+    } on FormatException {
+      _showErrorSnackBar('Server returned invalid data format.');
+    } catch (e) {
+      _showErrorSnackBar('An unexpected error occurred: ${e.toString()}');
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _isLoading = true);
 
     try {
-      final phone = _phoneController.text.trim();
+      final phone = _getFormattedPhoneNumber();
       final otp = _otpController.text.trim();
       final baseUrl = _getApiBaseUrl();
 
@@ -54,7 +109,7 @@ class _LoginScreenState extends State<LoginScreen> {
         }),
       ).timeout(const Duration(seconds: 10));
 
-      final result = json.decode(response.body);
+      final Map<String, dynamic> result = json.decode(response.body);
 
       if (response.statusCode == 200 && result['success'] == true) {
         final session = result['session'];
@@ -106,6 +161,19 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  void _showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          message,
+          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
+        ),
+        backgroundColor: const Color(0xFF10B981),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -147,153 +215,334 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text(
-                  'Sign in using your registered mobile number and OTP code.',
+                Text(
+                  _otpSent
+                      ? 'We have sent a verification code to your phone.'
+                      : 'Sign in using your registered mobile number.',
                   textAlign: TextAlign.center,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 14,
                     color: Color(0xFF94A3B8),
                   ),
                 ),
                 const SizedBox(height: 36),
 
-                // Phone Input Field
-                const Text(
-                  'MOBILE PHONE NUMBER',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF94A3B8),
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _phoneController,
-                  enabled: !_isLoading,
-                  keyboardType: TextInputType.phone,
-                  style: const TextStyle(
-                    fontSize: 18, 
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white
-                  ),
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.phone_android, color: Color(0xFF64748B)),
-                    hintText: 'e.g. +254 755 123 456',
-                    hintStyle: const TextStyle(color: Color(0xFF64748B)),
-                    filled: true,
-                    fillColor: const Color(0xFF151C2C),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Mobile phone number is required';
-                    }
-                    if (value.trim().length < 5) {
-                      return 'Enter a valid mobile phone number';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 24),
-
-                // OTP Input Field
-                const Text(
-                  'OTP VERIFICATION CODE',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF94A3B8),
-                    letterSpacing: 0.5,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _otpController,
-                  enabled: !_isLoading,
-                  keyboardType: TextInputType.number,
-                  obscureText: true,
-                  style: const TextStyle(
-                    fontSize: 18, 
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                    letterSpacing: 8.0,
-                  ),
-                  maxLength: 6,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.lock_clock_outlined, color: Color(0xFF64748B)),
-                    hintText: '• • • • • •',
-                    hintStyle: const TextStyle(color: Color(0xFF64748B), letterSpacing: 8.0),
-                    filled: true,
-                    fillColor: const Color(0xFF151C2C),
-                    counterText: '',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'OTP verification code is required';
-                    }
-                    if (value.trim().length != 6) {
-                      return 'OTP must be exactly 6 digits';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 36),
-
-                // Login Submit Button
-                ElevatedButton(
-                  onPressed: _isLoading ? null : _handleLogin,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                if (!_otpSent) ...[
+                  // Step 1: Phone Number Input Field
+                  const Text(
+                    'MOBILE PHONE NUMBER',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF94A3B8),
+                      letterSpacing: 0.5,
                     ),
                   ),
-                  child: _isLoading
-                      ? const SizedBox(
-                          height: 24,
-                          width: 24,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2.5,
-                          ),
-                        )
-                      : const Text(
-                          'ENTER DASHBOARD',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 0.5,
+                  const SizedBox(height: 8),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Country Code Selector Dropdown
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF151C2C),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFF223049), width: 1.5),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _selectedCountryCode,
+                            dropdownColor: const Color(0xFF151C2C),
+                            icon: const Icon(Icons.arrow_drop_down, color: Color(0xFF64748B)),
+                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                            onChanged: _isLoading ? null : (String? newValue) {
+                              if (newValue != null) {
+                                  setState(() {
+                                    _selectedCountryCode = newValue;
+                                  });
+                              }
+                            },
+                            items: const [
+                              DropdownMenuItem(value: '+254', child: Text('🇰🇪 +254')),
+                              DropdownMenuItem(value: '+256', child: Text('🇺🇬 +256')),
+                              DropdownMenuItem(value: '+255', child: Text('🇹🇿 +255')),
+                              DropdownMenuItem(value: '+250', child: Text('🇷🇼 +250')),
+                              DropdownMenuItem(value: '+1', child: Text('🇺🇸 +1')),
+                              DropdownMenuItem(value: '+44', child: Text('🇬🇧 +44')),
+                            ],
                           ),
                         ),
-                ),
+                      ),
+                      const SizedBox(width: 8),
+                      // Phone input field
+                      Expanded(
+                        child: TextFormField(
+                          controller: _phoneController,
+                          enabled: !_isLoading,
+                          keyboardType: TextInputType.phone,
+                          style: const TextStyle(
+                            fontSize: 18, 
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white
+                          ),
+                          decoration: InputDecoration(
+                            hintText: 'e.g. 755 123 456',
+                            hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                            filled: true,
+                            fillColor: const Color(0xFF151C2C),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Phone number is required';
+                            }
+                            final cleanDigits = value.trim().replaceAll(RegExp(r'[\s\-()]+'), '');
+                            if (!RegExp(r'^\d+$').hasMatch(cleanDigits)) {
+                              return 'Enter digits only';
+                            }
+                            if (cleanDigits.length < 7 || cleanDigits.length > 11) {
+                              return 'Enter a valid phone number';
+                            }
+                            return null;
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 36),
+
+                  // Request OTP Button
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: _isLoading
+                          ? LinearGradient(
+                              colors: [
+                                const Color(0xFF10B981).withOpacity(0.5),
+                                const Color(0xFF059669).withOpacity(0.5)
+                              ],
+                            )
+                          : const LinearGradient(
+                              colors: [Color(0xFF10B981), Color(0xFF059669)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF10B981).withOpacity(0.2),
+                          offset: const Offset(0, 4),
+                          blurRadius: 10,
+                        )
+                      ],
+                    ),
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _handleRequestOtp,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
+                          : const Text(
+                              'REQUEST OTP',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                    ),
+                  ),
+                ] else ...[
+                  // Step 2: OTP Verification Field
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'OTP SENT TO: ${_getFormattedPhoneNumber()}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF94A3B8),
+                            letterSpacing: 0.5,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _isLoading
+                            ? null
+                            : () {
+                                setState(() {
+                                  _otpSent = false;
+                                  _otpController.clear();
+                                });
+                              },
+                        child: const Text(
+                          'CHANGE',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF10B981),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    controller: _otpController,
+                    enabled: !_isLoading,
+                    keyboardType: TextInputType.number,
+                    obscureText: true,
+                    style: const TextStyle(
+                      fontSize: 18, 
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                      letterSpacing: 8.0,
+                    ),
+                    maxLength: 6,
+                    decoration: InputDecoration(
+                      prefixIcon: const Icon(Icons.lock_clock_outlined, color: Color(0xFF64748B)),
+                      hintText: '• • • • • •',
+                      hintStyle: const TextStyle(color: Color(0xFF64748B), letterSpacing: 8.0),
+                      filled: true,
+                      fillColor: const Color(0xFF151C2C),
+                      counterText: '',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'OTP verification code is required';
+                      }
+                      if (value.trim().length != 6) {
+                        return 'OTP must be exactly 6 digits';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+
+                  if (_sandboxOtp != null) ...[
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF10B981).withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFF10B981).withOpacity(0.3)),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, color: Color(0xFF10B981), size: 20),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Sandbox OTP code is: $_sandboxOtp',
+                              style: const TextStyle(
+                                color: Color(0xFF10B981),
+                                fontWeight: FontWeight.bold,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
+
+                  // Verify & Enter Button
+                  Container(
+                    decoration: BoxDecoration(
+                      gradient: _isLoading
+                          ? LinearGradient(
+                              colors: [
+                                const Color(0xFF10B981).withOpacity(0.5),
+                                const Color(0xFF059669).withOpacity(0.5)
+                              ],
+                            )
+                          : const LinearGradient(
+                              colors: [Color(0xFF10B981), Color(0xFF059669)],
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
+                      borderRadius: BorderRadius.circular(12),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF10B981).withOpacity(0.2),
+                          offset: const Offset(0, 4),
+                          blurRadius: 10,
+                        )
+                      ],
+                    ),
+                    child: ElevatedButton(
+                      onPressed: _isLoading ? null : _handleLogin,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: _isLoading
+                          ? const SizedBox(
+                              height: 24,
+                              width: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2.5,
+                              ),
+                            )
+                          : const Text(
+                              'ENTER DASHBOARD',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

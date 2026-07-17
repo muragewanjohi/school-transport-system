@@ -210,8 +210,30 @@ export default function StudentsManagement() {
     // Validate guardians
     const guardianErrors: string[] = [];
     formGuardians.forEach((g, idx) => {
-      if (!g.name.trim() || !g.phone.trim()) {
-        guardianErrors.push(`Guardian ${idx + 1} details cannot be blank`);
+      if (!g.name.trim()) {
+        guardianErrors.push(`Guardian ${idx + 1} name is required`);
+        return;
+      }
+      const phoneTrimmed = g.phone.trim();
+      if (!phoneTrimmed) {
+        guardianErrors.push(`Guardian ${idx + 1} phone number is required`);
+        return;
+      }
+      const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
+      let matchedCode = "";
+      for (const code of codes) {
+        if (phoneTrimmed.startsWith(code)) {
+          matchedCode = code;
+          break;
+        }
+      }
+      const localPart = matchedCode ? phoneTrimmed.substring(matchedCode.length) : phoneTrimmed;
+      if (!localPart) {
+        guardianErrors.push(`Guardian ${idx + 1} phone number details are required`);
+      } else if (!/^\d+$/.test(localPart)) {
+        guardianErrors.push(`Guardian ${idx + 1} phone number must consist of digits only`);
+      } else if (localPart.length < 7 || localPart.length > 11) {
+        guardianErrors.push(`Guardian ${idx + 1} phone number is invalid (must be 7-11 digits)`);
       }
     });
 
@@ -571,19 +593,23 @@ export default function StudentsManagement() {
           backdrop-filter: blur(8px);
           z-index: 100;
           display: flex;
-          justify-content: flex-end;
+          align-items: center;
+          justify-content: center;
         }
         .drawer-content {
-          width: 470px;
-          height: 100%;
+          width: 620px;
+          max-width: 90vw;
+          height: auto;
+          max-height: 85vh;
           background: var(--bg-surface);
-          border-left: 1px solid var(--border-default);
+          border: 1px solid var(--border-default);
+          border-radius: 12px;
           padding: 24px;
           overflow-y: auto;
           display: flex;
           flex-direction: column;
-          box-shadow: -10px 0 25px rgba(0, 0, 0, 0.5);
-          animation: slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+          box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+          animation: scale-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .form-group {
           margin-bottom: 12px;
@@ -719,6 +745,10 @@ export default function StudentsManagement() {
           from { transform: translateX(100%); }
           to { transform: translateX(0); }
         }
+        @keyframes scale-up {
+          from { transform: scale(0.96); opacity: 0; }
+          to { transform: scale(1); opacity: 1; }
+        }
         @keyframes spin {
           to { transform: rotate(360deg); }
         }
@@ -840,24 +870,7 @@ export default function StudentsManagement() {
               </div>
               <button 
                 onClick={() => {
-                  setDrawerMode("add");
-                  setCurrentEditId(null);
-                  const initialRouteId = routes[0]?.id || "";
-                  const routeStops = stops.filter(s => s.route_id === initialRouteId);
-                  setFormValues({ 
-                    name: "", 
-                    route_id: initialRouteId, 
-                    nfc_card_hash: "",
-                    pickup_stop_id: routeStops[0]?.id || "",
-                    dropoff_stop_id: routeStops[1]?.id || routeStops[0]?.id || "",
-                    status: "Present" as "Present" | "Absent",
-                    grade: "",
-                    class_name: "",
-                    schedule_ids: []
-                  });
-                  setFormGuardians([{ name: "", phone: "" }]);
-                  setFormErrors({});
-                  setShowDrawer(true);
+                  router.push("/students/new");
                 }}
                 style={{
                   background: "linear-gradient(135deg, var(--accent-primary), #059669)",
@@ -1096,403 +1109,6 @@ export default function StudentsManagement() {
           </div>
         </section>
       </main>
-
-      {/* Onboard Drawer */}
-      {showDrawer && (
-        <div className="drawer-overlay" onClick={() => setShowDrawer(false)}>
-          <div className="drawer-content" onClick={(e) => e.stopPropagation()}>
-            
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid var(--border-default)", paddingBottom: "12px" }}>
-              <h2 style={{ fontSize: "1.1rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
-                <User size={18} style={{ color: "var(--accent-primary)" }} />
-                {drawerMode === "add" ? "Register Roster Student" : "Modify Student Profile"}
-              </h2>
-              <button onClick={() => setShowDrawer(false)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleFormSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
-              
-              {/* Student Name */}
-              <div className="form-group">
-                <label className="form-label">Student Name *</label>
-                <input
-                  type="text"
-                  name="name"
-                  required
-                  className={`form-input ${formErrors.name ? "error" : ""}`}
-                  placeholder="e.g. Liam Mwangi"
-                  value={formValues.name}
-                  onChange={handleInputChange}
-                />
-                {formErrors.name && <span className="form-error-text">{formErrors.name}</span>}
-              </div>
-
-              {/* Dynamic Guardians */}
-              <div className="form-group" style={{ marginBottom: "6px" }}>
-                <label className="form-label">Parents & Guardians (Max 3) *</label>
-                {formErrors.guardians && <span className="form-error-text" style={{ marginBottom: "6px" }}>{formErrors.guardians}</span>}
-                
-                {formGuardians.map((guardian, index) => (
-                  <div key={index} style={{ display: "flex", gap: "8px", alignItems: "flex-end", marginBottom: "8px" }}>
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
-                      <input
-                        type="text"
-                        className="form-input"
-                        placeholder="Guardian Name"
-                        value={guardian.name}
-                        onChange={(e) => {
-                          const updated = [...formGuardians];
-                          updated[index].name = e.target.value;
-                          setFormGuardians(updated);
-                        }}
-                        required
-                      />
-                    </div>
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "4px" }}>
-                      <input
-                        type="text"
-                        className="form-input"
-                        placeholder="Phone Number"
-                        value={guardian.phone}
-                        onChange={(e) => {
-                          const updated = [...formGuardians];
-                          updated[index].phone = e.target.value;
-                          setFormGuardians(updated);
-                        }}
-                        required
-                      />
-                    </div>
-                    {formGuardians.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => setFormGuardians(formGuardians.filter((_, i) => i !== index))}
-                        style={{
-                          background: "rgba(244,63,94,0.1)",
-                          border: "1px solid rgba(244,63,94,0.3)",
-                          color: "var(--state-error)",
-                          padding: "10px",
-                          borderRadius: "6px",
-                          cursor: "pointer"
-                        }}
-                        title="Remove Guardian Row"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-                
-                {formGuardians.length < 3 && (
-                  <button
-                    type="button"
-                    onClick={() => setFormGuardians([...formGuardians, { name: "", phone: "" }])}
-                    style={{
-                      background: "rgba(255,255,255,0.04)",
-                      border: "1px solid var(--border-default)",
-                      color: "var(--text-primary)",
-                      padding: "6px 12px",
-                      borderRadius: "6px",
-                      fontSize: "0.75rem",
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      alignSelf: "flex-start",
-                      marginTop: "4px"
-                    }}
-                  >
-                    + Add Guardian Profile
-                  </button>
-                )}
-              </div>
-
-              {/* Transit Route */}
-              <div className="form-group">
-                <label className="form-label">Transit Route Assignment *</label>
-                <select
-                  name="route_id"
-                  required
-                  className={`form-input ${formErrors.route_id ? "error" : ""}`}
-                  value={formValues.route_id}
-                  onChange={(e) => handleRouteIdChange(e.target.value)}
-                >
-                  <option value="">-- Select Transit Route --</option>
-                  {routes.map(route => (
-                    <option key={route.id} value={route.id}>
-                      {route.name}
-                    </option>
-                  ))}
-                </select>
-                {formErrors.route_id && <span className="form-error-text">{formErrors.route_id}</span>}
-              </div>
-
-              {/* Grade & Class Name */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <div className="form-group">
-                  <label className="form-label">Grade</label>
-                  <input
-                    type="text"
-                    name="grade"
-                    className="form-input"
-                    placeholder="e.g. Grade 4"
-                    value={formValues.grade}
-                    onChange={handleInputChange}
-                  />
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Class Name</label>
-                  <input
-                    type="text"
-                    name="class_name"
-                    className="form-input"
-                    placeholder="e.g. 4 Blue"
-                    value={formValues.class_name}
-                    onChange={handleInputChange}
-                  />
-                </div>
-              </div>
-
-              {/* Locations selects */}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <div className="form-group">
-                  <label className="form-label">Pickup Location *</label>
-                  <select
-                    name="pickup_stop_id"
-                    className="form-input"
-                    value={formValues.pickup_stop_id}
-                    onChange={handleInputChange}
-                    disabled={!formValues.route_id}
-                  >
-                    {!formValues.route_id && <option value="">-- Assign route first --</option>}
-                    {stops.filter(s => s.route_id === formValues.route_id).map(stop => (
-                      <option key={stop.id} value={stop.id}>
-                        {stop.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="form-group">
-                  <label className="form-label">Drop-off Location *</label>
-                  <select
-                    name="dropoff_stop_id"
-                    className="form-input"
-                    value={formValues.dropoff_stop_id}
-                    onChange={handleInputChange}
-                    disabled={!formValues.route_id}
-                  >
-                    {!formValues.route_id && <option value="">-- Assign route first --</option>}
-                    {stops.filter(s => s.route_id === formValues.route_id).map(stop => (
-                      <option key={stop.id} value={stop.id}>
-                        {stop.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              {/* Resolve selected pickup & dropoff IDs for the radio button states */}
-              {(() => {
-                const routeSchedules = schedules.filter(s => s.route_id === formValues.route_id);
-                const pickupSchedules = routeSchedules.filter(s => s.direction === "HOME_TO_SCHOOL");
-                const dropoffSchedules = routeSchedules.filter(s => s.direction === "SCHOOL_TO_HOME");
-
-                const selectedPickupId = formValues.schedule_ids.find(id => pickupSchedules.some(s => s.id === id)) || "";
-                const selectedDropoffId = formValues.schedule_ids.find(id => dropoffSchedules.some(s => s.id === id)) || "";
-
-                // Helper to update schedule_ids based on pickup/dropoff selections
-                const handlePickupChange = (newPickupId: string) => {
-                  const newIds = [newPickupId, selectedDropoffId].filter(Boolean);
-                  setFormValues(prev => ({ ...prev, schedule_ids: newIds }));
-                };
-
-                const handleDropoffChange = (newDropoffId: string) => {
-                  const newIds = [selectedPickupId, newDropoffId].filter(Boolean);
-                  setFormValues(prev => ({ ...prev, schedule_ids: newIds }));
-                };
-
-                return (
-                  <>
-                    {/* Pick up trip selection */}
-                    <div className="form-group">
-                      <label className="form-label">Pick up trip</label>
-                      <div style={{
-                        background: "rgba(6, 9, 19, 0.6)",
-                        border: "1px solid var(--border-default)",
-                        borderRadius: "6px",
-                        padding: "12px",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "8px",
-                        maxHeight: "150px",
-                        overflowY: "auto"
-                      }}>
-                        {formValues.route_id ? (
-                          pickupSchedules.length === 0 ? (
-                            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>No pick-up schedules configured for this route.</span>
-                          ) : (
-                            <>
-                              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                                <input
-                                  type="radio"
-                                  name="pickup_trip"
-                                  checked={selectedPickupId === ""}
-                                  onChange={() => handlePickupChange("")}
-                                />
-                                <span style={{ fontWeight: 500, color: "var(--text-muted)" }}>None (No Pick up)</span>
-                              </label>
-                              {pickupSchedules.map(sched => (
-                                <label key={sched.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                                  <input
-                                    type="radio"
-                                    name="pickup_trip"
-                                    checked={selectedPickupId === sched.id}
-                                    onChange={() => handlePickupChange(sched.id)}
-                                  />
-                                  <div>
-                                    <span style={{ fontWeight: 500 }}>{sched.name}</span>
-                                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginLeft: "6px" }}>({sched.departure_time})</span>
-                                  </div>
-                                </label>
-                              ))}
-                            </>
-                          )
-                        ) : (
-                          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Select a transit route first to view schedules.</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Drop off trip selection */}
-                    <div className="form-group">
-                      <label className="form-label">Drop off trip</label>
-                      <div style={{
-                        background: "rgba(6, 9, 19, 0.6)",
-                        border: "1px solid var(--border-default)",
-                        borderRadius: "6px",
-                        padding: "12px",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: "8px",
-                        maxHeight: "150px",
-                        overflowY: "auto"
-                      }}>
-                        {formValues.route_id ? (
-                          dropoffSchedules.length === 0 ? (
-                            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>No drop-off schedules configured for this route.</span>
-                          ) : (
-                            <>
-                              <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                                <input
-                                  type="radio"
-                                  name="dropoff_trip"
-                                  checked={selectedDropoffId === ""}
-                                  onChange={() => handleDropoffChange("")}
-                                />
-                                <span style={{ fontWeight: 500, color: "var(--text-muted)" }}>None (No Drop off)</span>
-                              </label>
-                              {dropoffSchedules.map(sched => (
-                                <label key={sched.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                                  <input
-                                    type="radio"
-                                    name="dropoff_trip"
-                                    checked={selectedDropoffId === sched.id}
-                                    onChange={() => handleDropoffChange(sched.id)}
-                                  />
-                                  <div>
-                                    <span style={{ fontWeight: 500 }}>{sched.name}</span>
-                                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginLeft: "6px" }}>({sched.departure_time})</span>
-                                  </div>
-                                </label>
-                              ))}
-                            </>
-                          )
-                        ) : (
-                          <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Select a transit route first to view schedules.</span>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                );
-              })()}
-
-              {/* NFC card */}
-              <div className="form-group">
-                <label className="form-label">NFC Card Hash signature (Optional)</label>
-                <input
-                  type="text"
-                  name="nfc_card_hash"
-                  className={`form-input ${formErrors.nfc_card_hash ? "error" : ""}`}
-                  placeholder="e.g. A1B2C3D4 (Optional)"
-                  value={formValues.nfc_card_hash}
-                  onChange={handleInputChange}
-                />
-                {formErrors.nfc_card_hash && <span className="form-error-text">{formErrors.nfc_card_hash}</span>}
-              </div>
-
-              {/* Attendance Status */}
-              <div className="form-group">
-                <label className="form-label">Attendance Status *</label>
-                <select
-                  name="status"
-                  required
-                  className="form-input"
-                  value={formValues.status}
-                  onChange={handleInputChange}
-                >
-                  <option value="Present">Present</option>
-                  <option value="Absent">Absent</option>
-                </select>
-              </div>
-
-              {/* Form Buttons */}
-              <div style={{ display: "flex", gap: "12px", marginTop: "auto", paddingTop: "16px", borderTop: "1px solid var(--border-default)" }}>
-                <button
-                  type="button"
-                  onClick={() => setShowDrawer(false)}
-                  style={{
-                    flex: 1,
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid var(--border-default)",
-                    color: "var(--text-muted)",
-                    padding: "10px 16px",
-                    borderRadius: "6px",
-                    fontSize: "0.85rem",
-                    fontWeight: 600,
-                    cursor: "pointer"
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitLoading}
-                  style={{
-                    flex: 2,
-                    background: "var(--accent-primary)",
-                    color: "#ffffff",
-                    border: "none",
-                    padding: "10px 16px",
-                    borderRadius: "6px",
-                    fontSize: "0.85rem",
-                    fontWeight: 600,
-                    cursor: isSubmitLoading ? "default" : "pointer"
-                  }}
-                >
-                  {isSubmitLoading ? (
-                    <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
-                      <span className="spinner-icon"></span>
-                      Saving...
-                    </span>
-                  ) : drawerMode === "add" ? "Register Student" : "Save Changes"}
-                </button>
-              </div>
-
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- 1. Tenants Table (Isolated School Entities)
-CREATE TABLE public.tenants (
+CREATE TABLE IF NOT EXISTS public.tenants (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT NOT NULL,
     domain TEXT UNIQUE NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE public.tenants (
 );
 
 -- 2. Profiles Table (Auth Sync, Multi-role Support)
-CREATE TABLE public.profiles (
+CREATE TABLE IF NOT EXISTS public.profiles (
     id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
     tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE,
     role TEXT NOT NULL CHECK (role IN ('super_admin', 'school_admin', 'driver', 'parent')),
@@ -23,7 +23,7 @@ CREATE TABLE public.profiles (
 );
 
 -- 3. Vehicles Table
-CREATE TABLE public.vehicles (
+CREATE TABLE IF NOT EXISTS public.vehicles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE NOT NULL,
     license_plate TEXT NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE public.vehicles (
 );
 
 -- 4. Routes Table (Paths are stored as geometries)
-CREATE TABLE public.routes (
+CREATE TABLE IF NOT EXISTS public.routes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE NOT NULL,
     name TEXT NOT NULL,
@@ -44,7 +44,7 @@ CREATE TABLE public.routes (
 );
 
 -- 5. Students Table
-CREATE TABLE public.students (
+CREATE TABLE IF NOT EXISTS public.students (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE NOT NULL,
     name TEXT NOT NULL,
@@ -57,7 +57,7 @@ CREATE TABLE public.students (
 );
 
 -- 6. Live Coordinates (Realtime Telemetry Ingestion)
-CREATE TABLE public.live_coordinates (
+CREATE TABLE IF NOT EXISTS public.live_coordinates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE NOT NULL,
     vehicle_id UUID REFERENCES public.vehicles(id) ON DELETE CASCADE NOT NULL,
@@ -69,7 +69,7 @@ CREATE TABLE public.live_coordinates (
 );
 
 -- 7. Geofences Table (Geofence zones surrounding student home coordinates)
-CREATE TABLE public.geofences (
+CREATE TABLE IF NOT EXISTS public.geofences (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE NOT NULL,
     student_id UUID REFERENCES public.students(id) ON DELETE CASCADE UNIQUE NOT NULL,
@@ -80,7 +80,7 @@ CREATE TABLE public.geofences (
 );
 
 -- 8. Sent Proximity Alerts Table (Avoids SMS spam triggers)
-CREATE TABLE public.sent_proximity_alerts (
+CREATE TABLE IF NOT EXISTS public.sent_proximity_alerts (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE NOT NULL,
     student_id UUID REFERENCES public.students(id) ON DELETE CASCADE NOT NULL,
@@ -90,7 +90,7 @@ CREATE TABLE public.sent_proximity_alerts (
 );
 
 -- 9. Alerts Queue Table (Transactional Database Webhook Target)
-CREATE TABLE public.alerts_queue (
+CREATE TABLE IF NOT EXISTS public.alerts_queue (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id UUID REFERENCES public.tenants(id) ON DELETE CASCADE NOT NULL,
     student_id UUID REFERENCES public.students(id) ON DELETE CASCADE NOT NULL,
@@ -101,10 +101,10 @@ CREATE TABLE public.alerts_queue (
 );
 
 -- Create Spatial Indexes for Fast Spatial Query Resolution
-CREATE INDEX idx_routes_path ON public.routes USING GIST (path);
-CREATE INDEX idx_students_pickup ON public.students USING GIST (pickup_location);
-CREATE INDEX idx_live_coordinates_coords ON public.live_coordinates USING GIST (coordinates);
-CREATE INDEX idx_geofences_boundary ON public.geofences USING GIST (boundary);
+CREATE INDEX IF NOT EXISTS idx_routes_path ON public.routes USING GIST (path);
+CREATE INDEX IF NOT EXISTS idx_students_pickup ON public.students USING GIST (pickup_location);
+CREATE INDEX IF NOT EXISTS idx_live_coordinates_coords ON public.live_coordinates USING GIST (coordinates);
+CREATE INDEX IF NOT EXISTS idx_geofences_boundary ON public.geofences USING GIST (boundary);
 
 -- Add Supabase Realtime configuration for live coordinate streaming
 do $$

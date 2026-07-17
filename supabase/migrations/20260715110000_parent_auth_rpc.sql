@@ -45,6 +45,17 @@ BEGIN
   SET otp_code = NULL, otp_expires_at = NULL
   WHERE id = profile_row.id;
 
+  -- Automatically link parent_id if it's null and we matched by phone
+  UPDATE public.students s
+  SET parent_id = profile_row.id
+  WHERE s.parent_id IS NULL
+    AND EXISTS (
+      SELECT 1 
+      FROM jsonb_to_recordset(s.guardians) as g(phone text)
+      WHERE trim(regexp_replace(g.phone, '[\s\-()]+', '', 'g')) = trim(regexp_replace(profile_row.phone, '[\s\-()]+', '', 'g'))
+         OR trim(regexp_replace(g.phone, '[\s\-()]+', '', 'g')) = trim(regexp_replace(clean_phone, '[\s\-()]+', '', 'g'))
+    );
+
   -- Fetch children list mapped to this parent
   SELECT COALESCE(jsonb_agg(jsonb_build_object(
     'id', s.id,

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, use } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { 
   User, 
@@ -25,14 +25,14 @@ interface Guardian {
   phone: string;
 }
 
-export default function EditStudentPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params);
+export default function RegisterStudentPage() {
   const router = useRouter();
 
   // Reference Data lists
   const [routes, setRoutes] = useState<DBRoute[]>([]);
   const [stops, setStops] = useState<any[]>([]);
   const [schedules, setSchedules] = useState<any[]>([]);
+  const [existingParents, setExistingParents] = useState<any[]>([]);
   
   // Loading & Error States
   const [isLoading, setIsLoading] = useState(true);
@@ -58,55 +58,61 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
 
   useEffect(() => {
     fetchInitialData();
-  }, [id]);
+  }, []);
 
   const fetchInitialData = async () => {
     setIsLoading(true);
     setErrorMsg(null);
     try {
-      const [routesRes, stopsRes, schedulesRes] = await Promise.all([
+      const [routesRes, stopsRes, schedulesRes, parentsRes] = await Promise.all([
         fetch("/api/routes"),
         fetch("/api/stops"),
-        fetch("/api/schedules")
+        fetch("/api/schedules"),
+        fetch("/api/parents")
       ]);
       
-      const [routesJson, stopsJson, schedulesJson] = await Promise.all([
+      const [routesJson, stopsJson, schedulesJson, parentsJson] = await Promise.all([
         routesRes.json(),
         stopsRes.json(),
-        schedulesRes.json()
+        schedulesRes.json(),
+        parentsRes.json()
       ]);
 
-      if (routesJson.success) setRoutes(routesJson.data);
-      if (stopsJson.success) setStops(stopsJson.data);
-      if (schedulesJson.success) setSchedules(schedulesJson.data);
-      
-      // Load student details
-      const studentRes = await fetch(`/api/students/${id}`);
-      const studentJson = await studentRes.json();
-      
-      if (studentJson.success && studentJson.data) {
-        const student = studentJson.data;
-        setFormValues({
-          name: student.name || "",
-          route_id: student.route_id || "",
-          nfc_card_hash: student.nfc_card_hash || "",
-          pickup_stop_id: student.pickup_stop_id || "",
-          dropoff_stop_id: student.dropoff_stop_id || "",
-          schedule_ids: student.schedule_ids || [],
-          status: student.status || "Present",
-          grade: student.grade || "",
-          class_name: student.class_name || "",
-        });
-        setFormGuardians(student.guardians && student.guardians.length > 0 
-          ? student.guardians.map((g: any) => ({ ...g }))
-          : [{ name: "", phone: "" }]
-        );
-      } else {
-        setErrorMsg("Failed to retrieve student details.");
+      let initialRouteId = "";
+      let firstStopId = "";
+      let secondStopId = "";
+
+      if (routesJson.success) {
+        setRoutes(routesJson.data);
+        initialRouteId = routesJson.data[0]?.id || "";
       }
+      if (stopsJson.success) {
+        setStops(stopsJson.data);
+        const routeStops = stopsJson.data.filter((s: any) => s.route_id === initialRouteId);
+        firstStopId = routeStops[0]?.id || "";
+        secondStopId = routeStops[1]?.id || firstStopId || "";
+      }
+      if (schedulesJson.success) {
+        setSchedules(schedulesJson.data);
+      }
+      if (parentsJson.success) {
+        setExistingParents(parentsJson.data);
+      }
+
+      setFormValues({
+        name: "",
+        route_id: initialRouteId,
+        nfc_card_hash: "",
+        pickup_stop_id: firstStopId,
+        dropoff_stop_id: secondStopId,
+        schedule_ids: [],
+        status: "Present",
+        grade: "",
+        class_name: "",
+      });
     } catch (err) {
       console.error(err);
-      setErrorMsg("Failed to load student profile details.");
+      setErrorMsg("Failed to load reference metadata.");
     } finally {
       setIsLoading(false);
     }
@@ -205,8 +211,8 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
     };
 
     try {
-      const res = await fetch(`/api/students/${id}`, {
-        method: "PUT",
+      const res = await fetch("/api/students", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
@@ -214,12 +220,18 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
       if (json.success) {
         router.push("/students");
       } else {
-        const errorMsg = json.error || "Unknown validation error";
-        alert(`Failed to update student: ${errorMsg}`);
+        let errorMsg = json.error;
+        if (!errorMsg && json.errors) {
+          errorMsg = Object.entries(json.errors)
+            .map(([field, msgs]) => `${field}: ${(msgs as string[]).join(", ")}`)
+            .join("; ");
+        }
+        errorMsg = errorMsg || "Unknown validation error";
+        alert(`Failed to register student: ${errorMsg}`);
       }
     } catch (err) {
       console.error(err);
-      alert("Failed to submit student update.");
+      alert("Failed to submit student registration.");
     } finally {
       setIsSubmitLoading(false);
     }
@@ -354,7 +366,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
             >
               <ArrowLeft size={20} />
             </button>
-            <span className="top-bar-title">Edit Student Profile</span>
+            <span className="top-bar-title">Register New Student</span>
           </div>
           <UserProfileBadge />
         </header>
@@ -363,7 +375,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
           {isLoading ? (
             <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", height: "300px", color: "var(--text-muted)" }}>
               <div className="spinner"></div>
-              <span style={{ fontSize: "0.85rem", fontWeight: 500 }}>Retrieving student profile...</span>
+              <span style={{ fontSize: "0.85rem", fontWeight: 500 }}>Initializing form metadata...</span>
             </div>
           ) : errorMsg ? (
             <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "300px", color: "var(--state-error)", border: "1px dashed var(--state-error)", borderRadius: "12px", gap: "12px" }}>
@@ -446,6 +458,45 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
               {/* SECTION: Parents & Guardians */}
               <div>
                 <h3 className="form-section-title">Parents & Guardians</h3>
+                
+                {existingParents.length > 0 && (
+                  <div style={{ marginBottom: "16px", padding: "12px", background: "rgba(255,255,255,0.02)", border: "1px solid var(--border-default)", borderRadius: "8px" }}>
+                    <label className="form-label" style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginBottom: "6px", display: "block" }}>
+                      Quick Search & Add Existing Parent Profile
+                    </label>
+                    <select
+                      className="form-input"
+                      style={{ background: "var(--bg-base)" }}
+                      value=""
+                      onChange={(e) => {
+                        const parentId = e.target.value;
+                        if (!parentId) return;
+                        const parent = existingParents.find(p => p.id === parentId);
+                        if (parent) {
+                          const updated = [...formGuardians];
+                          // Find first empty row
+                          const emptyIdx = updated.findIndex(g => !g.name.trim() && !g.phone.trim());
+                          if (emptyIdx !== -1) {
+                            updated[emptyIdx] = { name: parent.name, phone: parent.phone };
+                          } else if (updated.length < 3) {
+                            updated.push({ name: parent.name, phone: parent.phone });
+                          } else {
+                            alert("Maximum of 3 guardians allowed.");
+                          }
+                          setFormGuardians(updated);
+                        }
+                      }}
+                    >
+                      <option value="">-- Choose registered parent to auto-fill --</option>
+                      {existingParents.map(parent => (
+                        <option key={parent.id} value={parent.id}>
+                          {parent.name} ({parent.phone})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 {formErrors.guardians && <span className="form-error-text" style={{ marginBottom: "12px", display: "block" }}>{formErrors.guardians}</span>}
                 
                 <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
@@ -782,7 +833,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   className="btn-action primary" 
                   disabled={isSubmitLoading}
                 >
-                  {isSubmitLoading ? "Saving Changes..." : "Save Changes"}
+                  {isSubmitLoading ? "Registering Student..." : "Register Student"}
                 </button>
               </div>
             </form>

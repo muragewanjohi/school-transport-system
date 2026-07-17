@@ -8,12 +8,14 @@ class MapScreen extends StatefulWidget {
   final String studentId;
   final String routeId;
   final String studentName;
+  final bool isEmbedded;
 
   const MapScreen({
     super.key,
     required this.studentId,
     required this.routeId,
     required this.studentName,
+    this.isEmbedded = false,
   });
 
   @override
@@ -310,24 +312,46 @@ class _MapScreenState extends State<MapScreen> with SingleTickerProviderStateMix
 
     return Scaffold(
       backgroundColor: const Color(0xFF0A0E1A),
-      appBar: AppBar(
-        title: Text('${widget.studentName}\'s Transit Tracking'),
-        backgroundColor: const Color(0xFF0A0E1A),
-        foregroundColor: Colors.white,
-        bottom: TabBar(
-          controller: _tabController,
-          labelColor: const Color(0xFF10B981),
-          unselectedLabelColor: Colors.grey,
-          indicatorColor: const Color(0xFF10B981),
-          onTap: (index) {
-            setState(() {});
-          },
-          tabs: const [
-            Tab(icon: Icon(Icons.location_searching), text: 'LIVE TRACK'),
-            Tab(icon: Icon(Icons.edit_location_alt), text: 'RELOCATE HOME'),
-          ],
-        ),
-      ),
+      appBar: widget.isEmbedded
+          ? PreferredSize(
+              preferredSize: const Size.fromHeight(48.0),
+              child: Container(
+                color: const Color(0xFF0A0E1A),
+                child: SafeArea(
+                  child: TabBar(
+                    controller: _tabController,
+                    labelColor: const Color(0xFF10B981),
+                    unselectedLabelColor: Colors.grey,
+                    indicatorColor: const Color(0xFF10B981),
+                    onTap: (index) {
+                      setState(() {});
+                    },
+                    tabs: const [
+                      Tab(icon: Icon(Icons.location_searching, size: 20), text: 'LIVE TRACK'),
+                      Tab(icon: Icon(Icons.edit_location_alt, size: 20), text: 'RELOCATE'),
+                    ],
+                  ),
+                ),
+              ),
+            )
+          : AppBar(
+              title: Text('${widget.studentName}\'s Transit Tracking'),
+              backgroundColor: const Color(0xFF0A0E1A),
+              foregroundColor: Colors.white,
+              bottom: TabBar(
+                controller: _tabController,
+                labelColor: const Color(0xFF10B981),
+                unselectedLabelColor: Colors.grey,
+                indicatorColor: const Color(0xFF10B981),
+                onTap: (index) {
+                  setState(() {});
+                },
+                tabs: const [
+                  Tab(icon: Icon(Icons.location_searching), text: 'LIVE TRACK'),
+                  Tab(icon: Icon(Icons.edit_location_alt), text: 'RELOCATE HOME'),
+                ],
+              ),
+            ),
       body: _isLoadingRoute
           ? const Center(child: CircularProgressIndicator())
           : Stack(

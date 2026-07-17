@@ -99,7 +99,29 @@ export default function DriversManagement() {
   const validateForm = () => {
     const errors: Record<string, string> = {};
     if (!formValues.name.trim()) errors.name = "Driver name is required";
-    if (!formValues.phone.trim()) errors.phone = "Phone number is required";
+    
+    const phoneTrimmed = formValues.phone.trim();
+    if (!phoneTrimmed) {
+      errors.phone = "Phone number is required";
+    } else {
+      const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
+      let matchedCode = "";
+      for (const code of codes) {
+        if (phoneTrimmed.startsWith(code)) {
+          matchedCode = code;
+          break;
+        }
+      }
+      const localPart = matchedCode ? phoneTrimmed.substring(matchedCode.length) : phoneTrimmed;
+      if (!localPart) {
+        errors.phone = "Phone number details are required";
+      } else if (!/^\d+$/.test(localPart)) {
+        errors.phone = "Phone number must consist of digits only";
+      } else if (localPart.length < 7 || localPart.length > 11) {
+        errors.phone = "Enter a valid phone number (7-11 digits)";
+      }
+    }
+
     if (!formValues.national_id.trim()) {
       errors.national_id = "National ID number is required";
     } else if (formValues.national_id.trim().length < 4) {
@@ -650,15 +672,74 @@ export default function DriversManagement() {
 
               <div className="form-group">
                 <label className="form-label">Phone Number *</label>
-                <input
-                  type="text"
-                  name="phone"
-                  required
-                  className={`form-input ${formErrors.phone ? "error" : ""}`}
-                  placeholder="e.g. +254 712 345 678"
-                  value={formValues.phone}
-                  onChange={handleInputChange}
-                />
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <select
+                    value={(() => {
+                      const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
+                      for (const code of codes) {
+                        if (formValues.phone.startsWith(code)) return code;
+                      }
+                      return "+254";
+                    })()}
+                    onChange={(e) => {
+                      const newCode = e.target.value;
+                      const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
+                      let currentLocal = formValues.phone;
+                      for (const code of codes) {
+                        if (formValues.phone.startsWith(code)) {
+                          currentLocal = formValues.phone.substring(code.length);
+                          break;
+                        }
+                      }
+                      if (currentLocal.startsWith("0")) currentLocal = currentLocal.substring(1);
+                      setFormValues(prev => ({ ...prev, phone: newCode + currentLocal }));
+                      if (formErrors.phone) {
+                        setFormErrors(prev => ({ ...prev, phone: "" }));
+                      }
+                    }}
+                    className="form-input"
+                    style={{ width: "95px", paddingLeft: "8px", paddingRight: "8px" }}
+                  >
+                    <option value="+254">🇰🇪 +254</option>
+                    <option value="+256">🇺🇬 +256</option>
+                    <option value="+255">🇹🇿 +255</option>
+                    <option value="+250">🇷🇼 +250</option>
+                    <option value="+1">🇺🇸 +1</option>
+                    <option value="+44">🇬🇧 +44</option>
+                  </select>
+                  <input
+                    type="text"
+                    required
+                    className={`form-input ${formErrors.phone ? "error" : ""}`}
+                    style={{ flex: 1 }}
+                    placeholder="e.g. 712 345 678"
+                    value={(() => {
+                      const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
+                      for (const code of codes) {
+                        if (formValues.phone.startsWith(code)) {
+                          return formValues.phone.substring(code.length);
+                        }
+                      }
+                      return formValues.phone;
+                    })()}
+                    onChange={(e) => {
+                      const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
+                      let currentCode = "+254";
+                      for (const code of codes) {
+                        if (formValues.phone.startsWith(code)) {
+                          currentCode = code;
+                          break;
+                        }
+                      }
+                      let val = e.target.value.replace(/[\s\-()]+/g, "");
+                      if (val.startsWith("0")) val = val.substring(1);
+                      setFormValues(prev => ({ ...prev, phone: currentCode + val }));
+                      if (formErrors.phone) {
+                        setFormErrors(prev => ({ ...prev, phone: "" }));
+                      }
+                    }}
+                  />
+                </div>
                 {formErrors.phone && <span className="form-error-text">{formErrors.phone}</span>}
               </div>
 
