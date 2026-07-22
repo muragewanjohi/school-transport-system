@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseService {
@@ -20,14 +21,18 @@ class SupabaseService {
     }
   }
 
-  /// Update student home/pickup location coordinates (using WKT Point format)
+  /// Update student home/pickup location coordinates (using WKT Point format and optional address text)
   static Future<bool> updateStudentPickupLocation(
-      String studentId, double latitude, double longitude) async {
+      String studentId, double latitude, double longitude, {String? addressText}) async {
     try {
       final wktPoint = 'POINT($longitude $latitude)';
+      final Map<String, dynamic> updateData = {'pickup_location': wktPoint};
+      if (addressText != null && addressText.isNotEmpty) {
+        updateData['address'] = addressText;
+      }
       await client
           .from('students')
-          .update({'pickup_location': wktPoint})
+          .update(updateData)
           .eq('id', studentId);
       return true;
     } catch (e) {
@@ -58,6 +63,60 @@ class SupabaseService {
     } catch (e) {
       print('Error fetching route details: $e');
       return null;
+    }
+  }
+
+  /// Upload avatar photo to Supabase Storage bucket 'avatars' and update database table
+  static Future<String?> uploadAvatar({
+    required String id,
+    required String targetTable,
+    required List<int> imageBytes,
+    required String fileName,
+  }) async {
+    try {
+      final String storagePath = 'public/${targetTable}_${id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      
+      await client.storage.from('avatars').uploadBinary(
+            storagePath,
+            Uint8List.fromList(imageBytes),
+            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
+          );
+
+      final String publicUrl = client.storage.from('avatars').getPublicUrl(storagePath);
+
+      await client
+          .from(targetTable)
+          .update({'avatar_url': publicUrl})
+          .eq('id', id);
+
+      return publicUrl;
+    } catch (e) {
+      print('Error uploading avatar to Supabase Storage: $e');
+      return null;
+    }
+  }
+
+  /// Delete avatar photo from Supabase Storage and clear database field
+  static Future<bool> deleteAvatar({
+    required String id,
+    required String targetTable,
+    required String currentAvatarUrl,
+  }) async {
+    try {
+      if (currentAvatarUrl.contains('/avatars/')) {
+        final String path = currentAvatarUrl.split('/avatars/').last;
+        await client.storage.from('avatars').remove([path]);
+      }
+
+      await client
+          .from(targetTable)
+          .update({'avatar_url': null})
+          .eq('id', id);
+
+      return true;
+    } catch (e) {
+      print('Error deleting avatar from Supabase Storage: $e');
+      return false;
     }
   }
 }

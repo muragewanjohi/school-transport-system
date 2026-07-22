@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
+import HomeLocationMapPicker from "@/components/HomeLocationMapPicker";
 
 interface DBRoute {
   id: string;
@@ -50,6 +51,9 @@ export default function RegisterStudentPage() {
     status: "Present" as "Present" | "Absent",
     grade: "",
     class_name: "",
+    address: "Kiambu Road, Nairobi",
+    latitude: -1.2185,
+    longitude: 36.8335,
   });
   const [formGuardians, setFormGuardians] = useState<Guardian[]>([
     { name: "", phone: "" }
@@ -78,41 +82,13 @@ export default function RegisterStudentPage() {
         parentsRes.json()
       ]);
 
-      let initialRouteId = "";
-      let firstStopId = "";
-      let secondStopId = "";
-
-      if (routesJson.success) {
-        setRoutes(routesJson.data);
-        initialRouteId = routesJson.data[0]?.id || "";
-      }
-      if (stopsJson.success) {
-        setStops(stopsJson.data);
-        const routeStops = stopsJson.data.filter((s: any) => s.route_id === initialRouteId);
-        firstStopId = routeStops[0]?.id || "";
-        secondStopId = routeStops[1]?.id || firstStopId || "";
-      }
-      if (schedulesJson.success) {
-        setSchedules(schedulesJson.data);
-      }
-      if (parentsJson.success) {
-        setExistingParents(parentsJson.data);
-      }
-
-      setFormValues({
-        name: "",
-        route_id: initialRouteId,
-        nfc_card_hash: "",
-        pickup_stop_id: firstStopId,
-        dropoff_stop_id: secondStopId,
-        schedule_ids: [],
-        status: "Present",
-        grade: "",
-        class_name: "",
-      });
+      if (routesJson.success) setRoutes(routesJson.data);
+      if (stopsJson.success) setStops(stopsJson.data);
+      if (schedulesJson.success) setSchedules(schedulesJson.data);
+      if (parentsJson.success) setExistingParents(parentsJson.data);
     } catch (err) {
       console.error(err);
-      setErrorMsg("Failed to load reference metadata.");
+      setErrorMsg("Failed to load setup reference data.");
     } finally {
       setIsLoading(false);
     }
@@ -120,23 +96,34 @@ export default function RegisterStudentPage() {
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormValues(prev => ({ ...prev, [name]: value }));
+    setFormValues(prev => ({
+      ...prev,
+      [name]: name === "latitude" || name === "longitude" ? (parseFloat(value) || 0) : value
+    }));
     if (formErrors[name]) {
       setFormErrors(prev => ({ ...prev, [name]: "" }));
     }
   };
 
-  const handleRouteIdChange = (routeId: string) => {
-    const routeStops = stops.filter(s => s.route_id === routeId);
-    const firstStopId = routeStops[0]?.id || "";
-    const secondStopId = routeStops[1]?.id || firstStopId || "";
+  const handleRouteIdChange = (newRouteId: string) => {
+    const routeStops = stops.filter(s => s.route_id === newRouteId);
+    const defaultPickup = routeStops.find(s => s.stop_type === "PICKUP" || s.stop_type === "BOTH")?.id || routeStops[0]?.id || "";
+    const defaultDropoff = routeStops.find(s => s.stop_type === "DROPOFF" || s.stop_type === "BOTH")?.id || routeStops[0]?.id || "";
+
+    const routeSchedules = schedules.filter(s => s.route_id === newRouteId);
+    const pickupSched = routeSchedules.find(s => s.direction === "HOME_TO_SCHOOL");
+    const dropoffSched = routeSchedules.find(s => s.direction === "SCHOOL_TO_HOME");
+    
+    const initialScheduleIds: string[] = [];
+    if (pickupSched) initialScheduleIds.push(pickupSched.id);
+    if (dropoffSched) initialScheduleIds.push(dropoffSched.id);
 
     setFormValues(prev => ({
       ...prev,
-      route_id: routeId,
-      pickup_stop_id: firstStopId,
-      dropoff_stop_id: secondStopId,
-      schedule_ids: []
+      route_id: newRouteId,
+      pickup_stop_id: defaultPickup,
+      dropoff_stop_id: defaultDropoff,
+      schedule_ids: initialScheduleIds
     }));
 
     if (formErrors.route_id) {
@@ -207,7 +194,10 @@ export default function RegisterStudentPage() {
       status: formValues.status,
       guardians: formGuardians.filter(g => g.name.trim() && g.phone.trim()),
       grade: formValues.grade || null,
-      class_name: formValues.class_name || null
+      class_name: formValues.class_name || null,
+      address: formValues.address || null,
+      latitude: formValues.latitude,
+      longitude: formValues.longitude,
     };
 
     try {
@@ -454,6 +444,24 @@ export default function RegisterStudentPage() {
                   </div>
                 </div>
               </div>
+
+              {/* SECTION: Home Location & Interactive Mapbox Pin */}
+              <HomeLocationMapPicker
+                address={formValues.address}
+                latitude={formValues.latitude}
+                longitude={formValues.longitude}
+                onAddressChange={(newAddr) =>
+                  setFormValues((prev) => ({ ...prev, address: newAddr }))
+                }
+                onLocationChange={(lat, lng, newAddr) =>
+                  setFormValues((prev) => ({
+                    ...prev,
+                    latitude: lat,
+                    longitude: lng,
+                    address: newAddr !== undefined ? newAddr : prev.address,
+                  }))
+                }
+              />
 
               {/* SECTION: Parents & Guardians */}
               <div>

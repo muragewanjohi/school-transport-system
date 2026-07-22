@@ -8,13 +8,14 @@ const driverCreateSchema = z.object({
   email: z.string().email("Invalid email format"),
   national_id: z.string().min(4, "National ID must be at least 4 characters"),
   status: z.enum(["Available", "Unavailable"]).default("Available"),
+  avatar_url: z.string().optional().nullable(),
 });
 
 const mockDrivers = [
-  { id: "drv-1", name: "John Kamau", phone: "+254 712 345 678", email: "john.kamau@school.com", national_id: "32908422", status: "Available" },
-  { id: "drv-2", name: "David Ochieng", phone: "+254 722 890 123", email: "david.ochieng@school.com", national_id: "28405911", status: "Available" },
-  { id: "drv-3", name: "Peter Ndwiga", phone: "+254 733 456 789", email: "peter.ndwiga@school.com", national_id: "31049284", status: "Unavailable" },
-  { id: "drv-4", name: "Michael Mwangi", phone: "+254 701 111 222", email: "michael.mwangi@school.com", national_id: "24905184", status: "Available" },
+  { id: "drv-1", name: "John Kamau", phone: "+254 712 345 678", email: "john.kamau@school.com", national_id: "32908422", status: "Available", avatar_url: null },
+  { id: "drv-2", name: "David Ochieng", phone: "+254 722 890 123", email: "david.ochieng@school.com", national_id: "28405911", status: "Available", avatar_url: null },
+  { id: "drv-3", name: "Peter Ndwiga", phone: "+254 733 456 789", email: "peter.ndwiga@school.com", national_id: "31049284", status: "Unavailable", avatar_url: null },
+  { id: "drv-4", name: "Michael Mwangi", phone: "+254 701 111 222", email: "michael.mwangi@school.com", national_id: "24905184", status: "Available", avatar_url: null },
 ];
 
 export async function GET(request: Request) {
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
     
     const { data: drivers, error } = await client
       .from("profiles")
-      .select("id, name, phone, email, national_id, status")
+      .select("id, name, phone, email, national_id, status, avatar_url")
       .eq("role", "driver");
 
     if (error) {

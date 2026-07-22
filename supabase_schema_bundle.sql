@@ -1,6 +1,6 @@
 -- ========================================================
 -- BUNDLED DATABASE MIGRATIONS FOR SAFARICOM TRACK
--- Generated: 2026-07-17T15:58:50.822Z
+-- Generated: 2026-07-22T11:52:54.270Z
 -- ========================================================
 
 -- --------------------------------------------------------
@@ -2329,5 +2329,46 @@ ALTER TABLE public.profiles ALTER COLUMN id SET DEFAULT gen_random_uuid();
 
 -- Migration to add status column to public.students table
 ALTER TABLE public.students ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'Present' NOT NULL CHECK (status IN ('Present', 'Absent'));
+
+
+-- --------------------------------------------------------
+-- MIGRATION: 20260722150000_add_avatar_url_and_storage.sql
+-- --------------------------------------------------------
+
+-- Migration: Add avatar_url column to profiles & students tables, and configure storage bucket for avatars
+
+-- 1. Add avatar_url column to public.profiles if not exists
+ALTER TABLE public.profiles 
+ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+
+-- 2. Add avatar_url column to public.students if not exists
+ALTER TABLE public.students 
+ADD COLUMN IF NOT EXISTS avatar_url TEXT;
+
+-- 3. Create 'avatars' bucket in Supabase Storage if it does not exist
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('avatars', 'avatars', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- 4. Enable public policies on 'avatars' storage bucket
+DROP POLICY IF EXISTS "Public Read Avatars" ON storage.objects;
+CREATE POLICY "Public Read Avatars" 
+ON storage.objects FOR SELECT 
+USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "Public Upload Avatars" ON storage.objects;
+CREATE POLICY "Public Upload Avatars" 
+ON storage.objects FOR INSERT 
+WITH CHECK (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "Public Update Avatars" ON storage.objects;
+CREATE POLICY "Public Update Avatars" 
+ON storage.objects FOR UPDATE 
+USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "Public Delete Avatars" ON storage.objects;
+CREATE POLICY "Public Delete Avatars" 
+ON storage.objects FOR DELETE 
+USING (bucket_id = 'avatars');
 
 

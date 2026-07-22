@@ -19,6 +19,9 @@ const studentUpdateSchema = z.object({
   guardians: z.array(guardianSchema).min(1).max(3).optional(),
   grade: z.string().optional().or(z.literal("")).nullable(),
   class_name: z.string().optional().or(z.literal("")).nullable(),
+  address: z.string().optional().or(z.literal("")).nullable(),
+  latitude: z.number().optional().nullable(),
+  longitude: z.number().optional().nullable(),
 });
 
 const mockStudents = [
@@ -181,6 +184,16 @@ export async function PUT(
     if (result.data.pickup_stop_id !== undefined) updatePayload.pickup_stop_id = result.data.pickup_stop_id;
     if (result.data.dropoff_stop_id !== undefined) updatePayload.dropoff_stop_id = result.data.dropoff_stop_id;
     if (result.data.schedule_ids !== undefined) updatePayload.schedule_ids = result.data.schedule_ids;
+    if (result.data.address !== undefined) updatePayload.address = result.data.address || null;
+    if (result.data.latitude !== undefined || result.data.longitude !== undefined) {
+      const lat = result.data.latitude;
+      const lng = result.data.longitude;
+      if (lat !== undefined && lat !== null && lng !== undefined && lng !== null) {
+        updatePayload.pickup_location = `POINT(${lng} ${lat})`;
+        updatePayload.latitude = lat;
+        updatePayload.longitude = lng;
+      }
+    }
 
     const { data: studentUpdate, error } = await client
       .from("students")

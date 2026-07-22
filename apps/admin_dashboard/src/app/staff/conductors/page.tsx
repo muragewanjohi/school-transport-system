@@ -12,7 +12,9 @@ import {
   Bus, 
   Sparkles,
   UserCheck,
-  ShieldAlert
+  ShieldAlert,
+  Camera,
+  Upload
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
@@ -24,6 +26,7 @@ interface DBProfile {
   email: string;
   national_id: string;
   status: "Available" | "Unavailable";
+  avatar_url?: string | null;
 }
 
 interface DBVehicle {
@@ -52,8 +55,39 @@ export default function ConductorsManagement() {
     email: "",
     national_id: "",
     status: "Available" as "Available" | "Unavailable",
+    avatar_url: "",
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("folder", "avatars");
+
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData,
+      });
+
+      const json = await res.json();
+      if (json.success && json.url) {
+        setFormValues(prev => ({ ...prev, avatar_url: json.url }));
+      } else {
+        alert(json.error || "Failed to upload photo");
+      }
+    } catch (err) {
+      console.error("Photo upload error:", err);
+      alert("Error uploading photo");
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
 
   const fetchConductors = async () => {
     try {
@@ -509,7 +543,7 @@ export default function ConductorsManagement() {
                 onClick={() => {
                   setDrawerMode("add");
                   setCurrentEditId(null);
-                  setFormValues({ name: "", phone: "", email: "", national_id: "", status: "Available" });
+                  setFormValues({ name: "", phone: "", email: "", national_id: "", status: "Available", avatar_url: "" });
                   setFormErrors({});
                   setShowDrawer(true);
                 }}
@@ -555,7 +589,16 @@ export default function ConductorsManagement() {
                       {/* Top profile view */}
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "16px" }}>
                         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                          <div className="conductor-avatar">{initials}</div>
+                          {conductor.avatar_url ? (
+                            <img 
+                              src={conductor.avatar_url} 
+                              alt={conductor.name} 
+                              className="conductor-avatar"
+                              style={{ objectFit: "cover", width: "42px", height: "42px", borderRadius: "50%" }}
+                            />
+                          ) : (
+                            <div className="conductor-avatar">{initials}</div>
+                          )}
                           <div>
                             <h3 style={{ fontSize: "1rem", fontWeight: 600 }}>{conductor.name}</h3>
                             <div className="switch-container" onClick={() => handleToggleStatus(conductor.id)}>
@@ -580,7 +623,8 @@ export default function ConductorsManagement() {
                                 phone: conductor.phone, 
                                 email: conductor.email,
                                 national_id: conductor.national_id || "",
-                                status: conductor.status || "Available"
+                                status: conductor.status || "Available",
+                                avatar_url: conductor.avatar_url || ""
                               });
                               setShowDrawer(true);
                             }}
@@ -682,6 +726,70 @@ export default function ConductorsManagement() {
             </div>
 
             <form onSubmit={handleFormSubmit} style={{ display: "flex", flexDirection: "column", gap: "12px", flex: 1 }}>
+              {/* Profile Photo Upload Field */}
+              <div className="form-group" style={{ marginBottom: "12px" }}>
+                <label className="form-label">Profile Photo</label>
+                <div style={{ display: "flex", alignItems: "center", gap: "16px", marginTop: "6px" }}>
+                  <div 
+                    style={{
+                      width: "60px",
+                      height: "60px",
+                      borderRadius: "50%",
+                      backgroundColor: "rgba(255,255,255,0.04)",
+                      border: "2px dashed var(--border-default)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      overflow: "hidden",
+                      position: "relative"
+                    }}
+                  >
+                    {formValues.avatar_url ? (
+                      <img src={formValues.avatar_url} alt="Preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : (
+                      <Camera size={22} style={{ color: "var(--text-muted)" }} />
+                    )}
+                  </div>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                    <label 
+                      style={{
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        background: "var(--accent-primary)",
+                        color: "#ffffff",
+                        padding: "6px 12px",
+                        borderRadius: "6px",
+                        fontSize: "0.8rem",
+                        fontWeight: 600,
+                        cursor: isUploadingPhoto ? "not-allowed" : "pointer"
+                      }}
+                    >
+                      <Upload size={14} />
+                      {isUploadingPhoto ? "Uploading..." : formValues.avatar_url ? "Change Photo" : "Upload Photo"}
+                      <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleFileUpload} disabled={isUploadingPhoto} />
+                    </label>
+                    {formValues.avatar_url && (
+                      <button
+                        type="button"
+                        onClick={() => setFormValues(prev => ({ ...prev, avatar_url: "" }))}
+                        style={{
+                          background: "transparent",
+                          border: "none",
+                          color: "var(--state-error)",
+                          fontSize: "0.75rem",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          padding: 0
+                        }}
+                      >
+                        Remove Photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="form-group">
                 <label className="form-label">Full Name *</label>
                 <input

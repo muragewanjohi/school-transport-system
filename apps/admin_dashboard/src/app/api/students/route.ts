@@ -19,6 +19,9 @@ const studentCreateSchema = z.object({
   guardians: z.array(guardianSchema).min(1, "At least one guardian is required").max(3, "Maximum of 3 guardians"),
   grade: z.string().optional().or(z.literal("")).nullable(),
   class_name: z.string().optional().or(z.literal("")).nullable(),
+  address: z.string().optional().or(z.literal("")).nullable(),
+  latitude: z.number().optional().nullable(),
+  longitude: z.number().optional().nullable(),
 });
 
 const mockStudents = [
@@ -188,6 +191,12 @@ export async function POST(request: Request) {
       tenantId = tenants[0].id;
     }
 
+    const lat = result.data.latitude;
+    const lng = result.data.longitude;
+    const wktPoint = (lat !== undefined && lat !== null && lng !== undefined && lng !== null)
+      ? `POINT(${lng} ${lat})`
+      : null;
+
     const payload = {
       id: crypto.randomUUID(),
       tenant_id: tenantId,
@@ -201,6 +210,10 @@ export async function POST(request: Request) {
       guardians: result.data.guardians,
       grade: result.data.grade || null,
       class_name: result.data.class_name || null,
+      address: result.data.address || null,
+      pickup_location: wktPoint,
+      latitude: lat || null,
+      longitude: lng || null,
     };
 
     const { data: studentInsert, error } = await client

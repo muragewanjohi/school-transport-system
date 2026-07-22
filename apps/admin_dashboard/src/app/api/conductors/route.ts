@@ -8,13 +8,14 @@ const conductorCreateSchema = z.object({
   email: z.string().email("Invalid email format"),
   national_id: z.string().min(4, "National ID must be at least 4 characters"),
   status: z.enum(["Available", "Unavailable"]).default("Available"),
+  avatar_url: z.string().optional().nullable(),
 });
 
 const mockConductors = [
-  { id: "cnd-1", name: "Jane Wanjiku", phone: "+254 755 123 456", email: "jane.wanjiku@school.com", national_id: "29402941", status: "Available" },
-  { id: "cnd-2", name: "Sam Mutua", phone: "+254 788 321 654", email: "sam.mutua@school.com", national_id: "31049281", status: "Available" },
-  { id: "cnd-3", name: "Grace Nekesa", phone: "+254 744 789 012", email: "grace.nekesa@school.com", national_id: "32405912", status: "Available" },
-  { id: "cnd-4", name: "Lucy Wambui", phone: "+254 799 444 555", email: "lucy.wambui@school.com", national_id: "27409284", status: "Unavailable" },
+  { id: "cnd-1", name: "Jane Wanjiku", phone: "+254 755 123 456", email: "jane.wanjiku@school.com", national_id: "29402941", status: "Available", avatar_url: null },
+  { id: "cnd-2", name: "Sam Mutua", phone: "+254 788 321 654", email: "sam.mutua@school.com", national_id: "31049281", status: "Available", avatar_url: null },
+  { id: "cnd-3", name: "Grace Nekesa", phone: "+254 744 789 012", email: "grace.nekesa@school.com", national_id: "32405912", status: "Available", avatar_url: null },
+  { id: "cnd-4", name: "Lucy Wambui", phone: "+254 799 444 555", email: "lucy.wambui@school.com", national_id: "27409284", status: "Unavailable", avatar_url: null },
 ];
 
 export async function GET(request: Request) {
@@ -30,7 +31,7 @@ export async function GET(request: Request) {
     
     const { data: conductors, error } = await client
       .from("profiles")
-      .select("id, name, phone, email, national_id, status")
+      .select("id, name, phone, email, national_id, status, avatar_url")
       .eq("role", "conductor");
 
     if (error) {

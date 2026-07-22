@@ -8,6 +8,7 @@ const driverUpdateSchema = z.object({
   email: z.string().email("Invalid email format").optional(),
   national_id: z.string().min(4, "National ID must be at least 4 characters").optional(),
   status: z.enum(["Available", "Unavailable"]).optional(),
+  avatar_url: z.string().optional().nullable(),
 });
 
 export async function PUT(

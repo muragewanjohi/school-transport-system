@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
+import HomeLocationMapPicker from "@/components/HomeLocationMapPicker";
 
 interface DBRoute {
   id: string;
@@ -50,6 +51,9 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
     status: "Present" as "Present" | "Absent",
     grade: "",
     class_name: "",
+    address: "Kiambu Road, Nairobi",
+    latitude: -1.2185,
+    longitude: 36.8335,
   });
   const [formGuardians, setFormGuardians] = useState<Guardian[]>([
     { name: "", phone: "" }
@@ -86,6 +90,22 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
       
       if (studentJson.success && studentJson.data) {
         const student = studentJson.data;
+        let lat = -1.2185;
+        let lng = 36.8335;
+        if (student.latitude && student.longitude) {
+          lat = student.latitude;
+          lng = student.longitude;
+        } else if (student.pickup_location) {
+          if (typeof student.pickup_location === "string") {
+            const clean = student.pickup_location.replace('POINT(', '').replace(')', '').trim();
+            const parts = clean.split(' ');
+            if (parts.length >= 2) {
+              lng = parseFloat(parts[0]) || lng;
+              lat = parseFloat(parts[1]) || lat;
+            }
+          }
+        }
+
         setFormValues({
           name: student.name || "",
           route_id: student.route_id || "",
@@ -96,6 +116,9 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
           status: student.status || "Present",
           grade: student.grade || "",
           class_name: student.class_name || "",
+          address: student.address || "Kiambu Road, Nairobi",
+          latitude: lat,
+          longitude: lng,
         });
         setFormGuardians(student.guardians && student.guardians.length > 0 
           ? student.guardians.map((g: any) => ({ ...g }))
@@ -114,7 +137,10 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormValues(prev => ({ ...prev, [name]: value }));
+    setFormValues(prev => ({
+      ...prev,
+      [name]: name === "latitude" || name === "longitude" ? (parseFloat(value) || 0) : value
+    }));
     if (formErrors[name]) {
       setFormErrors(prev => ({ ...prev, [name]: "" }));
     }
@@ -201,7 +227,10 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
       status: formValues.status,
       guardians: formGuardians.filter(g => g.name.trim() && g.phone.trim()),
       grade: formValues.grade || null,
-      class_name: formValues.class_name || null
+      class_name: formValues.class_name || null,
+      address: formValues.address || null,
+      latitude: formValues.latitude,
+      longitude: formValues.longitude,
     };
 
     try {
@@ -442,6 +471,24 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                   </div>
                 </div>
               </div>
+
+              {/* SECTION: Home Location & Interactive Mapbox Pin */}
+              <HomeLocationMapPicker
+                address={formValues.address}
+                latitude={formValues.latitude}
+                longitude={formValues.longitude}
+                onAddressChange={(newAddr) =>
+                  setFormValues((prev) => ({ ...prev, address: newAddr }))
+                }
+                onLocationChange={(lat, lng, newAddr) =>
+                  setFormValues((prev) => ({
+                    ...prev,
+                    latitude: lat,
+                    longitude: lng,
+                    address: newAddr !== undefined ? newAddr : prev.address,
+                  }))
+                }
+              />
 
               {/* SECTION: Parents & Guardians */}
               <div>
