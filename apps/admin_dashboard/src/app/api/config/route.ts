@@ -20,6 +20,7 @@ const mockConfig = {
   operating_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
   holidays: [],
   sms_notifications_enabled: false,
+  google_maps_api_key: "",
   mapbox_access_token: ""
 };
 

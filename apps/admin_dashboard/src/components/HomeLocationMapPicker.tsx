@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { MapPin, Search, Compass, Home, Navigation, Building, Loader2, X } from "lucide-react";
-import "mapbox-gl/dist/mapbox-gl.css";
 
 interface HomeLocationMapPickerProps {
   address: string;
@@ -20,79 +19,86 @@ interface GeocodingFeature {
   source?: string;
 }
 
-// Instant local Kenya landmarks dataset for 0ms response time
+// Famous Kenya Landmarks for 0ms instant search fallback
 const KNOWN_KENYA_LANDMARKS: GeocodingFeature[] = [
   {
-    id: "preset_kicc",
+    id: "g_kicc",
     title: "KICC Tower (Kenyatta International Convention Centre)",
     place_name: "Harambee Avenue, City Square, Central Business District, Nairobi, Kenya",
     center: [36.8231859, -1.2886281],
-    source: "Famous Landmark",
+    source: "Google Landmark",
   },
   {
-    id: "preset_afya",
+    id: "g_afya",
     title: "Afya Centre",
     place_name: "Tom Mboya Street, Central Business District, Nairobi, Kenya",
     center: [36.8277, -1.2858],
-    source: "Famous Landmark",
+    source: "Google Landmark",
   },
   {
-    id: "preset_nation",
+    id: "g_nation",
     title: "Nation Centre",
     place_name: "Kimathi Street, Central Business District, Nairobi, Kenya",
     center: [36.8224514, -1.2831792],
-    source: "Famous Landmark",
+    source: "Google Landmark",
   },
   {
-    id: "preset_britam",
+    id: "g_britam",
     title: "Britam Tower",
     place_name: "Hospital Road, Upper Hill, Nairobi, Kenya",
     center: [36.813216, -1.3000169],
-    source: "Famous Landmark",
+    source: "Google Landmark",
   },
   {
-    id: "preset_times",
+    id: "g_times",
     title: "Times Tower",
     place_name: "Haile Selassie Avenue, CBD, Nairobi, Kenya",
     center: [36.8247, -1.2908],
-    source: "Famous Landmark",
+    source: "Google Landmark",
   },
   {
-    id: "preset_yaya",
+    id: "g_yaya",
     title: "Yaya Centre",
     place_name: "Argwings Kodhek Road, Kilimani, Nairobi, Kenya",
     center: [36.7900, -1.2892],
     source: "Shopping Mall",
   },
   {
-    id: "preset_tworivers",
+    id: "g_tworivers",
     title: "Two Rivers Mall",
     place_name: "Limuru Road, Ruaka / Runda, Nairobi, Kenya",
     center: [36.7933, -1.2069],
     source: "Shopping Mall",
   },
   {
-    id: "preset_sarit",
+    id: "g_sarit",
     title: "Sarit Centre",
     place_name: "Karuna Road, Westlands, Nairobi, Kenya",
     center: [36.8048, -1.2642],
     source: "Shopping Mall",
   },
   {
-    id: "preset_gardencity",
+    id: "g_gardencity",
     title: "Garden City Mall",
     place_name: "Thika Superhighway, Roysambu, Nairobi, Kenya",
     center: [36.8778, -1.2331],
     source: "Shopping Mall",
   },
   {
-    id: "preset_kiambu",
+    id: "g_kiambu",
     title: "Kiambu Road Stage",
     place_name: "Kiambu Road, Muthaiga / Runda, Nairobi, Kenya",
     center: [36.8335, -1.2185],
     source: "Transit Stage",
   },
 ];
+
+declare global {
+  interface Window {
+    google: any;
+    initGoogleMapsPicker?: () => void;
+  }
+}
 
 export default function HomeLocationMapPicker({
   address,
@@ -111,10 +117,9 @@ export default function HomeLocationMapPicker({
   const [suggestions, setSuggestions] = useState<GeocodingFeature[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
+  const [isMapLoaded, setIsMapLoaded] = useState(false);
 
-  const mapboxToken =
-    process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN ||
-    "pk.eyJ1IjoibXVyYWdlMTAxIiwiYSI6ImNtcWdiM21mZjA1ZWkycnM3MmpnMXJjeWQifQ.ZmGc4WbWEbgNHPg4jHijzg";
+  const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
   // Sync internal search query if parent updates address prop externally
   useEffect(() => {
@@ -136,58 +141,41 @@ export default function HomeLocationMapPicker({
     };
   }, []);
 
-  // Reverse Geocoding helper (Coordinates -> Building / Place Name)
+  // Google Reverse Geocoding helper (Coordinates -> Building / Address Name)
   const reverseGeocode = useCallback(
-    async (lat: number, lng: number) => {
-      try {
-        const nomUrl = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json&addressdetails=1`;
-        const nomRes = await fetch(nomUrl, {
-          headers: { "User-Agent": "SchoolTrackAdmin/1.0" },
-        });
-        const nomData = await nomRes.json();
-
-        if (nomData && nomData.display_name) {
-          const buildingName =
-            nomData.address?.building ||
-            nomData.address?.amenity ||
-            nomData.address?.shop ||
-            nomData.address?.office ||
-            nomData.address?.historic ||
-            nomData.display_name;
-
-          setSearchQuery(buildingName);
-          onAddressChange(buildingName);
-          onLocationChange(lat, lng, buildingName);
-          return;
-        }
-      } catch (err) {
-        console.warn("Nominatim reverse geocode failed, falling back to Mapbox:", err);
-      }
-
-      if (mapboxToken) {
-        try {
-          const res = await fetch(
-            `https://api.mapbox.com/geocoding/v5/mapbox.places/${lng},${lat}.json?access_token=${mapboxToken}&country=ke&limit=1`
-          );
-          const data = await res.json();
-          if (data && data.features && data.features.length > 0) {
-            const placeName = data.features[0].place_name;
-            setSearchQuery(placeName);
-            onAddressChange(placeName);
-            onLocationChange(lat, lng, placeName);
+    (lat: number, lng: number) => {
+      if (window.google && window.google.maps) {
+        const geocoder = new window.google.maps.Geocoder();
+        geocoder.geocode({ location: { lat, lng } }, (results: any[], status: string) => {
+          if (status === "OK" && results && results.length > 0) {
+            const formatted = results[0].formatted_address;
+            setSearchQuery(formatted);
+            onAddressChange(formatted);
+            onLocationChange(lat, lng, formatted);
           } else {
             onLocationChange(lat, lng);
           }
-        } catch (err) {
-          console.error("Mapbox reverse geocoding error:", err);
-          onLocationChange(lat, lng);
-        }
+        });
+      } else {
+        // Fallback to Nominatim if script is loading
+        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (data && data.display_name) {
+              setSearchQuery(data.display_name);
+              onAddressChange(data.display_name);
+              onLocationChange(lat, lng, data.display_name);
+            } else {
+              onLocationChange(lat, lng);
+            }
+          })
+          .catch(() => onLocationChange(lat, lng));
       }
     },
-    [mapboxToken, onAddressChange, onLocationChange]
+    [onAddressChange, onLocationChange]
   );
 
-  // Live Autocomplete Search (Instant Local Matches + Nominatim + Mapbox)
+  // Live Autocomplete Search using Google Places API + Landmark Database
   const handleSearchInputChange = async (text: string) => {
     setSearchQuery(text);
     onAddressChange(text);
@@ -198,7 +186,6 @@ export default function HomeLocationMapPicker({
       return;
     }
 
-    // 1. Instant match from known local landmarks list
     const queryLower = text.toLowerCase().trim();
     const localMatches = KNOWN_KENYA_LANDMARKS.filter(
       (item) =>
@@ -213,23 +200,107 @@ export default function HomeLocationMapPicker({
     const combined: GeocodingFeature[] = [...localMatches];
 
     try {
-      // 2. Fetch from Nominatim Kenya Building/Landmark DB
-      const nomPromise = fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
-          text + ", Kenya"
-        )}&format=json&addressdetails=1&limit=6&countrycodes=ke`,
-        { headers: { "User-Agent": "SchoolTrackAdmin/1.0" } }
-      )
-        .then((res) => res.json())
-        .then((data) => {
-          if (Array.isArray(data)) {
-            data.forEach((item) => {
+      // 1. Google Places Autocomplete (supports new 2025/2026 AutocompleteSuggestion and legacy AutocompleteService)
+      if (window.google && window.google.maps && window.google.maps.places) {
+        const places = window.google.maps.places;
+
+        if (places.AutocompleteSuggestion && typeof places.AutocompleteSuggestion.fetchAutocompleteSuggestions === "function") {
+          places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
+            input: text,
+            componentRestrictions: { country: "ke" }
+          }).then((response: any) => {
+            if (response && response.suggestions) {
+              const geocoder = new window.google.maps.Geocoder();
+              response.suggestions.forEach((sug: any) => {
+                const pPrediction = sug.placePrediction;
+                if (pPrediction) {
+                  geocoder.geocode({ placeId: pPrediction.placeId }, (geoRes: any[], geoStatus: string) => {
+                    if (geoStatus === "OK" && geoRes && geoRes[0]) {
+                      const loc = geoRes[0].geometry.location;
+                      combined.push({
+                        id: "gplace_" + pPrediction.placeId,
+                        title: pPrediction.text?.text || pPrediction.mainText?.text || text,
+                        place_name: pPrediction.secondaryText?.text ? `${pPrediction.text?.text || text}, ${pPrediction.secondaryText.text}` : text,
+                        center: [loc.lng(), loc.lat()],
+                        source: "Google Places",
+                      });
+
+                      const uniqueSuggestions: GeocodingFeature[] = [];
+                      combined.forEach((entry) => {
+                        const isDup = uniqueSuggestions.some(
+                          (e) =>
+                            e.title.toLowerCase() === entry.title.toLowerCase() ||
+                            (Math.abs(e.center[0] - entry.center[0]) < 0.0001 &&
+                              Math.abs(e.center[1] - entry.center[1]) < 0.0001)
+                        );
+                        if (!isDup) uniqueSuggestions.push(entry);
+                      });
+                      setSuggestions(uniqueSuggestions);
+                    }
+                  });
+                }
+              });
+            }
+          }).catch(() => {});
+        } else if (places.AutocompleteService) {
+          const autocompleteService = new places.AutocompleteService();
+          autocompleteService.getPlacePredictions(
+            {
+              input: text,
+              componentRestrictions: { country: "ke" },
+            },
+            (predictions: any[], status: string) => {
+              if (status === "OK" && predictions) {
+                const geocoder = new window.google.maps.Geocoder();
+                predictions.forEach((item) => {
+                  geocoder.geocode({ placeId: item.place_id }, (geoRes: any[], geoStatus: string) => {
+                    if (geoStatus === "OK" && geoRes && geoRes[0]) {
+                      const loc = geoRes[0].geometry.location;
+                      combined.push({
+                        id: "gplace_" + item.place_id,
+                        title: item.structured_formatting?.main_text || item.description.split(",")[0],
+                        place_name: item.description,
+                        center: [loc.lng(), loc.lat()],
+                        source: "Google Places",
+                      });
+
+                      const uniqueSuggestions: GeocodingFeature[] = [];
+                      combined.forEach((entry) => {
+                        const isDup = uniqueSuggestions.some(
+                          (e) =>
+                            e.title.toLowerCase() === entry.title.toLowerCase() ||
+                            (Math.abs(e.center[0] - entry.center[0]) < 0.0001 &&
+                              Math.abs(e.center[1] - entry.center[1]) < 0.0001)
+                        );
+                        if (!isDup) uniqueSuggestions.push(entry);
+                      });
+                      setSuggestions(uniqueSuggestions);
+                    }
+                  });
+                });
+              }
+            }
+          );
+        }
+      }
+
+      // 2. Nominatim Kenya Building DB search in parallel (wrapped safely)
+      try {
+        const nomRes = await fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
+            text + ", Kenya"
+          )}&format=json&addressdetails=1&limit=6&countrycodes=ke`,
+          { headers: { "User-Agent": "SchoolTrackAdmin/1.0" } }
+        );
+        if (nomRes.ok) {
+          const nomData = await nomRes.json();
+          if (Array.isArray(nomData)) {
+            nomData.forEach((item) => {
               const bName =
                 item.address?.building ||
                 item.address?.amenity ||
                 item.address?.shop ||
                 item.address?.office ||
-                item.address?.historic ||
                 item.display_name.split(",")[0];
 
               combined.push({
@@ -237,66 +308,41 @@ export default function HomeLocationMapPicker({
                 title: bName,
                 place_name: item.display_name,
                 center: [parseFloat(item.lon), parseFloat(item.lat)],
-                source: "Landmark/Building",
+                source: "Building/Landmark",
               });
             });
           }
-        })
-        .catch(() => {});
-
-      // 3. Fetch from Mapbox Geocoding in parallel
-      const mapboxPromise = fetch(
-        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
-          text
-        )}.json?access_token=${mapboxToken}&country=ke&proximity=36.8219,-1.2921&autocomplete=true&limit=6`
-      )
-        .then((res) => res.json())
-        .then((data) => {
-          if (data && data.features) {
-            data.features.forEach((item: any) => {
-              combined.push({
-                id: item.id,
-                title: item.text,
-                place_name: item.place_name,
-                center: item.center,
-                source: "Area/Address",
-              });
-            });
-          }
-        })
-        .catch(() => {});
-
-      await Promise.all([nomPromise, mapboxPromise]);
+        }
+      } catch (_) {
+        // Silently ignore external CORS/network hiccups
+      }
 
       // Deduplicate suggestions
       const uniqueSuggestions: GeocodingFeature[] = [];
-      combined.forEach((item) => {
-        const isDuplicate = uniqueSuggestions.some(
-          (existing) =>
-            existing.title.toLowerCase() === item.title.toLowerCase() ||
-            (Math.abs(existing.center[0] - item.center[0]) < 0.00015 &&
-              Math.abs(existing.center[1] - item.center[1]) < 0.00015)
+      combined.forEach((entry) => {
+        const isDup = uniqueSuggestions.some(
+          (e) =>
+            e.title.toLowerCase() === entry.title.toLowerCase() ||
+            (Math.abs(e.center[0] - entry.center[0]) < 0.00015 &&
+              Math.abs(e.center[1] - entry.center[1]) < 0.00015)
         );
-        if (!isDuplicate) {
-          uniqueSuggestions.push(item);
-        }
+        if (!isDup) uniqueSuggestions.push(entry);
       });
 
       setSuggestions(uniqueSuggestions);
       setShowSuggestions(true);
-    } catch (err) {
-      console.error("Geocoding search error:", err);
+    } catch (_) {
+      // Graceful fallback
     } finally {
       setIsSearching(false);
     }
   };
 
-  // Handle selecting an autocomplete suggestion (Populates building name in input field)
+  // Handle selecting an autocomplete suggestion (Puts Building Name into Input Field & flies Google Map)
   const handleSelectSuggestion = (feature: GeocodingFeature) => {
     const [lng, lat] = feature.center;
     const selectedName = feature.title || feature.place_name;
 
-    // Immediately update input field value
     setSearchQuery(selectedName);
     onAddressChange(selectedName);
     setSuggestions([]);
@@ -304,124 +350,117 @@ export default function HomeLocationMapPicker({
 
     onLocationChange(lat, lng, selectedName);
 
-    // Fly Mapbox map to building location
+    // Update Google Map view & marker
     if (mapRef.current) {
-      mapRef.current.flyTo({
-        center: [lng, lat],
-        zoom: 16.5,
-        essential: true,
-      });
+      mapRef.current.panTo({ lat, lng });
+      mapRef.current.setZoom(16);
     }
     if (markerRef.current) {
-      markerRef.current.setLngLat([lng, lat]);
+      markerRef.current.setPosition({ lat, lng });
     }
   };
 
-  // Initialize Mapbox Map (Standard Style) & Blue Draggable Home Pin
+  // Load Google Maps JS Script & Initialize Google Map
   useEffect(() => {
-    if (!mapContainerRef.current) return;
     let isMounted = true;
 
-    const initMap = async () => {
-      const mapboxgl = (await import("mapbox-gl")).default;
-      if (!isMounted || !mapContainerRef.current) return;
+    const initMapInstance = () => {
+      if (!mapContainerRef.current || !window.google || !window.google.maps) return;
 
-      mapboxgl.accessToken = mapboxToken;
+      const initialLat = latitude || -1.2185;
+      const initialLng = longitude || 36.8335;
 
-      const map = new mapboxgl.Map({
-        container: mapContainerRef.current,
-        style: "mapbox://styles/mapbox/standard", // Mapbox Standard 3D Vector Style
-        center: [longitude || 36.8335, latitude || -1.2185],
+      const map = new window.google.maps.Map(mapContainerRef.current, {
+        center: { lat: initialLat, lng: initialLng },
         zoom: 15,
-        interactive: true,
+        mapTypeId: "roadmap",
+        zoomControl: true,
+        streetViewControl: false,
+        mapTypeControl: false,
+        fullscreenControl: false,
+        styles: [
+          { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
+          { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
+          { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] },
+          { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1626" }] },
+          { featureType: "road", elementType: "geometry", stylers: [{ color: "#304a7d" }] },
+        ],
       });
 
-      map.addControl(new mapboxgl.NavigationControl(), "top-right");
-
-      // Custom Blue Teardrop Home Pin Marker Element
-      const el = document.createElement("div");
-      el.className = "home-pin-marker-blue";
-      el.style.width = "38px";
-      el.style.height = "38px";
-      el.style.borderRadius = "50% 50% 50% 0";
-      el.style.background = "#2563EB"; // Royal Blue
-      el.style.border = "2.5px solid #ffffff";
-      el.style.transform = "rotate(-45deg)";
-      el.style.boxShadow = "0 4px 14px rgba(37, 99, 235, 0.55)";
-      el.style.cursor = "grab";
-      el.style.display = "flex";
-      el.style.alignItems = "center";
-      el.style.justifyContent = "center";
-      el.style.transition = "transform 0.15s ease, box-shadow 0.15s ease";
-
-      // Home Icon inside pin
-      const inner = document.createElement("div");
-      inner.style.transform = "rotate(45deg)";
-      inner.style.display = "flex";
-      inner.style.alignItems = "center";
-      inner.style.justifyContent = "center";
-      inner.innerHTML = `
-        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-          <polyline points="9 22 9 12 15 12 15 22"/>
-        </svg>
-      `;
-      el.appendChild(inner);
-
-      // Create Draggable Marker
-      const marker = new mapboxgl.Marker({
-        element: el,
+      // Draggable Marker with Royal Blue Pin Icon
+      const marker = new window.google.maps.Marker({
+        position: { lat: initialLat, lng: initialLng },
+        map: map,
         draggable: true,
-        anchor: "bottom",
-      })
-        .setLngLat([longitude || 36.8335, latitude || -1.2185])
-        .addTo(map);
+        title: "Drag to set Home Location",
+        icon: {
+          path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
+          fillColor: "#2563EB",
+          fillOpacity: 1,
+          strokeColor: "#ffffff",
+          strokeWeight: 2,
+          scale: 1.8,
+          anchor: new window.google.maps.Point(12, 22),
+        },
+      });
 
       // 1. Drag End Event Listener -> Reverse Geocode & Update Input Field
-      marker.on("dragend", () => {
-        const lngLat = marker.getLngLat();
-        const newLat = parseFloat(lngLat.lat.toFixed(6));
-        const newLng = parseFloat(lngLat.lng.toFixed(6));
+      marker.addListener("dragend", () => {
+        const pos = marker.getPosition();
+        const newLat = parseFloat(pos.lat().toFixed(6));
+        const newLng = parseFloat(pos.lng().toFixed(6));
         reverseGeocode(newLat, newLng);
       });
 
-      // 2. Click to Place Pin Event Listener -> Fly, Reverse Geocode & Update Input Field
-      map.on("click", (e: any) => {
-        const { lng, lat } = e.lngLat;
-        const newLat = parseFloat(lat.toFixed(6));
-        const newLng = parseFloat(lng.toFixed(6));
+      // 2. Click Map to Place Pin Listener
+      map.addListener("click", (e: any) => {
+        const newLat = parseFloat(e.latLng.lat().toFixed(6));
+        const newLng = parseFloat(e.latLng.lng().toFixed(6));
 
-        marker.setLngLat([newLng, newLat]);
-        map.flyTo({ center: [newLng, newLat], zoom: 16, essential: true });
+        marker.setPosition({ lat: newLat, lng: newLng });
+        map.panTo({ lat: newLat, lng: newLng });
         reverseGeocode(newLat, newLng);
       });
 
       mapRef.current = map;
       markerRef.current = marker;
+      if (isMounted) setIsMapLoaded(true);
     };
 
-    initMap();
+    if (window.google && window.google.maps) {
+      initMapInstance();
+    } else {
+      const scriptId = "google-maps-js-script";
+      let existingScript = document.getElementById(scriptId) as HTMLScriptElement;
+
+      if (!existingScript) {
+        existingScript = document.createElement("script");
+        existingScript.id = scriptId;
+        existingScript.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
+          googleApiKey
+        )}&libraries=places&callback=initGoogleMapsPicker`;
+        existingScript.async = true;
+        existingScript.defer = true;
+        document.head.appendChild(existingScript);
+      }
+
+      window.initGoogleMapsPicker = () => {
+        if (isMounted) initMapInstance();
+      };
+    }
 
     return () => {
       isMounted = false;
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
     };
-  }, []); // Run once on mount
+  }, [googleApiKey]);
 
-  // Sync marker position when latitude or longitude props update externally
+  // Sync marker & map position when props change externally
   useEffect(() => {
     if (markerRef.current && latitude && longitude) {
-      markerRef.current.setLngLat([longitude, latitude]);
+      markerRef.current.setPosition({ lat: latitude, lng: longitude });
     }
     if (mapRef.current && latitude && longitude) {
-      mapRef.current.flyTo({
-        center: [longitude, latitude],
-        zoom: 15.5,
-        essential: true,
-      });
+      mapRef.current.panTo({ lat: latitude, lng: longitude });
     }
   }, [latitude, longitude]);
 
@@ -451,7 +490,7 @@ export default function HomeLocationMapPicker({
             data-lpignore="true"
             className="form-input"
             style={{ width: "100%", paddingRight: "40px" }}
-            placeholder="Type building name or landmark (e.g. KICC, Afya Center, Nation Center, Britam Tower)..."
+            placeholder="Search Google Maps for building or landmark (e.g. KICC, Afya Centre, Nation Centre, Britam)..."
             value={searchQuery}
             onChange={(e) => handleSearchInputChange(e.target.value)}
             onFocus={() => {
@@ -589,7 +628,7 @@ export default function HomeLocationMapPicker({
                 }}
               >
                 <Loader2 size={14} className="animate-spin" style={{ color: "#2563EB" }} />
-                <span>Searching Kenya building & landmark database...</span>
+                <span>Searching Google Maps building database...</span>
               </div>
             ) : (
               <div
@@ -669,7 +708,7 @@ export default function HomeLocationMapPicker({
             display: "block",
           }}
         >
-          FAMOUS LANDMARK QUICK PINS (NAIROBI):
+          GOOGLE MAPS LANDMARK QUICK PINS (NAIROBI):
         </label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", width: "100%" }}>
           {[
@@ -714,7 +753,7 @@ export default function HomeLocationMapPicker({
         </div>
       </div>
 
-      {/* 4. Draggable Mapbox Map Container (Standard Style) */}
+      {/* 4. Google Maps Container */}
       <div
         style={{
           position: "relative",
@@ -749,7 +788,7 @@ export default function HomeLocationMapPicker({
           }}
         >
           <Navigation size={14} />
-          <span>Click map or drag Blue Home Pin to set location</span>
+          <span>Click Google Map or drag Blue Home Pin to set location</span>
         </div>
       </div>
     </div>

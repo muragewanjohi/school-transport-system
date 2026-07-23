@@ -28,9 +28,6 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
   bool _isLoadingStops = false;
   final MapController _mapController = MapController();
 
-  // Mapbox Access Token used in Web App
-  static const String _mapboxToken = "pk.eyJ1IjoibXVyYWdlMTAxIiwiYSI6ImNtcWdiM21mZjA1ZWkycnM3MmpnMXJjeWQifQ.ZmGc4WbWEbgNHPg4jHijzg";
-
   @override
   void initState() {
     super.initState();
@@ -190,9 +187,9 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
       }
     }
 
-    // Mapbox Traffic Day style url template
-    final String mapboxUrlTemplate = 
-        'https://api.mapbox.com/styles/v1/mapbox/traffic-day-v2/tiles/{z}/{x}/{y}?access_token=$_mapboxToken';
+    // Google Maps Vector/Roadmap style tile url template
+    final String googleMapsUrlTemplate = 
+        'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
 
     return Container(
       height: 280,
@@ -214,7 +211,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
             ),
             children: [
               TileLayer(
-                urlTemplate: mapboxUrlTemplate,
+                urlTemplate: googleMapsUrlTemplate,
                 userAgentPackageName: 'com.safaricom.track.driver_app',
               ),
               if (polylinePoints.isNotEmpty)

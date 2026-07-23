@@ -55,6 +55,7 @@ export default function ConfigConsole() {
   const [smsTemplateBoarded, setSmsTemplateBoarded] = useState("Hi {parent_name}, {student_name} has safely boarded the school bus {vehicle_plate}.");
   const [smsTemplateTripStart, setSmsTemplateTripStart] = useState("Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} has started. Bus {vehicle_plate} is active.");
   const [smsTemplateTripStatus, setSmsTemplateTripStatus] = useState("Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} is {status_override} due to {trip_description}. Bus {vehicle_plate}.");
+  const [googleMapsApiKey, setGoogleMapsApiKey] = useState("");
   const [mapboxAccessToken, setMapboxAccessToken] = useState("");
 
   const [operatingHoursStart, setOperatingHoursStart] = useState("06:00");
@@ -99,6 +100,7 @@ export default function ConfigConsole() {
           setOperatingDays(config.operating_days || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
           setHolidays(config.holidays || []);
           setSmsNotificationsEnabled(config.sms_notifications_enabled || false);
+          setGoogleMapsApiKey(config.google_maps_api_key || "");
           setMapboxAccessToken(config.mapbox_access_token || "");
         }
       } catch (err) {
@@ -137,6 +139,7 @@ export default function ConfigConsole() {
       operating_days: operatingDays,
       holidays: holidays,
       sms_notifications_enabled: smsNotificationsEnabled,
+      google_maps_api_key: googleMapsApiKey,
       mapbox_access_token: mapboxAccessToken
     };
 

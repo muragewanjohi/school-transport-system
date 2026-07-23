@@ -30,8 +30,7 @@ class _RelocateScreenState extends State<RelocateScreen> {
   bool _isSearching = false;
   List<Map<String, dynamic>> _searchResults = [];
 
-  static const String _mapboxToken =
-      "pk.eyJ1IjoibXVyYWdlMTAxIiwiYSI6ImNtcWdiM21mZjA1ZWkycnM3MmpnMXJjeWQifQ.ZmGc4WbWEbgNHPg4jHijzg";
+  static const String _googleMapsApiKey = "AIzaSyA_placeholder_key_for_dev";
 
   @override
   void initState() {
@@ -59,7 +58,38 @@ class _RelocateScreenState extends State<RelocateScreen> {
     try {
       final List<Map<String, dynamic>> combined = [];
 
-      // 1. Nominatim Building / POI search for Kenya
+      // 1. Google Places Autocomplete API Search
+      try {
+        final googleUrl = Uri.parse(
+            'https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${Uri.encodeComponent(query)}&components=country:ke&key=$_googleMapsApiKey');
+        final gRes = await http.get(googleUrl);
+        if (gRes.statusCode == 200) {
+          final Map<String, dynamic> gData = json.decode(gRes.body);
+          if (gData['predictions'] != null) {
+            for (var item in gData['predictions']) {
+              // Fetch place geometry details
+              final placeId = item['place_id'];
+              final detailsUrl = Uri.parse(
+                  'https://maps.googleapis.com/maps/api/place/details/json?place_id=$placeId&fields=geometry,formatted_address,name&key=$_googleMapsApiKey');
+              final detRes = await http.get(detailsUrl);
+              if (detRes.statusCode == 200) {
+                final Map<String, dynamic> detData = json.decode(detRes.body);
+                if (detData['result'] != null && detData['result']['geometry'] != null) {
+                  final loc = detData['result']['geometry']['location'];
+                  combined.add({
+                    'display_name': detData['result']['formatted_address'] ?? item['description'],
+                    'title': detData['result']['name'] ?? item['structured_formatting']['main_text'],
+                    'lat': (loc['lat'] as num).toDouble(),
+                    'lon': (loc['lng'] as num).toDouble(),
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {}
+
+      // 2. Nominatim Kenya Building/Landmark DB Search Fallback
       try {
         final nomUrl = Uri.parse(
             'https://nominatim.openstreetmap.org/search?q=${Uri.encodeComponent('$query, Kenya')}&format=json&addressdetails=1&limit=6&countrycodes=ke');
@@ -77,28 +107,6 @@ class _RelocateScreenState extends State<RelocateScreen> {
               'lat': double.parse(item['lat']),
               'lon': double.parse(item['lon']),
             });
-          }
-        }
-      } catch (_) {}
-
-      // 2. Mapbox Geocoding search
-      try {
-        const String mapboxToken = 'pk.eyJ1IjoibXVyYWdlMTAxIiwiYSI6ImNtcWdiM21mZjA1ZWkycnM3MmpnMXJjeWQifQ.ZmGc4WbWEbgNHPg4jHijzg';
-        final mbUrl = Uri.parse(
-            'https://api.mapbox.com/geocoding/v5/mapbox.places/${Uri.encodeComponent(query)}.json?access_token=$mapboxToken&country=ke&proximity=36.8219,-1.2921&autocomplete=true&limit=6');
-        final mbRes = await http.get(mbUrl);
-        if (mbRes.statusCode == 200) {
-          final Map<String, dynamic> data = json.decode(mbRes.body);
-          if (data['features'] != null) {
-            final List<dynamic> features = data['features'];
-            for (var item in features) {
-              combined.add({
-                'display_name': item['place_name'] ?? item['text'] ?? '',
-                'title': item['text'] ?? item['place_name'] ?? '',
-                'lat': (item['center'][1] as num).toDouble(),
-                'lon': (item['center'][0] as num).toDouble(),
-              });
-            }
           }
         }
       } catch (_) {}
@@ -147,13 +155,7 @@ class _RelocateScreenState extends State<RelocateScreen> {
       if (success) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Row(
-              children: [
-                Icon(Icons.check_circle, color: Colors.white),
-                SizedBox(width: 8),
-                Text('Home location updated successfully!'),
-              ],
-            ),
+            content: Text('Home location updated successfully!'),
             backgroundColor: Color(0xFF10B981),
             behavior: SnackBarBehavior.floating,
           ),
@@ -173,8 +175,9 @@ class _RelocateScreenState extends State<RelocateScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final String mapboxUrlTemplate =
-        'https://api.mapbox.com/styles/v1/mapbox/traffic-day-v2/tiles/{z}/{x}/{y}?access_token=$_mapboxToken';
+    // Google Maps Vector/Roadmap style tile url template
+    final String googleMapsUrlTemplate =
+        'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -189,7 +192,7 @@ class _RelocateScreenState extends State<RelocateScreen> {
       ),
       body: Stack(
         children: [
-          // 1. Flutter Map
+          // 1. Google Maps Canvas
           FlutterMap(
             mapController: _mapController,
             options: MapOptions(
@@ -203,7 +206,7 @@ class _RelocateScreenState extends State<RelocateScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate: mapboxUrlTemplate,
+                urlTemplate: googleMapsUrlTemplate,
                 userAgentPackageName: 'com.schooltrack.parent_app',
               ),
               MarkerLayer(

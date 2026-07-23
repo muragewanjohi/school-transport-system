@@ -17,8 +17,6 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { useSearchParams, useRouter } from "next/navigation";
-import type mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
 
 interface DBRoute {
   id: string;
@@ -61,6 +59,13 @@ interface SchoolLocation {
   name: string;
   latitude: number;
   longitude: number;
+}
+
+declare global {
+  interface Window {
+    google: any;
+    initGoogleMapsRoutes?: () => void;
+  }
 }
 
 function RoutesManagement() {
@@ -169,8 +174,8 @@ function RoutesManagement() {
   const [showSuggestionsList, setShowSuggestionsList] = useState(false);
   const [isSearchingStops, setIsSearchingStops] = useState(false);
   const [searchLocation, setSearchLocation] = useState("");
-  const draggableMarkerRef = useRef<mapboxgl.Marker | null>(null);
-  const draggableSchoolMarkerRef = useRef<mapboxgl.Marker | null>(null);
+  const draggableMarkerRef = useRef<any>(null);
+  const draggableSchoolMarkerRef = useRef<any>(null);
 
   const [stopDrawerMode, setStopDrawerMode] = useState<"add" | "edit">("add");
   const [currentEditStopId, setCurrentEditStopId] = useState<string | null>(null);
@@ -227,75 +232,55 @@ function RoutesManagement() {
     vehicle_id: ""
   });
 
-  // Mapbox references
+  // Google Maps references
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const stopMarkersRef = useRef<mapboxgl.Marker[]>([]);
+  const mapRef = useRef<any>(null);
+  const stopMarkersRef = useRef<any[]>([]);
+  const activePolylineRef = useRef<any>(null);
   const lastCoordsQueryRef = useRef<string>("");
 
-  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
-  const hasMapboxToken = typeof mapboxToken === "string" && mapboxToken.trim().length > 0;
+  const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
   // DRAGGABLE MARKER INITIALIZER
-  const initializeDraggableMarker = async (lng: number, lat: number) => {
-    if (!mapRef.current) return;
-    const mapboxglModule = (await import("mapbox-gl")).default;
-    
-    // Check again after async import to ensure component wasn't unmounted/map removed
-    if (!mapRef.current) return;
+  const initializeDraggableMarker = (lng: number, lat: number) => {
+    if (!mapRef.current || !window.google || !window.google.maps) return;
 
     if (draggableMarkerRef.current) {
-      draggableMarkerRef.current.remove();
+      draggableMarkerRef.current.setMap(null);
       draggableMarkerRef.current = null;
     }
 
-    // Create a beautiful custom teardrop marker
-    const el = document.createElement("div");
-    el.className = "draggable-place-marker";
-    el.style.width = "30px";
-    el.style.height = "30px";
-    el.style.borderRadius = "50% 50% 50% 0";
-    el.style.background = "#f59e0b"; // amber-500
-    el.style.border = "2px solid #ffffff";
-    el.style.transform = "rotate(-45deg)";
-    el.style.boxShadow = "0 0 10px rgba(0,0,0,0.5)";
-    el.style.cursor = "move";
-    el.style.display = "flex";
-    el.style.alignItems = "center";
-    el.style.justifyContent = "center";
-
-    const inner = document.createElement("div");
-    inner.style.width = "10px";
-    inner.style.height = "10px";
-    inner.style.background = "#0c1122";
-    inner.style.borderRadius = "50%";
-    inner.style.transform = "rotate(45deg)";
-    el.appendChild(inner);
-
-    const marker = new mapboxglModule.Marker({
-      element: el,
+    const marker = new window.google.maps.Marker({
+      position: { lat, lng },
+      map: mapRef.current,
       draggable: true,
-      anchor: "bottom"
-    })
-      .setLngLat([lng, lat])
-      .addTo(mapRef.current);
+      title: "Drag to position stop",
+      icon: {
+        path: "M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z",
+        fillColor: "#F59E0B",
+        fillOpacity: 1,
+        strokeColor: "#FFFFFF",
+        strokeWeight: 2,
+        scale: 1.8,
+        anchor: new window.google.maps.Point(12, 22),
+      },
+    });
 
-    marker.on("dragend", () => {
-      const lngLat = marker.getLngLat();
-      setStopForm(prev => ({
-        ...prev,
-        longitude: parseFloat(lngLat.lng.toFixed(6)),
-        latitude: parseFloat(lngLat.lat.toFixed(6))
-      }));
+    marker.addListener("dragend", () => {
+      const pos = marker.getPosition();
+      if (pos) {
+        setStopForm((prev) => ({
+          ...prev,
+          longitude: parseFloat(pos.lng().toFixed(6)),
+          latitude: parseFloat(pos.lat().toFixed(6)),
+        }));
+      }
     });
 
     draggableMarkerRef.current = marker;
 
-    mapRef.current.flyTo({
-      center: [lng, lat],
-      zoom: 15,
-      essential: true
-    });
+    mapRef.current.panTo({ lat, lng });
+    mapRef.current.setZoom(15);
   };
 
   // Draggable marker lifecycle syncing with Stop Onboard Drawer
@@ -305,38 +290,33 @@ function RoutesManagement() {
         initializeDraggableMarker(stopForm.longitude, stopForm.latitude);
       }, 400);
 
-      const handleMapClick = (e: any) => {
-        const lngLat = e.lngLat;
-        if (!lngLat) return;
-        const lng = parseFloat(lngLat.lng.toFixed(6));
-        const lat = parseFloat(lngLat.lat.toFixed(6));
-        
-        setStopForm(prev => ({
+      const clickListener = mapRef.current.addListener("click", (e: any) => {
+        if (!e.latLng) return;
+        const lat = parseFloat(e.latLng.lat().toFixed(6));
+        const lng = parseFloat(e.latLng.lng().toFixed(6));
+
+        setStopForm((prev) => ({
           ...prev,
           longitude: lng,
-          latitude: lat
+          latitude: lat,
         }));
 
         if (draggableMarkerRef.current) {
-          draggableMarkerRef.current.setLngLat([lng, lat]);
+          draggableMarkerRef.current.setPosition({ lat, lng });
         }
-      };
-
-      mapRef.current.on("click", handleMapClick);
+      });
 
       return () => {
         clearTimeout(timer);
-        if (mapRef.current) {
-          mapRef.current.off("click", handleMapClick);
-        }
+        if (clickListener) window.google?.maps?.event?.removeListener(clickListener);
         if (draggableMarkerRef.current) {
-          draggableMarkerRef.current.remove();
+          draggableMarkerRef.current.setMap(null);
           draggableMarkerRef.current = null;
         }
       };
     } else {
       if (draggableMarkerRef.current) {
-        draggableMarkerRef.current.remove();
+        draggableMarkerRef.current.setMap(null);
         draggableMarkerRef.current = null;
       }
     }
@@ -344,26 +324,26 @@ function RoutesManagement() {
 
   // Coordinate manual change triggers
   const handleLatitudeChange = (val: number) => {
-    setStopForm(prev => {
+    setStopForm((prev) => {
       const next = { ...prev, latitude: val };
       if (draggableMarkerRef.current && !isNaN(val) && !isNaN(prev.longitude)) {
-        draggableMarkerRef.current.setLngLat([prev.longitude, val]);
+        draggableMarkerRef.current.setPosition({ lat: val, lng: prev.longitude });
       }
       return next;
     });
   };
 
   const handleLongitudeChange = (val: number) => {
-    setStopForm(prev => {
+    setStopForm((prev) => {
       const next = { ...prev, longitude: val };
       if (draggableMarkerRef.current && !isNaN(val) && !isNaN(prev.latitude)) {
-        draggableMarkerRef.current.setLngLat([val, prev.latitude]);
+        draggableMarkerRef.current.setPosition({ lat: prev.latitude, lng: val });
       }
       return next;
     });
   };
 
-  // Mapbox Geocoding Autocomplete Search Handlers
+  // Google Places Autocomplete Search Handlers
   const handleSearchLocationChange = async (val: string) => {
     setSearchLocation(val);
 
@@ -373,17 +353,27 @@ function RoutesManagement() {
       return;
     }
 
-    if (!mapboxToken) return;
-
     setIsSearchingStops(true);
     try {
-      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(val)}.json?access_token=${mapboxToken}&autocomplete=true&limit=5&proximity=36.8219,-1.2921&country=KE`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.features) {
-          setStopSuggestions(data.features);
-          setShowSuggestionsList(true);
+      if (window.google && window.google.maps && window.google.maps.places) {
+        const places = window.google.maps.places;
+        if (places.AutocompleteService) {
+          const service = new places.AutocompleteService();
+          service.getPlacePredictions(
+            { input: val, componentRestrictions: { country: "ke" } },
+            (predictions: any[], status: string) => {
+              if (status === "OK" && predictions) {
+                const features = predictions.map((p) => ({
+                  id: p.place_id,
+                  place_name: p.description,
+                  text: p.structured_formatting?.main_text || p.description.split(",")[0],
+                  place_id: p.place_id,
+                }));
+                setStopSuggestions(features);
+                setShowSuggestionsList(true);
+              }
+            }
+          );
         }
       }
     } catch (err) {
@@ -394,25 +384,33 @@ function RoutesManagement() {
   };
 
   const handleSelectSuggestion = (feat: any) => {
-    const [lng, lat] = feat.center;
     setSearchLocation(feat.place_name);
-    setStopForm(prev => ({
-      ...prev,
-      name: feat.text || feat.place_name,
-      longitude: parseFloat(lng.toFixed(6)),
-      latitude: parseFloat(lat.toFixed(6))
-    }));
 
-    if (mapRef.current) {
-      mapRef.current.flyTo({
-        center: [lng, lat],
-        zoom: 15,
-        essential: true
+    if (window.google && window.google.maps && feat.place_id) {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ placeId: feat.place_id }, (results: any[], status: string) => {
+        if (status === "OK" && results && results[0]) {
+          const loc = results[0].geometry.location;
+          const lat = parseFloat(loc.lat().toFixed(6));
+          const lng = parseFloat(loc.lng().toFixed(6));
+
+          setStopForm((prev) => ({
+            ...prev,
+            name: feat.text || feat.place_name,
+            longitude: lng,
+            latitude: lat,
+          }));
+
+          if (mapRef.current) {
+            mapRef.current.panTo({ lat, lng });
+            mapRef.current.setZoom(15);
+          }
+
+          if (draggableMarkerRef.current) {
+            draggableMarkerRef.current.setPosition({ lat, lng });
+          }
+        }
       });
-    }
-
-    if (draggableMarkerRef.current) {
-      draggableMarkerRef.current.setLngLat([lng, lat]);
     }
 
     setStopSuggestions([]);
@@ -420,7 +418,7 @@ function RoutesManagement() {
   };
 
   const handleSchoolNameChange = async (val: string) => {
-    setTempSchoolConfig(prev => ({ ...prev, name: val }));
+    setTempSchoolConfig((prev) => ({ ...prev, name: val }));
 
     if (val.trim().length < 3) {
       setSchoolSuggestions([]);
@@ -428,18 +426,25 @@ function RoutesManagement() {
       return;
     }
 
-    if (!mapboxToken) return;
-
     setIsSearchingSchool(true);
     try {
-      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(val)}.json?access_token=${mapboxToken}&autocomplete=true&limit=5&proximity=36.8219,-1.2921&country=KE`;
-      const res = await fetch(url);
-      if (res.ok) {
-        const data = await res.json();
-        if (data.features) {
-          setSchoolSuggestions(data.features);
-          setShowSchoolSuggestions(true);
-        }
+      if (window.google && window.google.maps && window.google.maps.places) {
+        const service = new window.google.maps.places.AutocompleteService();
+        service.getPlacePredictions(
+          { input: val, componentRestrictions: { country: "ke" } },
+          (predictions: any[], status: string) => {
+            if (status === "OK" && predictions) {
+              const features = predictions.map((p) => ({
+                id: p.place_id,
+                place_name: p.description,
+                text: p.structured_formatting?.main_text || p.description.split(",")[0],
+                place_id: p.place_id,
+              }));
+              setSchoolSuggestions(features);
+              setShowSchoolSuggestions(true);
+            }
+          }
+        );
       }
     } catch (err) {
       console.error("School geocoding autocomplete failed:", err);
@@ -449,88 +454,76 @@ function RoutesManagement() {
   };
 
   const handleSelectSchoolSuggestion = (feat: any) => {
-    const [lng, lat] = feat.center;
-    setTempSchoolConfig(prev => ({
-      ...prev,
-      name: feat.place_name,
-      longitude: parseFloat(lng.toFixed(6)),
-      latitude: parseFloat(lat.toFixed(6))
-    }));
+    if (window.google && window.google.maps && feat.place_id) {
+      const geocoder = new window.google.maps.Geocoder();
+      geocoder.geocode({ placeId: feat.place_id }, (results: any[], status: string) => {
+        if (status === "OK" && results && results[0]) {
+          const loc = results[0].geometry.location;
+          const lat = parseFloat(loc.lat().toFixed(6));
+          const lng = parseFloat(loc.lng().toFixed(6));
 
-    if (mapRef.current) {
-      mapRef.current.flyTo({
-        center: [lng, lat],
-        zoom: 15,
-        essential: true
+          setTempSchoolConfig((prev) => ({
+            ...prev,
+            name: feat.text || feat.place_name,
+            address: feat.place_name,
+            latitude: lat,
+            longitude: lng,
+          }));
+
+          if (mapRef.current) {
+            mapRef.current.panTo({ lat, lng });
+            mapRef.current.setZoom(15);
+          }
+
+          if (draggableSchoolMarkerRef.current) {
+            draggableSchoolMarkerRef.current.setPosition({ lat, lng });
+          }
+        }
       });
-    }
-
-    if (draggableSchoolMarkerRef.current) {
-      draggableSchoolMarkerRef.current.setLngLat([lng, lat]);
     }
 
     setSchoolSuggestions([]);
     setShowSchoolSuggestions(false);
   };
 
-  const initializeDraggableSchoolMarker = async (lng: number, lat: number) => {
-    if (!mapRef.current) return;
-    const mapboxglModule = (await import("mapbox-gl")).default;
-
-    // Check again after async import to ensure component wasn't unmounted/map removed
-    if (!mapRef.current) return;
+  const initializeDraggableSchoolMarker = (lng: number, lat: number) => {
+    if (!mapRef.current || !window.google || !window.google.maps) return;
 
     if (draggableSchoolMarkerRef.current) {
-      draggableSchoolMarkerRef.current.remove();
+      draggableSchoolMarkerRef.current.setMap(null);
       draggableSchoolMarkerRef.current = null;
     }
 
-    const el = document.createElement("div");
-    el.className = "draggable-school-place-marker";
-    el.style.width = "30px";
-    el.style.height = "30px";
-    el.style.borderRadius = "50% 50% 50% 0";
-    el.style.background = "#6366f1"; // indigo-500
-    el.style.border = "2px solid #ffffff";
-    el.style.transform = "rotate(-45deg)";
-    el.style.boxShadow = "0 0 10px rgba(0,0,0,0.5)";
-    el.style.cursor = "move";
-    el.style.display = "flex";
-    el.style.alignItems = "center";
-    el.style.justifyContent = "center";
-
-    const inner = document.createElement("div");
-    inner.style.width = "10px";
-    inner.style.height = "10px";
-    inner.style.background = "#ffffff";
-    inner.style.borderRadius = "50%";
-    inner.style.transform = "rotate(45deg)";
-    el.appendChild(inner);
-
-    const marker = new mapboxglModule.Marker({
-      element: el,
+    const marker = new window.google.maps.Marker({
+      position: { lat, lng },
+      map: mapRef.current,
       draggable: true,
-      anchor: "bottom"
-    })
-      .setLngLat([lng, lat])
-      .addTo(mapRef.current);
+      title: "Drag to position school campus",
+      icon: {
+        path: "M12 2L1 9l11 7 9-5.73V17h2V9L12 2zm0 4.28L17.27 9 12 12.36 6.73 9 12 6.28z",
+        fillColor: "#4F46E5",
+        fillOpacity: 1,
+        strokeColor: "#FFFFFF",
+        strokeWeight: 2,
+        scale: 1.8,
+      },
+    });
 
-    marker.on("dragend", () => {
-      const lngLat = marker.getLngLat();
-      setTempSchoolConfig(prev => ({
-        ...prev,
-        longitude: parseFloat(lngLat.lng.toFixed(6)),
-        latitude: parseFloat(lngLat.lat.toFixed(6))
-      }));
+    marker.addListener("dragend", () => {
+      const pos = marker.getPosition();
+      if (pos) {
+        setTempSchoolConfig((prev) => ({
+          ...prev,
+          longitude: parseFloat(pos.lng().toFixed(6)),
+          latitude: parseFloat(pos.lat().toFixed(6)),
+        }));
+      }
     });
 
     draggableSchoolMarkerRef.current = marker;
 
-    mapRef.current.flyTo({
-      center: [lng, lat],
-      zoom: 15,
-      essential: true
-    });
+    mapRef.current.panTo({ lat, lng });
+    mapRef.current.setZoom(15);
   };
 
   useEffect(() => {
@@ -539,38 +532,33 @@ function RoutesManagement() {
         initializeDraggableSchoolMarker(tempSchoolConfig.longitude, tempSchoolConfig.latitude);
       }, 400);
 
-      const handleMapClick = (e: any) => {
-        const lngLat = e.lngLat;
-        if (!lngLat) return;
-        const lng = parseFloat(lngLat.lng.toFixed(6));
-        const lat = parseFloat(lngLat.lat.toFixed(6));
-        
-        setTempSchoolConfig(prev => ({
+      const clickListener = mapRef.current.addListener("click", (e: any) => {
+        if (!e.latLng) return;
+        const lat = parseFloat(e.latLng.lat().toFixed(6));
+        const lng = parseFloat(e.latLng.lng().toFixed(6));
+
+        setTempSchoolConfig((prev) => ({
           ...prev,
           longitude: lng,
-          latitude: lat
+          latitude: lat,
         }));
 
         if (draggableSchoolMarkerRef.current) {
-          draggableSchoolMarkerRef.current.setLngLat([lng, lat]);
+          draggableSchoolMarkerRef.current.setPosition({ lat, lng });
         }
-      };
-
-      mapRef.current.on("click", handleMapClick);
+      });
 
       return () => {
         clearTimeout(timer);
-        if (mapRef.current) {
-          mapRef.current.off("click", handleMapClick);
-        }
+        if (clickListener) window.google?.maps?.event?.removeListener(clickListener);
         if (draggableSchoolMarkerRef.current) {
-          draggableSchoolMarkerRef.current.remove();
+          draggableSchoolMarkerRef.current.setMap(null);
           draggableSchoolMarkerRef.current = null;
         }
       };
     } else {
       if (draggableSchoolMarkerRef.current) {
-        draggableSchoolMarkerRef.current.remove();
+        draggableSchoolMarkerRef.current.setMap(null);
         draggableSchoolMarkerRef.current = null;
       }
     }
@@ -727,405 +715,285 @@ function RoutesManagement() {
     }
   };
 
-  // Dynamic route line from stops sequence
-  const updateRouteLine = async (map: mapboxgl.Map, currentRouteStops: DBStop[]) => {
-    if (!map.getSource("active-route-src")) return;
+  // Dynamic route line from stops sequence using Google Directions API (Following Roads)
+  const updateRouteLine = async (map: any, currentRouteStops: DBStop[]) => {
+    if (!map || !window.google || !window.google.maps) return;
 
-    if (activeTab === "schools" || currentRouteStops.length < 2) {
-      lastCoordsQueryRef.current = "";
-      const source = map.getSource("active-route-src") as any;
-      if (source) {
-        source.setData({
-          type: "Feature",
-          properties: {},
-          geometry: { type: "LineString", coordinates: [] }
-        });
+    if (currentRouteStops.length < 2) {
+      if (activePolylineRef.current) {
+        activePolylineRef.current.setMap(null);
+        activePolylineRef.current = null;
       }
       return;
     }
 
-    const coords = currentRouteStops.map(s => s.location.coordinates);
-    const query = coords.map(c => `${c[0]},${c[1]}`).join(";");
-    
-    if (coords.length < 2) {
-      lastCoordsQueryRef.current = "";
-      const source = map.getSource("active-route-src") as any;
-      if (source) {
-        source.setData({
-          type: "Feature",
-          properties: {},
-          geometry: { type: "LineString", coordinates: [] }
+    const validStops = currentRouteStops.filter(
+      (s) => s.location && s.location.coordinates && s.location.coordinates.length === 2
+    );
+
+    if (validStops.length < 2) return;
+
+    const origin = {
+      lat: validStops[0].location.coordinates[1],
+      lng: validStops[0].location.coordinates[0],
+    };
+    const destination = {
+      lat: validStops[validStops.length - 1].location.coordinates[1],
+      lng: validStops[validStops.length - 1].location.coordinates[0],
+    };
+
+    const intermediateStops = validStops.slice(1, -1);
+    const waypoints = intermediateStops.slice(0, 23).map((s) => ({
+      location: {
+        lat: s.location.coordinates[1],
+        lng: s.location.coordinates[0],
+      },
+      stopover: true,
+    }));
+
+    const renderPolylineAndFitBounds = (pathCoords: any[]) => {
+      if (activePolylineRef.current) {
+        activePolylineRef.current.setPath(pathCoords);
+      } else {
+        activePolylineRef.current = new window.google.maps.Polyline({
+          path: pathCoords,
+          geodesic: true,
+          strokeColor: "#0EA5E9", // Distinct vibrant Electric Cyan for road path
+          strokeOpacity: 0.95,
+          strokeWeight: 6,
+          map: map,
         });
       }
-      return;
-    }
 
-    if (query === lastCoordsQueryRef.current) {
-      return;
-    }
-    
-    lastCoordsQueryRef.current = query;
-    let routeGeometry: any = null;
-    let legs: any[] = [];
+      // Zoom in & fit map bounds to the route
+      const bounds = new window.google.maps.LatLngBounds();
+      pathCoords.forEach((pt: any) => bounds.extend(pt));
+      map.fitBounds(bounds, { top: 60, bottom: 60, left: 60, right: 60 });
+    };
 
-    if (mapboxToken) {
-      const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${query}?geometries=geojson&overview=full&access_token=${mapboxToken}`;
-      try {
-        const response = await fetch(url);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.routes && data.routes[0]) {
-            routeGeometry = data.routes[0].geometry;
-            legs = data.routes[0].legs || [];
+    const fallbackCoords = validStops.map((s) => ({
+      lat: s.location.coordinates[1],
+      lng: s.location.coordinates[0],
+    }));
+
+    try {
+      const directionsService = new window.google.maps.DirectionsService();
+
+      directionsService.route(
+        {
+          origin,
+          destination,
+          waypoints,
+          travelMode: window.google.maps.TravelMode.DRIVING,
+        },
+        (result: any, status: string) => {
+          if (status === "OK" && result && result.routes && result.routes[0]) {
+            renderPolylineAndFitBounds(result.routes[0].overview_path);
+          } else {
+            console.warn(`DirectionsService status (${status}). Falling back to stop sequence path.`);
+            renderPolylineAndFitBounds(fallbackCoords);
           }
         }
-      } catch (err) {
-        console.warn("Mapbox Directions API failed, using straight-line fallback:", err);
-      }
-    }
-
-    if (!routeGeometry) {
-      routeGeometry = {
-        type: "LineString",
-        coordinates: coords
-      };
-    }
-
-    const source = map.getSource("active-route-src") as any;
-    if (source && routeGeometry) {
-      source.setData({
-        type: "Feature",
-        properties: {},
-        geometry: routeGeometry
-      });
-    }
-
-    if (legs.length === currentRouteStops.length - 1) {
-      saveRouteLegsToDB(currentRouteStops, legs);
+      );
+    } catch (err) {
+      console.warn("DirectionsService invocation failed:", err);
+      renderPolylineAndFitBounds(fallbackCoords);
     }
   };
 
-  // Mapbox rendering
+  // Google Maps rendering
   useEffect(() => {
-    if (!hasMapboxToken || !mapContainerRef.current || !currentRoute) return;
+    if (!mapContainerRef.current || !currentRoute) return;
 
     let isMounted = true;
-    let mapInstance: mapboxgl.Map | null = null;
 
-    const initMap = async () => {
-      const mapboxglModule = (await import("mapbox-gl")).default;
-      
-      if (!isMounted || !mapContainerRef.current) return;
-
-      mapboxglModule.accessToken = mapboxToken;
+    const initMap = () => {
+      if (!mapContainerRef.current || !window.google || !window.google.maps) return;
 
       const centerCoord = currentRoute.path?.coordinates[0] || [36.8045, -1.2721];
 
-      mapInstance = new mapboxglModule.Map({
-        container: mapContainerRef.current,
-        style: "mapbox://styles/mapbox/traffic-night-v2",
-        center: centerCoord as [number, number],
+      const map = new window.google.maps.Map(mapContainerRef.current, {
+        center: { lat: centerCoord[1], lng: centerCoord[0] },
         zoom: 13,
-        pitch: 35,
+        mapTypeId: "roadmap",
+        zoomControl: true,
+        streetViewControl: false,
+        mapTypeControl: false,
+        fullscreenControl: true,
+        styles: [
+          { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
+          { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
+          { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] },
+          { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1626" }] },
+          { featureType: "road", elementType: "geometry", stylers: [{ color: "#304a7d" }] },
+        ],
       });
 
-      mapRef.current = mapInstance;
-      mapInstance.addControl(new mapboxglModule.NavigationControl(), "top-right");
+      mapRef.current = map;
 
-      mapInstance.on("load", () => {
-        if (!isMounted || !mapInstance) return;
-
-        // Draw the selected route path line (always add source so we can update it)
-        mapInstance.addSource(`active-route-src`, {
-          type: "geojson",
-          data: {
-            type: "Feature",
-            properties: {},
-            geometry: currentRoute.path || { type: "LineString", coordinates: [] },
-          },
-        });
-
-        mapInstance.addLayer({
-          id: `active-route-layer`,
-          type: "line",
-          source: `active-route-src`,
-          layout: {
-            "line-join": "round",
-            "line-cap": "round",
-          },
-          paint: {
-            "line-color": "#6366f1",
-            "line-width": 5,
-            "line-opacity": 0.85,
-          },
-        });
-
-        // Draw stop markers
-        updateMapMarkers(mapInstance, mapboxglModule);
-        updateRouteLine(mapInstance, routeStops);
-      });
+      updateMapMarkers(map);
+      updateRouteLine(map, routeStops);
     };
 
-    initMap();
+    if (window.google && window.google.maps) {
+      initMap();
+    } else {
+      const scriptId = "google-maps-js-script-routes";
+      let script = document.getElementById(scriptId) as HTMLScriptElement;
+
+      if (!script) {
+        script = document.createElement("script");
+        script.id = scriptId;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
+          googleApiKey
+        )}&libraries=places&callback=initGoogleMapsRoutes`;
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+      }
+    }
+
+    window.initGoogleMapsRoutes = () => {
+      if (isMounted) initMap();
+    };
 
     return () => {
       isMounted = false;
-      if (mapInstance) {
-        mapInstance.remove();
-      }
-      mapRef.current = null;
     };
-  }, [selectedRouteId, routes, hasMapboxToken]);
+  }, [selectedRouteId, routes, googleApiKey]);
 
   // Update map markers when stops list updates
-  const updateMapMarkers = async (map: mapboxgl.Map, mapboxglModule: any) => {
+  const updateMapMarkers = (map: any) => {
+    if (!map || !window.google || !window.google.maps) return;
+
     // Clear old markers
-    stopMarkersRef.current.forEach(marker => marker.remove());
+    stopMarkersRef.current.forEach((marker) => marker.setMap(null));
     stopMarkersRef.current = [];
 
     if (activeTab === "schools") {
       schoolLocations.forEach((loc) => {
-        const el = document.createElement("div");
-        el.className = "map-school-marker-container";
-        el.style.display = "flex";
-        el.style.flexDirection = "column";
-        el.style.alignItems = "center";
-        el.style.cursor = "pointer";
-        
-        el.innerHTML = `
-          <div class="school-icon-wrapper" style="
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            background-color: #4f46e5;
-            border: 2px solid #ffffff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 0 10px rgba(79, 70, 229, 0.6);
-          ">
-            <img src="/assets/school-location-icon.png" alt="School" style="width: 20px; height: 20px; object-fit: contain;" />
-          </div>
-          <div class="school-label" style="
-            margin-top: 4px;
-            background-color: rgba(15, 23, 42, 0.85);
-            color: #ffffff;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            white-space: nowrap;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          ">
-            ${loc.name}
-          </div>
-        `;
+        const schoolMarker = new window.google.maps.Marker({
+          position: { lat: loc.latitude, lng: loc.longitude },
+          map: map,
+          title: loc.name,
+          icon: {
+            url: "/assets/school-location-icon.png",
+            scaledSize: new window.google.maps.Size(44, 44),
+            origin: new window.google.maps.Point(0, 0),
+            anchor: new window.google.maps.Point(22, 22),
+          },
+        });
 
-        const popup = new mapboxglModule.Popup({ offset: 15 }).setHTML(
-          `<div style="color:#0f172a; font-family:var(--font-sans); padding:4px;">
-            <h4 style="font-weight:600; margin:0 0 2px 0;">School: ${loc.name}</h4>
+        const infoWindow = new window.google.maps.InfoWindow({
+          content: `<div style="color:#0f172a; padding:6px; font-family:sans-serif;">
+            <h4 style="margin:0 0 2px 0; font-weight:600;">School Campus: ${loc.name}</h4>
             <span style="font-size:0.75rem; color:#64748b;">Coordinates: ${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}</span>
-           </div>`
-        );
+          </div>`,
+        });
 
-        const marker = new mapboxglModule.Marker(el)
-          .setLngLat([loc.longitude, loc.latitude])
-          .setPopup(popup)
-          .addTo(map);
+        schoolMarker.addListener("click", () => {
+          infoWindow.open(map, schoolMarker);
+        });
 
-        stopMarkersRef.current.push(marker);
+        stopMarkersRef.current.push(schoolMarker);
       });
 
       if (schoolLocations.length > 0) {
-        const bounds = new mapboxglModule.LngLatBounds();
-        schoolLocations.forEach(loc => bounds.extend([loc.longitude, loc.latitude]));
-        map.fitBounds(bounds, { padding: 50, maxZoom: 14, duration: 1000 });
+        const bounds = new window.google.maps.LatLngBounds();
+        schoolLocations.forEach((loc) => bounds.extend({ lat: loc.latitude, lng: loc.longitude }));
+        map.fitBounds(bounds, { top: 50, bottom: 50, left: 50, right: 50 });
       }
       return;
     }
 
-    const routeStops = stops
-      .filter(s => s.route_id === selectedRouteId)
+    const currentRouteStops = stops
+      .filter((s) => s.route_id === selectedRouteId)
       .sort((a, b) => a.sequence_no - b.sequence_no);
-    
-    // Group stops that share the same (or very close) coordinates to prevent overlap hiding
-    const groupedStops: { coordinates: [number, number]; stops: DBStop[] }[] = [];
-    routeStops.forEach((stop) => {
+
+    currentRouteStops.forEach((stop, index) => {
       if (!stop.location || !stop.location.coordinates) return;
-      const coord = stop.location.coordinates;
-      const existingGroup = groupedStops.find(g => 
-        Math.abs(g.coordinates[0] - coord[0]) < 1e-6 &&
-        Math.abs(g.coordinates[1] - coord[1]) < 1e-6
-      );
-      if (existingGroup) {
-        existingGroup.stops.push(stop);
-      } else {
-        groupedStops.push({
-          coordinates: coord as [number, number],
-          stops: [stop]
+
+      const lat = stop.location.coordinates[1];
+      const lng = stop.location.coordinates[0];
+
+      const isStart = index === 0;
+      const isEnd = index === currentRouteStops.length - 1 && currentRouteStops.length > 1;
+
+      let stopMarker: any;
+
+      if (isStart || isEnd) {
+        // Use School Icon image asset for Start and End stops of the route!
+        const iconColor = isStart ? "#4F46E5" : "#10B981"; // Indigo for Start, Emerald for End
+        const stopTag = isStart ? "START SCHOOL" : "END SCHOOL";
+
+        stopMarker = new window.google.maps.Marker({
+          position: { lat, lng },
+          map: map,
+          title: `${stopTag}: ${stop.name}`,
+          icon: {
+            url: "/assets/school-location-icon.png",
+            scaledSize: new window.google.maps.Size(44, 44),
+            origin: new window.google.maps.Point(0, 0),
+            anchor: new window.google.maps.Point(22, 22),
+          },
         });
-      }
-    });
 
-    groupedStops.forEach((group) => {
-      const el = document.createElement("div");
-      
-      // Check if coordinates match any school location
-      const matchingSchool = schoolLocations.find(school => 
-        Math.abs(school.longitude - group.coordinates[0]) < 1e-4 &&
-        Math.abs(school.latitude - group.coordinates[1]) < 1e-4
-      );
-      const isSchool = !!matchingSchool;
-
-      if (isSchool) {
-        el.className = "map-school-marker-container";
-        el.style.display = "flex";
-        el.style.flexDirection = "column";
-        el.style.alignItems = "center";
-        el.style.cursor = "pointer";
-
-        el.innerHTML = `
-          <div class="school-icon-wrapper" style="
-            width: 32px;
-            height: 32px;
-            border-radius: 50%;
-            background-color: #4f46e5;
-            border: 2px solid #ffffff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 0 10px rgba(79, 70, 229, 0.6);
-          ">
-            <img src="/assets/school-location-icon.png" alt="School" style="width: 20px; height: 20px; object-fit: contain;" />
-          </div>
-          <div class="school-label" style="
-            margin-top: 4px;
-            background-color: rgba(15, 23, 42, 0.85);
-            color: #ffffff;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 10px;
-            font-weight: 600;
-            white-space: nowrap;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-          ">
-            ${matchingSchool ? matchingSchool.name : 'School'}
-          </div>
-        `;
-      } else {
-        el.className = "map-stop-marker";
-        el.style.height = "22px";
-        el.style.backgroundColor = "rgba(99, 102, 241, 0.25)";
-        el.style.border = "2px solid #6366f1";
-        el.style.display = "flex";
-        el.style.alignItems = "center";
-        el.style.justifyContent = "center";
-        el.style.color = "#ffffff";
-        el.style.fontWeight = "bold";
-        el.style.fontSize = "10px";
-        el.style.boxShadow = "0 0 8px #6366f1";
-
-        const labelParts = group.stops.map(s => {
-          if (s.sequence_no === 1) return "Start";
-          if (s.sequence_no === routeStops.length && routeStops.length > 1) return "End";
-          return s.sequence_no.toString();
-        });
-        const label = labelParts.join(", ");
-        el.textContent = label;
-
-        // Adjust shape/width if it is a pill (has text like "Start", "End" or multiple values)
-        const hasWordLabel = labelParts.some(l => l.length > 1);
-        if (group.stops.length > 1 || hasWordLabel) {
-          el.style.padding = "0 8px";
-          el.style.width = "auto";
-          el.style.minWidth = "22px";
-          el.style.borderRadius = "11px";
-        } else {
-          el.style.width = "22px";
-          el.style.borderRadius = "50%";
-        }
-      }
-
-      let popupHTML = `<div style="color:#0f172a; font-family:var(--font-sans); padding:4px; max-width:260px;">`;
-      if (group.stops.length > 1) {
-        popupHTML += `<h4 style="font-weight:700; margin:0 0 6px 0; font-size:0.875rem; border-bottom:1px solid #e2e8f0; padding-bottom:4px;">Stops at this Location</h4>`;
-        group.stops.forEach((stop, index) => {
-          let legLabel = `Stop #${stop.sequence_no}`;
-          if (stop.sequence_no === 1) legLabel = "Start (Stop #1)";
-          else if (stop.sequence_no === routeStops.length) legLabel = `End (Stop #${stop.sequence_no})`;
-
-          const legText = stop.sequence_no > 1 
-            ? `<div style="font-size:0.75rem; color:#6366f1; font-weight:600; margin-top:2px;">
-                Leg: ${(stop.distance_from_prev_meters ? stop.distance_from_prev_meters / 1000 : 0).toFixed(2)} km (${Math.round((stop.duration_from_prev_seconds ? stop.duration_from_prev_seconds : 0) / 60)} mins)
-               </div>`
-            : `<div style="font-size:0.75rem; color:#64748b; font-style:italic; margin-top:2px;">Route Start</div>`;
-
-          popupHTML += `
-            <div style="margin-bottom:${index === group.stops.length - 1 ? "0" : "8px"};">
-              <h5 style="font-weight:600; margin:0 0 2px 0; font-size:0.8rem;">${legLabel}: ${stop.name}</h5>
-              <div style="font-size:0.75rem; color:#64748b; line-height: 1.3;">
-                Radius: ${stop.geofence_radius_meters}m • Type: ${stop.stop_type}
-              </div>
-              ${legText}
+        const infoWindow = new window.google.maps.InfoWindow({
+          content: `<div style="color:#0f172a; padding:6px; font-family:sans-serif; min-width:170px;">
+            <div style="display:flex; align-items:center; gap:6px; margin-bottom:4px;">
+              <span style="background:${iconColor}; color:#ffffff; padding:2px 6px; border-radius:4px; font-size:10px; font-weight:bold;">${stopTag}</span>
+              <h4 style="margin:0; font-weight:700; font-size:13px; color:#0f172a;">${stop.name}</h4>
             </div>
-          `;
+            <span style="font-size:11px; color:#64748b;">Stop #${stop.sequence_no} • Geofence: ${stop.geofence_radius_meters}m</span>
+          </div>`,
+        });
+
+        stopMarker.addListener("click", () => {
+          infoWindow.open(map, stopMarker);
         });
       } else {
-        const stop = group.stops[0];
-        let legLabel = `Stop #${stop.sequence_no}`;
-        if (stop.sequence_no === 1) legLabel = "Start (Stop #1)";
-        else if (stop.sequence_no === routeStops.length && routeStops.length > 1) legLabel = `End (Stop #${stop.sequence_no})`;
+        // Intermediate stops retain standard numbered circle markers
+        stopMarker = new window.google.maps.Marker({
+          position: { lat, lng },
+          map: map,
+          title: stop.name,
+          label: {
+            text: stop.sequence_no.toString(),
+            color: "#FFFFFF",
+            fontWeight: "bold",
+            fontSize: "12px",
+          },
+          icon: {
+            path: window.google.maps.SymbolPath.CIRCLE,
+            fillColor: "#6366F1",
+            fillOpacity: 1,
+            strokeColor: "#FFFFFF",
+            strokeWeight: 2,
+            scale: 12,
+          },
+        });
 
-        const legText = stop.sequence_no > 1 
-          ? `<div style="font-size:0.75rem; color:#6366f1; font-weight:600; margin-top:2px;">
-              Leg: ${(stop.distance_from_prev_meters ? stop.distance_from_prev_meters / 1000 : 0).toFixed(2)} km (${Math.round((stop.duration_from_prev_seconds ? stop.duration_from_prev_seconds : 0) / 60)} mins)
-             </div>`
-          : `<div style="font-size:0.75rem; color:#64748b; font-style:italic; margin-top:2px;">Route Start</div>`;
+        const infoWindow = new window.google.maps.InfoWindow({
+          content: `<div style="color:#0f172a; padding:4px; font-family:sans-serif;">
+            <h4 style="margin:0 0 2px 0; font-weight:600;">Stop #${stop.sequence_no}: ${stop.name}</h4>
+            <span style="font-size:0.75rem; color:#64748b;">Geofence: ${stop.geofence_radius_meters}m</span>
+          </div>`,
+        });
 
-        popupHTML += `
-          <h4 style="font-weight:600; margin:0 0 2px 0; font-size:0.875rem;">${legLabel}: ${stop.name}</h4>
-          <span style="font-size:0.75rem; color:#64748b;">Radius: ${stop.geofence_radius_meters}m • Type: ${stop.stop_type}</span>
-          ${legText}
-        `;
+        stopMarker.addListener("click", () => {
+          infoWindow.open(map, stopMarker);
+        });
       }
-      popupHTML += `</div>`;
 
-      const popup = new mapboxglModule.Popup({ offset: 15 }).setHTML(popupHTML);
-
-      const marker = new mapboxglModule.Marker(el)
-        .setLngLat(group.coordinates)
-        .setPopup(popup)
-        .addTo(map);
-
-      stopMarkersRef.current.push(marker);
+      stopMarkersRef.current.push(stopMarker);
     });
-
-    // Auto-fit the map bounds to contain all stops on the route, or the route line coordinates if no stops yet
-    if (routeStops.length > 0) {
-      const bounds = new mapboxglModule.LngLatBounds();
-      routeStops.forEach(stop => {
-        if (stop.location && stop.location.coordinates) {
-          bounds.extend(stop.location.coordinates as [number, number]);
-        }
-      });
-      map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1000 });
-    } else if (currentRoute && currentRoute.path && currentRoute.path.coordinates && currentRoute.path.coordinates.length > 0) {
-      const bounds = new mapboxglModule.LngLatBounds();
-      currentRoute.path.coordinates.forEach(coord => bounds.extend(coord));
-      map.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 1000 });
-    }
   };
 
-  // Automatically update map markers and route lines if Mapbox is running and stops/route change
+  // Automatically update map markers and route lines when stops/route change
   useEffect(() => {
     if (mapRef.current) {
-      import("mapbox-gl").then(module => {
-        if (!mapRef.current) return;
-        updateMapMarkers(mapRef.current, module.default);
-        updateRouteLine(mapRef.current, routeStops);
-      });
+      updateMapMarkers(mapRef.current);
+      updateRouteLine(mapRef.current, routeStops);
     }
   }, [stops, selectedRouteId, activeTab, schoolLocations]);
 
@@ -1764,113 +1632,10 @@ function RoutesManagement() {
             
             {/* Map viewport */}
             <div className="panel" style={{ padding: 0, overflow: "hidden", position: "relative", minHeight: "350px" }}>
-              {hasMapboxToken ? (
-                <div 
-                  ref={mapContainerRef} 
-                  style={{ height: "350px", width: "100%" }}
-                />
-              ) : (
-                <div className="map-placeholder" style={{ height: "350px" }}>
-                  <div className="map-grid-overlay"></div>
-                  <div className="map-radar-glow"></div>
-                  
-                  {/* Alert banner */}
-                  <div style={{
-                    position: "absolute",
-                    top: "16px",
-                    left: "16px",
-                    right: "16px",
-                    background: "rgba(12, 17, 34, 0.9)",
-                    border: "1px solid rgba(99, 102, 241, 0.3)",
-                    borderRadius: "8px",
-                    padding: "10px 14px",
-                    fontSize: "0.8rem",
-                    color: "var(--text-primary)",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                    zIndex: 5,
-                    backdropFilter: "blur(4px)"
-                  }}>
-                    <Info size={16} style={{ color: "var(--accent-secondary)" }} />
-                    <div>
-                      <strong style={{ color: "var(--accent-secondary)" }}>Simulated Path View</strong>. Insert <code>NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN</code> in your environment parameters for dark style maps.
-                    </div>
-                  </div>
-
-                  {/* Draw mock stops/schools as markers */}
-                  <div style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}>
-                    {activeTab === "schools" ? (
-                      schoolLocations.map((loc, idx) => {
-                        const xPercent = 40 + (idx * 20) % 30;
-                        const yPercent = 40 + (idx * 15) % 30;
-                        return (
-                          <div 
-                            key={loc.id} 
-                            className="map-bus-node" 
-                            style={{ position: "absolute", top: `${yPercent}%`, left: `${xPercent}%` }}
-                          >
-                            <div 
-                              className="bus-dot" 
-                              style={{ 
-                                background: "rgba(99, 102, 241, 0.2)", 
-                                border: "2px solid var(--accent-primary)", 
-                                boxShadow: "0 0 10px var(--accent-primary)",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                color: "#ffffff",
-                                fontSize: "0.7rem",
-                                fontWeight: "bold",
-                                width: "20px",
-                                height: "20px",
-                                borderRadius: "50%"
-                              }}
-                            >
-                              H
-                            </div>
-                            <div className="bus-label">{loc.name}</div>
-                          </div>
-                        );
-                      })
-                    ) : (
-                      routeStops.map((stop, idx) => {
-                        // Distribute mock positions visually on the grid
-                        const xPercent = 20 + (idx * 20) % 60;
-                        const yPercent = 30 + (idx * 15) % 50;
-                        return (
-                          <div 
-                            key={stop.id} 
-                            className="map-bus-node" 
-                            style={{ position: "absolute", top: `${yPercent}%`, left: `${xPercent}%` }}
-                          >
-                            <div 
-                              className="bus-dot" 
-                              style={{ 
-                                background: "rgba(99, 102, 241, 0.2)", 
-                                border: "2px solid var(--accent-primary)", 
-                                boxShadow: "0 0 10px var(--accent-primary)",
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                color: "#ffffff",
-                                fontSize: "0.7rem",
-                                fontWeight: "bold",
-                                width: "20px",
-                                height: "20px",
-                                borderRadius: "50%"
-                              }}
-                            >
-                              {stop.sequence_no}
-                            </div>
-                            <div className="bus-label">{stop.name}</div>
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                </div>
-              )}
+              <div 
+                ref={mapContainerRef} 
+                style={{ height: "350px", width: "100%" }}
+              />
             </div>
 
             {/* Stops / Schedules tabs list */}
@@ -2884,7 +2649,6 @@ function RoutesManagement() {
           </div>
         </div>
       )}
-
     </div>
   );
 }

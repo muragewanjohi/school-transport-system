@@ -19,8 +19,13 @@ import {
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
-import type mapboxgl from "mapbox-gl";
-import "mapbox-gl/dist/mapbox-gl.css";
+
+declare global {
+  interface Window {
+    google: any;
+    initGoogleMapsDashboard?: () => void;
+  }
+}
 
 const PREDEFINED_LOCATIONS = [
   { id: "loc-1", name: "Kileleshwa stop (Githunguri Road)", coordinates: [36.7889, -1.2789] },
@@ -134,209 +139,165 @@ export default function Home() {
     }
   ]);
 
-  // Mapbox DOM mounting reference and map/marker state
+  // Google Maps DOM mounting reference and map/marker state
   const mapContainerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<mapboxgl.Map | null>(null);
-  const markersRef = useRef<{ [key: string]: mapboxgl.Marker }>({});
+  const mapRef = useRef<any>(null);
+  const markersRef = useRef<{ [key: string]: any }>({});
 
-  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN;
-  const hasMapboxToken = typeof mapboxToken === "string" && mapboxToken.trim().length > 0;
+  const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
-  // Fetch routes and initialize Mapbox GL JS on the client
+  // Fetch routes and initialize Google Maps on the client
   useEffect(() => {
-    if (!hasMapboxToken || !mapContainerRef.current) return;
-
     let isMounted = true;
-    let mapInstance: mapboxgl.Map | null = null;
 
-    const initMap = async () => {
-      // Dynamic import to prevent SSR window issues
-      const mapboxglModule = (await import("mapbox-gl")).default;
-      
-      if (!isMounted || !mapContainerRef.current) return;
+    const initMap = () => {
+      if (!mapContainerRef.current || !window.google || !window.google.maps) return;
 
-      mapboxglModule.accessToken = mapboxToken;
-
-      mapInstance = new mapboxglModule.Map({
-        container: mapContainerRef.current,
-        style: "mapbox://styles/mapbox/traffic-night-v2",
-        center: [36.8045, -1.2721], // Nairobi center
-        zoom: 12.5,
-        pitch: 35,
-        bearing: -10,
+      const map = new window.google.maps.Map(mapContainerRef.current, {
+        center: { lat: -1.2721, lng: 36.8045 }, // Nairobi center
+        zoom: 13,
+        mapTypeId: "roadmap",
+        zoomControl: true,
+        streetViewControl: false,
+        mapTypeControl: false,
+        fullscreenControl: true,
+        styles: [
+          { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
+          { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
+          { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] },
+          { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1626" }] },
+          { featureType: "road", elementType: "geometry", stylers: [{ color: "#304a7d" }] },
+        ],
       });
 
-      mapRef.current = mapInstance;
+      mapRef.current = map;
 
-      // Add navigation and scale controls
-      mapInstance.addControl(new mapboxglModule.NavigationControl(), "top-right");
+      // Fetch and draw student transit routes as Google Polylines
+      fetch("/api/routes")
+        .then((res) => res.json())
+        .then((json) => {
+          if (!isMounted || !mapRef.current) return;
+          if (json.success && Array.isArray(json.data)) {
+            json.data.forEach((route: DBRoute) => {
+              if (route.path && route.path.coordinates && Array.isArray(route.path.coordinates)) {
+                const pathCoords = route.path.coordinates.map((c: [number, number]) => ({
+                  lat: c[1],
+                  lng: c[0],
+                }));
 
-      mapInstance.on("load", () => {
-        if (!isMounted || !mapInstance) return;
+                const routeColor =
+                  route.id === "route-4" || route.id.includes("4") ? "#6366f1" : "#10b981";
 
-        // Fetch and draw the student transit routes
-        fetch("/api/routes")
-          .then((res) => res.json())
-          .then((json) => {
-            if (!isMounted || !mapInstance) return;
-            if (json.success && Array.isArray(json.data)) {
-              json.data.forEach((route: DBRoute) => {
-                if (route.path && mapInstance) {
-                  // Determine polyline display color
-                  const routeColor = 
-                    route.id === "route-4" || route.id.includes("4") 
-                      ? "#6366f1" 
-                      : "#10b981";
-
-                  mapInstance.addSource(`src-${route.id}`, {
-                    type: "geojson",
-                    data: {
-                      type: "Feature",
-                      properties: {},
-                      geometry: route.path,
-                    },
-                  });
-
-                  mapInstance.addLayer({
-                    id: `layer-${route.id}`,
-                    type: "line",
-                    source: `src-${route.id}`,
-                    layout: {
-                      "line-join": "round",
-                      "line-cap": "round",
-                    },
-                    paint: {
-                      "line-color": routeColor,
-                      "line-width": 4,
-                      "line-opacity": 0.8,
-                    },
-                  });
-                }
-              });
-            }
-          })
-          .catch((err) => console.error("Error loading map routes:", err));
-
-        // Load configured school locations
-        const savedSchools = localStorage.getItem("safaricom_school_locations");
-        let schoolLocations = [
-          { id: "school-loc-1", name: "St. Mary's Academy (Upper School)", latitude: -1.2921, longitude: 36.8219 }
-        ];
-        if (savedSchools) {
-          try {
-            const parsed = JSON.parse(savedSchools);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              schoolLocations = parsed;
-            }
-          } catch (e) {
-            console.error("Failed to parse school locations:", e);
+                new window.google.maps.Polyline({
+                  path: pathCoords,
+                  geodesic: true,
+                  strokeColor: routeColor,
+                  strokeOpacity: 0.85,
+                  strokeWeight: 5,
+                  map: map,
+                });
+              }
+            });
           }
+        })
+        .catch((err) => console.error("Error loading map routes:", err));
+
+      // Load configured school locations
+      const savedSchools = localStorage.getItem("safaricom_school_locations");
+      let schoolLocations = [
+        { id: "school-loc-1", name: "St. Mary's Academy (Upper School)", latitude: -1.2921, longitude: 36.8219 },
+      ];
+      if (savedSchools) {
+        try {
+          const parsed = JSON.parse(savedSchools);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            schoolLocations = parsed;
+          }
+        } catch (e) {
+          console.error("Failed to parse school locations:", e);
         }
+      }
 
-        // Render school markers on the dashboard overview map
-        schoolLocations.forEach((loc) => {
-          if (!isMounted || !mapInstance) return;
+      // Render school markers on Google Map
+      schoolLocations.forEach((loc) => {
+        if (!isMounted || !mapRef.current) return;
 
-          const el = document.createElement("div");
-          el.className = "map-school-marker-container";
-          el.style.display = "flex";
-          el.style.flexDirection = "column";
-          el.style.alignItems = "center";
-          el.style.cursor = "pointer";
-
-          el.innerHTML = `
-            <div class="school-icon-wrapper" style="
-              width: 32px;
-              height: 32px;
-              border-radius: 50%;
-              background-color: #4f46e5;
-              border: 2px solid #ffffff;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              box-shadow: 0 0 10px rgba(79, 70, 229, 0.6);
-            ">
-              <img src="/assets/school-location-icon.png" alt="School" style="width: 20px; height: 20px; object-fit: contain;" />
-            </div>
-            <div class="school-label" style="
-              margin-top: 4px;
-              background-color: rgba(15, 23, 42, 0.85);
-              color: #ffffff;
-              padding: 2px 6px;
-              border-radius: 4px;
-              font-size: 10px;
-              font-weight: 600;
-              white-space: nowrap;
-              border: 1px solid rgba(255, 255, 255, 0.2);
-              box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-            ">
-              ${loc.name}
-            </div>
-          `;
-
-          const popup = new mapboxglModule.Popup({ offset: 15 }).setHTML(
-            `<div style="color:#0f172a; font-family:var(--font-sans); padding:4px;">
-              <h4 style="font-weight:600; margin:0 0 2px 0;">School: ${loc.name}</h4>
-              <span style="font-size:0.75rem; color:#64748b;">Coordinates: ${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}</span>
-             </div>`
-          );
-
-          new mapboxglModule.Marker({ element: el })
-            .setLngLat([loc.longitude, loc.latitude])
-            .setPopup(popup)
-            .addTo(mapInstance);
+        const schoolMarker = new window.google.maps.Marker({
+          position: { lat: loc.latitude, lng: loc.longitude },
+          map: map,
+          title: loc.name,
+          icon: {
+            url: "/assets/school-location-icon.png",
+            scaledSize: new window.google.maps.Size(42, 42),
+            origin: new window.google.maps.Point(0, 0),
+            anchor: new window.google.maps.Point(21, 21),
+          },
         });
 
-        // Initialize default vehicle markers
-        const defaultBuses = [
-          { id: "bus-4", name: "KBZ 445B (Morning Run)", color: "#10b981", lngLat: [36.7981, -1.2721] },
-          { id: "bus-2", name: "KCD 542A (Morning Run)", color: "#6366f1", lngLat: [36.8115, -1.2699] },
-          { id: "bus-1", name: "KBC 104D (Parked)", color: "#64748b", lngLat: [36.8021, -1.2612] },
-        ];
-
-        defaultBuses.forEach((bus) => {
-          if (!isMounted || !mapInstance) return;
-
-          const el = document.createElement("div");
-          el.className = "map-bus-node-marker";
-          el.innerHTML = `
-            <div class="map-bus-node" style="cursor: pointer; display: flex; flex-direction: column; align-items: center; gap: 4px;">
-              <div class="bus-icon-container" style="
-                width: 28px;
-                height: 28px;
-                background-color: #eab308;
-                border: 2px solid ${bus.color};
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                box-shadow: 0 0 10px rgba(234, 179, 8, 0.7);
-              ">
-                <img src="/assets/bus-icon.png" alt="Bus" style="width: 18px; height: 18px; object-fit: contain;" />
-              </div>
-              <div class="bus-label">${bus.name}</div>
-            </div>
-          `;
-
-          const marker = new mapboxglModule.Marker({ element: el })
-            .setLngLat(bus.lngLat as [number, number])
-            .addTo(mapInstance);
-
-          markersRef.current[bus.id] = marker;
+        const infoWindow = new window.google.maps.InfoWindow({
+          content: `<div style="color:#0f172a; padding:4px; font-family:sans-serif;">
+            <h4 style="margin:0 0 4px 0; font-weight:600;">School: ${loc.name}</h4>
+            <span style="font-size:0.75rem; color:#64748b;">Coordinates: ${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}</span>
+          </div>`,
         });
+
+        schoolMarker.addListener("click", () => {
+          infoWindow.open(map, schoolMarker);
+        });
+      });
+
+      // Initialize default active bus markers
+      const defaultBuses = [
+        { id: "bus-4", name: "KBZ 445B (Morning Run)", color: "#10B981", lat: -1.2721, lng: 36.7981 },
+        { id: "bus-2", name: "KCD 542A (Morning Run)", color: "#6366F1", lat: -1.2699, lng: 36.8115 },
+        { id: "bus-1", name: "KBC 104D (Parked)", color: "#64748B", lat: -1.2612, lng: 36.8021 },
+      ];
+
+      defaultBuses.forEach((bus) => {
+        if (!isMounted || !mapRef.current) return;
+
+        const busMarker = new window.google.maps.Marker({
+          position: { lat: bus.lat, lng: bus.lng },
+          map: map,
+          title: bus.name,
+          icon: {
+            url: "/assets/bus-icon.png",
+            scaledSize: new window.google.maps.Size(46, 46),
+            origin: new window.google.maps.Point(0, 0),
+            anchor: new window.google.maps.Point(23, 23),
+          },
+        });
+
+        markersRef.current[bus.id] = busMarker;
       });
     };
 
-    initMap();
+    if (window.google && window.google.maps) {
+      initMap();
+    } else {
+      const scriptId = "google-maps-js-script-dashboard";
+      let script = document.getElementById(scriptId) as HTMLScriptElement;
+
+      if (!script) {
+        script = document.createElement("script");
+        script.id = scriptId;
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(
+          googleApiKey
+        )}&libraries=places&callback=initGoogleMapsDashboard`;
+        script.async = true;
+        script.defer = true;
+        document.head.appendChild(script);
+      }
+
+      window.initGoogleMapsDashboard = () => {
+        if (isMounted) initMap();
+      };
+    }
 
     return () => {
       isMounted = false;
-      if (mapInstance) {
-        mapInstance.remove();
-      }
-      mapRef.current = null;
     };
-  }, [hasMapboxToken, mapboxToken]);
+  }, [googleApiKey]);
 
   // Subscribe to real-time database updates from Supabase
   useEffect(() => {
@@ -372,17 +333,17 @@ export default function Home() {
             time: newTime,
             route: `Route ${record.route_id?.slice(0, 4) || "Live"}`,
             type: "info",
-            message: `DB Live Feed: Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)} (${speedVal})`
+            message: `DB Live Feed: Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)} (${speedVal})`,
           };
 
           setEvents((prev) => [newEvent, ...prev.slice(0, 15)]);
           setAlertCount((prev) => prev + 1);
 
-          // Update Mapbox marker position
+          // Update Google Maps bus marker position
           const key = record.vehicle_id || "bus-4";
           if (markersRef.current[key] && mapRef.current) {
-            markersRef.current[key].setLngLat([lng, lat]);
-            mapRef.current.easeTo({ center: [lng, lat], duration: 1000 });
+            markersRef.current[key].setPosition({ lat, lng });
+            mapRef.current.panTo({ lat, lng });
           }
         }
       )
@@ -559,10 +520,10 @@ export default function Home() {
     setEvents(prev => [...smsEvents, geofenceEvent, ...prev].slice(0, 15));
     setAlertCount(prev => prev + smsEvents.length);
 
-    // Update active Mapbox marker for "bus-4" if map is active
-    if (hasMapboxToken && markersRef.current["bus-4"] && mapRef.current) {
-      markersRef.current["bus-4"].setLngLat([lng, lat]);
-      mapRef.current.easeTo({ center: [lng, lat], duration: 1000 });
+    // Update active Google Maps marker for "bus-4" if map is active
+    if (markersRef.current["bus-4"] && mapRef.current) {
+      markersRef.current["bus-4"].setPosition({ lat, lng });
+      mapRef.current.panTo({ lat, lng });
     }
 
     // Try posting to API database backend if Supabase variables exist
@@ -620,29 +581,14 @@ export default function Home() {
 
     setEvents(prev => [newEvent, ...prev.slice(0, 15)]);
 
-    // Relocate active bus in Mapbox to signify SOS location
-    if (hasMapboxToken && markersRef.current["bus-4"] && mapRef.current) {
+    // Relocate active bus in Google Maps to signify SOS location
+    if (markersRef.current["bus-4"] && mapRef.current) {
       const sosLat = -1.2652;
       const sosLng = 36.8122;
       
-      markersRef.current["bus-4"].setLngLat([sosLng, sosLat]);
-      mapRef.current.flyTo({
-        center: [sosLng, sosLat],
-        zoom: 14.5,
-        speed: 1.2
-      });
-
-      // Swap marker element content to error style
-      const el = markersRef.current["bus-4"].getElement();
-      const innerNode = el.querySelector(".bus-dot");
-      const innerLabel = el.querySelector(".bus-label");
-      if (innerNode && innerLabel) {
-        (innerNode as HTMLElement).style.background = "var(--state-error)";
-        (innerNode as HTMLElement).style.boxShadow = "0 0 16px var(--state-error)";
-        (innerLabel as HTMLElement).style.color = "var(--state-error)";
-        (innerLabel as HTMLElement).style.border = "1px solid var(--state-error)";
-        innerLabel.textContent = "KBZ 445B - EMERGENCY SOS";
-      }
+      markersRef.current["bus-4"].setPosition({ lat: sosLat, lng: sosLng });
+      mapRef.current.panTo({ lat: sosLat, lng: sosLng });
+      mapRef.current.setZoom(15);
     }
   };
 
@@ -920,79 +866,11 @@ export default function Home() {
             </div>
 
             {/* Map Element */}
-            {hasMapboxToken ? (
-              <div 
-                ref={mapContainerRef} 
-                className="map-placeholder"
-                style={{ height: "380px", position: "relative" }}
-              />
-            ) : (
-              <div className="map-placeholder">
-                <div className="map-grid-overlay"></div>
-                <div className="map-radar-glow"></div>
-                
-                {/* Info Alert Overlay */}
-                <div style={{
-                  position: "absolute",
-                  top: "16px",
-                  left: "16px",
-                  right: "16px",
-                  background: "rgba(12, 17, 34, 0.9)",
-                  border: "1px solid rgba(99, 102, 241, 0.3)",
-                  borderRadius: "8px",
-                  padding: "10px 14px",
-                  fontSize: "0.8rem",
-                  color: "var(--text-primary)",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "8px",
-                  zIndex: 5,
-                  backdropFilter: "blur(4px)"
-                }}>
-                  <AlertCircle size={16} style={{ color: "var(--accent-secondary)" }} />
-                  <div>
-                    <strong style={{ color: "var(--accent-secondary)" }}>Simulated Map Mode</strong>. Add <code>NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN</code> to <code>.env.local</code> to load interactive Mapbox telemetry maps.
-                  </div>
-                </div>
-
-                {/* Active Bus Node 1 */}
-                <div className="map-bus-node" style={{ 
-                  position: "absolute",
-                  top: `calc(50% + ${radarOffset.y}px)`, 
-                  left: `calc(40% + ${radarOffset.x}px)`,
-                  transition: "all 1s cubic-bezier(0.25, 0.8, 0.25, 1)"
-                }}>
-                  <div className="bus-dot" style={{ background: "var(--accent-primary)", boxShadow: "0 0 16px var(--accent-primary)" }}></div>
-                  <div className="bus-label">KBZ 445B (Morning Run)</div>
-                </div>
-
-                {/* Parked Bus Node 2 */}
-                <div className="map-bus-node" style={{ position: "absolute", top: "25%", left: "70%" }}>
-                  <div className="bus-dot" style={{ background: "var(--text-muted)", boxShadow: "none" }}></div>
-                  <div className="bus-label">KBC 104D (Parked)</div>
-                </div>
-
-                {/* Parked Bus Node 3 */}
-                <div className="map-bus-node" style={{ position: "absolute", top: "75%", left: "20%" }}>
-                  <div className="bus-dot" style={{ background: "var(--accent-secondary)", boxShadow: "0 0 10px var(--accent-secondary)" }}></div>
-                  <div className="bus-label">KCD 542A (Morning Run)</div>
-                </div>
-
-                {/* SOS Indicator (only shows when SOS triggered) */}
-                {sosCount > 0 && (
-                  <div className="map-bus-node" style={{ position: "absolute", top: "60%", left: "60%" }}>
-                    <div className="bus-dot" style={{ 
-                      background: "var(--state-error)", 
-                      boxShadow: "0 0 20px var(--state-error)",
-                      animation: "radar-pulse 1s infinite linear"
-                    }}></div>
-                    <div className="bus-label" style={{ border: "1px solid var(--state-error)", color: "var(--state-error)" }}>
-                      KCA 998Y - EMERGENCY SOS
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            <div 
+              ref={mapContainerRef} 
+              className="map-placeholder"
+              style={{ height: "380px", position: "relative" }}
+            />
             
             <div style={{ marginTop: "16px", display: "flex", alignItems: "center", gap: "8px", color: "var(--text-muted)", fontSize: "0.8rem" }}>
               <Sparkles size={14} style={{ color: "var(--accent-secondary)" }} />

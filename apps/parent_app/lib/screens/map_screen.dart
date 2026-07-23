@@ -26,9 +26,6 @@ class MapScreen extends StatefulWidget {
 class _MapScreenState extends State<MapScreen> {
   final MapController _mapController = MapController();
 
-  static const String _mapboxToken =
-      "pk.eyJ1IjoibXVyYWdlMTAxIiwiYSI6ImNtcWdiM21mZjA1ZWkycnM3MmpnMXJjeWQifQ.ZmGc4WbWEbgNHPg4jHijzg";
-
   // Route and Stop state
   List<dynamic> _stops = [];
   List<LatLng> _polylinePoints = [];
@@ -425,8 +422,9 @@ class _MapScreenState extends State<MapScreen> {
       );
     }
 
-    final String mapboxUrlTemplate =
-        'https://api.mapbox.com/styles/v1/mapbox/traffic-day-v2/tiles/{z}/{x}/{y}?access_token=$_mapboxToken';
+    // Google Maps Vector/Roadmap style tile url template
+    final String googleMapsUrlTemplate =
+        'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
 
     // Generate dotted walking path points
     final List<LatLng> walkingPath = _pickupStageLocation != null
@@ -439,7 +437,7 @@ class _MapScreenState extends State<MapScreen> {
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF2563EB)))
           : Stack(
               children: [
-                // 1. Map Canvas
+                // 1. Google Map Canvas
                 FlutterMap(
                   mapController: _mapController,
                   options: MapOptions(
@@ -448,7 +446,7 @@ class _MapScreenState extends State<MapScreen> {
                   ),
                   children: [
                     TileLayer(
-                      urlTemplate: mapboxUrlTemplate,
+                      urlTemplate: googleMapsUrlTemplate,
                       userAgentPackageName: 'com.schooltrack.parent_app',
                     ),
                     // Route Polyline (Blue)

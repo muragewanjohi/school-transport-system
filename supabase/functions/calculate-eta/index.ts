@@ -75,10 +75,10 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // 1. Fetch tenant configurations (including SMS enablement, templates, and Mapbox access token)
+    // 1. Fetch tenant configurations (including SMS enablement, templates, and Google Maps API key)
     const { data: config, error: configError } = await supabase
       .from("tenant_configs")
-      .select("sms_notifications_enabled, sms_template_geofence, mapbox_access_token")
+      .select("sms_notifications_enabled, sms_template_geofence, google_maps_api_key, mapbox_access_token")
       .eq("tenant_id", tenant_id)
       .single();
 
@@ -88,29 +88,37 @@ Deno.serve(async (req) => {
 
     const smsEnabled = config?.sms_notifications_enabled || false;
     const template = config?.sms_template_geofence || "Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. Please prepare {student_name}.";
-    const mapboxToken = config?.mapbox_access_token;
+    const googleApiKey = config?.google_maps_api_key || Deno.env.get("GOOGLE_MAPS_API_KEY") || "";
 
     let durationSeconds = 300; // default 5 minutes
     let apiSuccess = false;
 
-    // 2. Call Mapbox Matrix API if token is configured
-    if (mapboxToken && mapboxToken.trim() !== "") {
+    // 2. Call Google Maps Distance Matrix API if key is configured
+    if (googleApiKey && googleApiKey.trim() !== "") {
       try {
-        const coordinates = `${bus_lng},${bus_lat};${stop_lng},${stop_lat}`;
-        const mapboxUrl = `https://api.mapbox.com/directions-matrix/v1/mapbox/driving-traffic/${coordinates}?sources=0&destinations=1&annotations=duration&access_token=${mapboxToken}`;
+        const googleUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${bus_lat},${bus_lng}&destinations=${stop_lat},${stop_lng}&mode=driving&departure_time=now&key=${googleApiKey}`;
 
-        const response = await fetch(mapboxUrl);
+        const response = await fetch(googleUrl);
         const matrixData = await response.json();
 
-        if (response.ok && matrixData.durations && matrixData.durations[0] && matrixData.durations[0][1] !== null) {
-          durationSeconds = matrixData.durations[0][1];
+        if (
+          response.ok &&
+          matrixData.status === "OK" &&
+          matrixData.rows &&
+          matrixData.rows[0] &&
+          matrixData.rows[0].elements &&
+          matrixData.rows[0].elements[0] &&
+          matrixData.rows[0].elements[0].status === "OK"
+        ) {
+          const element = matrixData.rows[0].elements[0];
+          durationSeconds = element.duration_in_traffic ? element.duration_in_traffic.value : element.duration.value;
           apiSuccess = true;
-          console.log(`[Mapbox] Matrix ETA for stop ${stop_name}: ${Math.round(durationSeconds / 60.0)} mins.`);
+          console.log(`[Google Maps] Distance Matrix ETA for stop ${stop_name}: ${Math.round(durationSeconds / 60.0)} mins.`);
         } else {
-          console.error("[Mapbox] API error or invalid response:", matrixData);
+          console.error("[Google Maps] API response error:", matrixData);
         }
       } catch (e: any) {
-        console.error("[Mapbox] Network/Fetch error:", e.message);
+        console.error("[Google Maps] Network/Fetch error:", e.message);
       }
     }
 
