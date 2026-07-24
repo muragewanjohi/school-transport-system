@@ -1,0 +1,11 @@
+# Local Android SDK and Flutter configuration template
+# Copy this file to local.properties and set your local SDK paths & API keys.
+
+sdk.dir=YOUR_ANDROID_SDK_PATH
+flutter.sdk=YOUR_FLUTTER_SDK_PATH
+flutter.buildMode=debug
+flutter.versionName=1.0.0
+flutter.versionCode=1
+
+# Google Maps API Key
+MAPS_API_KEY=YOUR_GOOGLE_MAPS_API_KEY_HERE

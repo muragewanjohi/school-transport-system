@@ -50,7 +50,7 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyClDS4aDEX43Tk5v_rnG5NB3Ew6vKtIVaQ',
+    apiKey: String.fromEnvironment('FIREBASE_ANDROID_API_KEY', defaultValue: String.fromEnvironment('MAPS_API_KEY')),
     appId: '1:465945931477:android:a75da1dd2c4c55965cbc5c',
     messagingSenderId: '465945931477',
     projectId: 'school-transport-system-f606a',
@@ -58,7 +58,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAb25Nh7xYHtwauxYe2ZQ19hP-8ITChWaQ',
+    apiKey: String.fromEnvironment('FIREBASE_IOS_API_KEY', defaultValue: String.fromEnvironment('MAPS_API_KEY')),
     appId: '1:465945931477:ios:31f21deeba1d0ef35cbc5c',
     messagingSenderId: '465945931477',
     projectId: 'school-transport-system-f606a',
