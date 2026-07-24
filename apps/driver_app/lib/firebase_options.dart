@@ -50,7 +50,7 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'AIzaSyC9PEVpSbXQg5gMVm1W26eLCAZVbMQwZ3g',
+    apiKey: 'AIzaSyClDS4aDEX43Tk5v_rnG5NB3Ew6vKtIVaQ',
     appId: '1:465945931477:android:a75da1dd2c4c55965cbc5c',
     messagingSenderId: '465945931477',
     projectId: 'school-transport-system-f606a',
@@ -58,7 +58,7 @@ class DefaultFirebaseOptions {
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'AIzaSyAmb0WDN3ttGSGgOmZBs09pO9wj2CnXq84',
+    apiKey: 'AIzaSyAb25Nh7xYHtwauxYe2ZQ19hP-8ITChWaQ',
     appId: '1:465945931477:ios:31f21deeba1d0ef35cbc5c',
     messagingSenderId: '465945931477',
     projectId: 'school-transport-system-f606a',
