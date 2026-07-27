@@ -199,17 +199,19 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loading) return;
 
+    const publicRoutes = ["/", "/login", "/reset-password"];
+    const isPublicPage = publicRoutes.includes(pathname);
     const isLoginPage = pathname === "/login";
 
     if (!user || (isSupabaseConfigured && !profile && errorMsg)) {
-      // If unauthenticated or role-blocked, redirect to /login
-      if (!isLoginPage) {
+      // If unauthenticated or role-blocked, redirect to /login for non-public pages
+      if (!isPublicPage) {
         router.push("/login");
       }
     } else {
       // If authenticated, prevent loading /login again
       if (isLoginPage) {
-        router.push("/");
+        router.push("/dashboard");
       }
     }
   }, [user, profile, loading, pathname, errorMsg, router]);

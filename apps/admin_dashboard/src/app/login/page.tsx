@@ -110,8 +110,13 @@ export default function LoginPage() {
         {/* Header / Logo */}
         <div className="login-header">
           <div className="logo-badge">
-            <div className="logo-icon">S</div>
-            <span className="logo-text">Safaricom Track</span>
+            <img
+              src="/logo.png"
+              alt="OnTheBus"
+              className="logo-image"
+              width={200}
+              height={133}
+            />
           </div>
           <h1>Admin Command Center</h1>
           <p className="subtitle">Real-time School Fleet & Route Operations</p>
@@ -292,11 +297,19 @@ export default function LoginPage() {
         .logo-badge {
           display: flex;
           align-items: center;
-          gap: var(--spacing-sm);
-          padding: 6px 12px;
-          background: rgba(30, 41, 59, 0.4);
-          border: 1px solid var(--border-default, #1e293b);
-          border-radius: 50px;
+          justify-content: center;
+          padding: 0;
+          background: transparent;
+          border: none;
+          border-radius: 12px;
+          overflow: hidden;
+        }
+
+        .logo-image {
+          width: 200px;
+          height: auto;
+          display: block;
+          border-radius: 12px;
         }
 
         .logo-icon {

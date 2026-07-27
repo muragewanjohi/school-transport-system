@@ -3,9 +3,26 @@
 ## Theme
 
 The visual design language is split to fit specific deployment environments:
+- **Marketing Landing (OnTheBus):** Light public site on `/`, aligned to the Stitch “Green Edition” screen — background `#F8F9FF`, primary `#006B32`, ink `#0B1C30`, soft surface `#E5EEFF`. Brand **OnTheBus**. Hero uses Stitch dashboard/phone assets under `public/stitch/`. Scoped under `.landing-page` so admin dark tokens stay unchanged.
 - **Admin Dashboard:** A dark, high-fidelity command console utilizing near-black backgrounds (`#0a0f1d`), deep slate surfaces, and vibrant Safaricom-green (`#10b981`) and electric indigo (`#6366f1`) accents to convey real-time fleet precision.
 - **Driver Mobile App:** High-contrast, daylight-optimized light theme (bright backgrounds, solid borders, oversized chunky buttons) built for active, single-hand tap interactions on vehicle dashboard mounts.
 - **Parent Mobile App:** Friendly, clean light/dark auto-switching interface that emphasizes maps, child statuses, and clear, non-technical transaction logs.
+
+## Marketing Landing Tokens
+
+Scoped CSS variables on `.landing-page` (Stitch Green Edition; do not reuse as global admin tokens):
+
+| Role | Variable | Value |
+| :--- | :--- | :--- |
+| Page background | `--lp-bg` | `#F8F9FF` |
+| Soft band / trust | `--lp-surface-soft` | `#E5EEFF` |
+| Headline ink | `--lp-ink` | `#0B1C30` |
+| Body text | `--lp-muted` | `#3D4A3E` |
+| Primary green | `--lp-primary` | `#006B32` |
+| Bright accent | `--lp-primary-bright` | `#5ADF82` |
+| Border | `--lp-outline` | `#BCCABB` |
+
+Primary CTAs: **Request Demo**. Secondary: **Login** → `/login`. Hero/media assets live in `apps/admin_dashboard/public/stitch/`. Authenticated console remains `/dashboard`.
 
 ## Colors
 

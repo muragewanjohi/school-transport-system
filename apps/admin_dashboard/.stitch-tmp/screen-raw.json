@@ -1,0 +1,28 @@
+{
+  "id": 1,
+  "jsonrpc": "2.0",
+  "result": {
+    "content": [
+      {
+        "text": "{\"name\":\"projects/14780419113259071345/screens/177482a2c2a2449fb3644b18e56fb5ee\",\"title\":\"OnTheBus | Student Safety Platform (Green Edition)\",\"screenshot\":{\"name\":\"projects/14780419113259071345/files/5364775369305475268\",\"downloadUrl\":\"https://lh3.googleusercontent.com/aida/AP1WRLtm7vpX6QUl8uxoAR6Lom0x3aHx9oXcZZSlVaPV5KFDhlcrMNS9Bd30cBx20j5st9SSOxSBlCulujvvX46NtsA6r28Cy5JhV59lEIZ81h9SplUsqLdlJlRXuEx1YTr0xlCTbOTIj8ora4XBO8Z8WezsTfLMul_QGHfJRCQoX2Ra5wODJQE6V7XMfNCX5bsdoN6ixKIzOD2ZzlR20FUT643RB6fupymaPJ8J51AcGk1U2dN2xReQniA-CCcc\"},\"htmlCode\":{\"name\":\"projects/14780419113259071345/files/6386228905170890746\",\"downloadUrl\":\"https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ8Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpbCiVodG1sXzAwMDY1Nzk1YzY5NWE2YmEwMWE2MzEzMTkyMzkxNWY2EgsSBxDrjZGE8g8YAZIBJAoKcHJvamVjdF9pZBIWQhQxNDc4MDQxOTExMzI1OTA3MTM0NQ&filename=&opi=89354086\",\"mimeType\":\"text/html\"},\"width\":\"2560\",\"height\":\"9922\",\"deviceType\":\"DESKTOP\"}",
+        "type": "text"
+      }
+    ],
+    "structuredContent": {
+      "deviceType": "DESKTOP",
+      "height": "9922",
+      "htmlCode": {
+        "downloadUrl": "https://contribution.usercontent.google.com/download?c=CgthaWRhX2NvZGVmeBJ8Eh1hcHBfY29tcGFuaW9uX2dlbmVyYXRlZF9maWxlcxpbCiVodG1sXzAwMDY1Nzk1YzY5NWE2YmEwMWE2MzEzMTkyMzkxNWY2EgsSBxDrjZGE8g8YAZIBJAoKcHJvamVjdF9pZBIWQhQxNDc4MDQxOTExMzI1OTA3MTM0NQ&filename=&opi=89354086",
+        "mimeType": "text/html",
+        "name": "projects/14780419113259071345/files/6386228905170890746"
+      },
+      "name": "projects/14780419113259071345/screens/177482a2c2a2449fb3644b18e56fb5ee",
+      "screenshot": {
+        "downloadUrl": "https://lh3.googleusercontent.com/aida/AP1WRLtm7vpX6QUl8uxoAR6Lom0x3aHx9oXcZZSlVaPV5KFDhlcrMNS9Bd30cBx20j5st9SSOxSBlCulujvvX46NtsA6r28Cy5JhV59lEIZ81h9SplUsqLdlJlRXuEx1YTr0xlCTbOTIj8ora4XBO8Z8WezsTfLMul_QGHfJRCQoX2Ra5wODJQE6V7XMfNCX5bsdoN6ixKIzOD2ZzlR20FUT643RB6fupymaPJ8J51AcGk1U2dN2xReQniA-CCcc",
+        "name": "projects/14780419113259071345/files/5364775369305475268"
+      },
+      "title": "OnTheBus | Student Safety Platform (Green Edition)",
+      "width": "2560"
+    }
+  }
+}

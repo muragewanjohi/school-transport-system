@@ -26,8 +26,13 @@ export default function Sidebar() {
     <Suspense fallback={
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <div className="brand-icon">S</div>
-          <span className="brand-title">Safaricom Track</span>
+          <img
+            src="/logo.png"
+            alt="OnTheBus"
+            className="brand-logo"
+            width={200}
+            height={72}
+          />
         </div>
       </aside>
     }>
@@ -58,8 +63,13 @@ function SidebarContent() {
   return (
     <aside className="sidebar">
       <div className="sidebar-brand">
-        <div className="brand-icon">S</div>
-        <span className="brand-title">Safaricom Track</span>
+        <img
+          src="/logo.png"
+          alt="OnTheBus"
+          className="brand-logo"
+          width={200}
+          height={72}
+        />
       </div>
 
       <nav className="sidebar-menu">
@@ -67,8 +77,8 @@ function SidebarContent() {
           {/* Real-time Tracking */}
           <li>
             <Link 
-              href="/" 
-              className={`menu-item ${pathname === "/" ? "active" : ""}`}
+              href="/dashboard" 
+              className={`menu-item ${pathname === "/dashboard" ? "active" : ""}`}
             >
               <Navigation size={18} />
               <span>Real-time Tracking</span>

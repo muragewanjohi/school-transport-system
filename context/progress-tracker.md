@@ -85,7 +85,8 @@
 - Refactored the bulk CSV student importer to write imported rows directly to the database via API requests.
 - Verified successfully that both the Next.js admin dashboard and Flutter driver application compile and build with zero errors.
 - Integrated Mapbox Traffic & Directions Matrix API: configured asynchronous `eta_calculation_queue` table and triggers, created `calculate-eta` Edge Function to query Mapbox driving-traffic Matrix API with Haversine fallback, updated the configurations dashboard UI to document `{duration_mins}` and `{eta_time}` custom templates, styled dashboard maps with `traffic-night-v2` styles, and modified Flutter driver app maps to stream `traffic-day-v2` raster tiles.
-
+- Redesigned the public marketing landing (`/`) for **On The Bus**: light conversion-focused layout with hero device mocks, features, how-it-works, stakeholders, KPIs, testimonials, pricing, and CTA; CSS scoped under `.landing-page`.
+- Updated `/` landing to match the Stitch **OnTheBus Landing Page** Green Edition screen (project `14780419113259071345`), including local hero/media assets under `public/stitch/`.
 
 ## In Progress
 
