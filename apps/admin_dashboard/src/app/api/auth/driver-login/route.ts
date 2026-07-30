@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
+import { signDriverSession } from "@/lib/driverSession";
 import { z } from "zod";
 
 const loginSchema = z.object({
@@ -18,6 +20,21 @@ const mockDriverSession = {
   route_id: "782cd841-f762-4217-a021-9876251b5bca",
 };
 
+function withAccessToken(session: {
+  id: string;
+  tenant_id: string;
+  role: string;
+  vehicle_id?: string | null;
+}) {
+  const access_token = signDriverSession({
+    sub: session.id,
+    tenant_id: session.tenant_id,
+    role: session.role || "driver",
+    vehicle_id: session.vehicle_id ?? null,
+  });
+  return { ...session, access_token };
+}
+
 export async function POST(request: Request) {
   try {
     const body: unknown = await request.json();
@@ -30,16 +47,18 @@ export async function POST(request: Request) {
     const { phone, otp } = result.data;
 
     if (!isSupabaseConfigured) {
-      // Mock Sandbox Login
       if (otp === "123456" || otp === "589204") {
-        return NextResponse.json({ success: true, source: "mock", session: mockDriverSession });
+        return NextResponse.json({
+          success: true,
+          source: "mock",
+          session: withAccessToken(mockDriverSession),
+        });
       }
       return NextResponse.json({ success: false, error: "Invalid OTP code" }, { status: 401 });
     }
 
-    const client = getSupabaseClient();
+    const client = getServiceSupabaseClient() ?? getSupabaseClient();
 
-    // Call stored procedure to verify credentials bypassing RLS
     const { data, error } = await client
       .rpc("verify_driver_login", { phone_num: phone, otp_val: otp });
 
@@ -49,7 +68,6 @@ export async function POST(request: Request) {
     }
 
     if (!data.success) {
-      // Check if it's 403 Forbidden for Unavailable status, or 401 Unauthorized
       const status = data.error.includes("Unavailable") ? 403 : 401;
       return NextResponse.json({ success: false, error: data.error }, { status });
     }
@@ -57,7 +75,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       source: "supabase_rpc",
-      session: data.session
+      session: withAccessToken(data.session),
     });
 
   } catch (err: unknown) {

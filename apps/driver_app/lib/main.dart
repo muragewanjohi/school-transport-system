@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:driver_app/services/supabase_service.dart';
 import 'package:driver_app/services/location_service.dart';
 import 'package:driver_app/screens/login_screen.dart';
+import 'package:driver_app/services/driver_api_auth.dart';
 import 'package:driver_app/screens/student_selection_screen.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
@@ -215,7 +216,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       final baseUrl = _getApiBaseUrl();
       final response = await http.get(
         Uri.parse('$baseUrl/api/fleet'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
@@ -246,7 +247,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       final baseUrl = _getApiBaseUrl();
       final response = await http.get(
         Uri.parse('$baseUrl/api/config'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
       ).timeout(const Duration(seconds: 8));
 
       if (response.statusCode == 200) {
@@ -279,7 +280,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       final vehicleId = _vehicleController.text.trim();
       final response = await http.get(
         Uri.parse('$baseUrl/api/driver/trips?vehicle_id=$vehicleId&driver_id=$_driverId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -460,7 +461,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       final baseUrl = _getApiBaseUrl();
       final response = await http.put(
         Uri.parse('$baseUrl/api/trips'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
         body: json.encode({
           'trip_id': tripId,
           'status': 'in_progress',
@@ -507,7 +508,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       final baseUrl = _getApiBaseUrl();
       final response = await http.put(
         Uri.parse('$baseUrl/api/trips'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
         body: json.encode({
           'trip_id': tripId,
           'status': 'completed',
@@ -559,7 +560,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       // 1. Fetch stops count
       final stopsResponse = await http.get(
         Uri.parse('$baseUrl/api/stops?route_id=$routeId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
       ).timeout(const Duration(seconds: 8));
 
       List<dynamic> stopsList = [];
@@ -573,7 +574,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       // 2. Fetch students count
       final studentsResponse = await http.get(
         Uri.parse('$baseUrl/api/students'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
       ).timeout(const Duration(seconds: 8));
 
       List<dynamic> studentsList = [];
@@ -690,6 +691,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       'tenantId': _tenantController.text.trim(),
       'vehicleId': _vehicleController.text.trim(),
       'routeId': _routeController.text.trim(),
+      'accessToken': await DriverApiAuth.accessToken(),
+      'apiBaseUrl': _getApiBaseUrl(),
     });
 
     ref.read(tripActiveProvider.notifier).state = true;
@@ -783,7 +786,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       final baseUrl = _getApiBaseUrl();
       final response = await http.put(
         Uri.parse('$baseUrl/api/students/$studentId'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
         body: json.encode({'status': newStatus}),
       ).timeout(const Duration(seconds: 8));
 

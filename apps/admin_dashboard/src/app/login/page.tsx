@@ -1,14 +1,17 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { Mail, Lock, ShieldAlert, Sparkles, Navigation } from "lucide-react";
+import { parseHost } from "@/lib/tenantHost";
 
 export default function LoginPage() {
   const [view, setView] = useState<"login" | "forgot">("login");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [schoolLabel, setSchoolLabel] = useState<string | null>(null);
+  const [tenantSlug, setTenantSlug] = useState<string | null>(null);
   
   // Sign In form states
   const [email, setEmail] = useState("");
@@ -16,6 +19,25 @@ export default function LoginPage() {
   
   // Forgot Password form state
   const [resetEmail, setResetEmail] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const parsed = parseHost(window.location.host);
+    if (parsed.kind === "tenant" && parsed.slug) {
+      setTenantSlug(parsed.slug);
+      fetch(`/api/tenants/resolve?slug=${encodeURIComponent(parsed.slug)}`)
+        .then((r) => r.json())
+        .then((json) => {
+          if (json.success && json.data?.name) {
+            setSchoolLabel(json.data.name as string);
+          } else {
+            setSchoolLabel(parsed.slug);
+            setError("This school subdomain is not registered or is inactive.");
+          }
+        })
+        .catch(() => setSchoolLabel(parsed.slug));
+    }
+  }, []);
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -32,19 +54,20 @@ export default function LoginPage() {
     try {
       if (!isSupabaseConfigured) {
         // --- Sandbox Bypass Mode ---
+        const isPlatform = email.toLowerCase().startsWith("platform@") || email.toLowerCase().includes("+platform@");
         const mockProfile = {
           id: `adm-mock-${Date.now()}`,
           name: email.split("@")[0].split(".").map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(" ") || "Sarah Jenkins",
           email: email,
           phone: "+254 712 345 678",
-          role: "school_admin",
-          admin_role: "Super Admin",
-          tenant_id: "8c9ad841-f762-4217-a021-9876251b5bcf",
+          role: isPlatform ? "super_admin" : "school_admin",
+          admin_role: isPlatform ? null : "Super Admin",
+          tenant_id: isPlatform ? null : "8c9ad841-f762-4217-a021-9876251b5bcf",
         };
         localStorage.setItem("safaricom_admin_mock_session", JSON.stringify(mockProfile));
         
         // Force page reload to trigger AuthProvider session update
-        window.location.href = "/";
+        window.location.href = isPlatform ? "/schools" : "/dashboard";
         return;
       }
 
@@ -118,7 +141,12 @@ export default function LoginPage() {
               height={133}
             />
           </div>
-          <h1>Admin Command Center</h1>
+          <h1>{schoolLabel ? schoolLabel : "Admin Command Center"}</h1>
+          <p style={{ margin: "8px 0 0", color: "var(--text-muted)", fontSize: "0.9rem" }}>
+            {tenantSlug
+              ? `School portal · ${tenantSlug}.onthebusapp.com`
+              : "Platform · onthebusapp.com"}
+          </p>
           <p className="subtitle">Real-time School Fleet & Route Operations</p>
         </div>
 

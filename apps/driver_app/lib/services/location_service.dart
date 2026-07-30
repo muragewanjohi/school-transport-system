@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
-import 'package:driver_app/services/supabase_service.dart';
 
 class LocationTrackingService {
   /// Configure and initialize the background service definitions.
@@ -42,6 +41,8 @@ void onStart(ServiceInstance service) async {
   String? tenantId;
   String? vehicleId;
   String? routeId;
+  String? accessToken;
+  String? apiBaseUrl;
 
   // Handle configuration updates from the main UI thread
   service.on('updateConfig').listen((event) {
@@ -49,6 +50,8 @@ void onStart(ServiceInstance service) async {
       tenantId = event['tenantId'];
       vehicleId = event['vehicleId'];
       routeId = event['routeId'];
+      accessToken = event['accessToken'];
+      apiBaseUrl = event['apiBaseUrl'];
     }
   });
 
@@ -75,7 +78,7 @@ void onStart(ServiceInstance service) async {
     }
 
     // Ensure we have active configuration keys before trying to stream coordinates
-    if (tenantId == null || vehicleId == null || routeId == null) {
+    if (tenantId == null || vehicleId == null || routeId == null || accessToken == null || apiBaseUrl == null) {
       if (service is AndroidServiceInstance) {
         service.setForegroundNotificationInfo(
           title: "Safaricom Track Active",
@@ -104,20 +107,19 @@ void onStart(ServiceInstance service) async {
         );
       }
 
-      // Insert GPS telemetry into PostgreSQL + PostGIS database via REST API
+      // Insert GPS telemetry via secured Next.js API (service role; no anon RLS bypass)
       await http.post(
-        Uri.parse('${SupabaseService.url}/rest/v1/live_coordinates'),
+        Uri.parse('$apiBaseUrl/api/driver/telemetry'),
         headers: {
-          'apikey': SupabaseService.anonKey,
-          'Authorization': 'Bearer ${SupabaseService.anonKey}',
+          'Authorization': 'Bearer $accessToken',
           'Content-Type': 'application/json',
-          'Prefer': 'return=minimal',
         },
         body: json.encode({
           'tenant_id': tenantId,
           'vehicle_id': vehicleId,
           'route_id': routeId,
-          'coordinates': 'POINT(${position.longitude} ${position.latitude})',
+          'latitude': position.latitude,
+          'longitude': position.longitude,
           'speed': position.speed,
           'bearing': position.heading,
           'is_emergency': isEmergency,

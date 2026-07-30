@@ -117,12 +117,31 @@ export async function GET(request: Request) {
       console.warn("Dynamic SMS count query failed:", e);
     }
 
+    let activeCampusCount = 1;
+    try {
+      const { count, error } = await client
+        .from("campuses")
+        .select("id", { count: "exact", head: true })
+        .eq("tenant_id", tenantId)
+        .is("deleted_at", null);
+      if (!error && count !== null) activeCampusCount = count;
+    } catch (e) {
+      console.warn("Dynamic campus count query failed:", e);
+    }
+
+    const campusFee = billing.campus_monthly_fee_kes ?? 10000;
+    const platformFee = activeCampusCount * campusFee;
+
     const responseData = {
       ...billing,
       students_count: studentsCount,
       active_routes_count: routesCount,
       drivers_count: driversCount,
-      sms_used_this_month: smsCount
+      sms_used_this_month: smsCount,
+      campus_monthly_fee_kes: campusFee,
+      active_campus_count: activeCampusCount,
+      platform_fee_kes: platformFee,
+      price_desc: `KES ${campusFee.toLocaleString()} / month per campus × ${activeCampusCount} = KES ${platformFee.toLocaleString()} + SMS usage`,
     };
 
     return NextResponse.json({ success: true, source: "supabase", data: responseData });

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:driver_app/services/driver_api_auth.dart';
 
 class Student {
   final String id;
@@ -89,7 +90,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
       final baseUrl = _getApiBaseUrl();
       final response = await http.get(
         Uri.parse('$baseUrl/api/students'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {
@@ -128,7 +129,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
       final baseUrl = _getApiBaseUrl();
       final response = await http.put(
         Uri.parse('$baseUrl/api/students/${student.id}'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
         body: json.encode({'status': newStatus}),
       ).timeout(const Duration(seconds: 8));
 

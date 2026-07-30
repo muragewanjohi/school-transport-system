@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { resolveRequestDb } from "@/lib/driverSession";
 import { z } from "zod";
 import { getLocalVehicles, saveLocalVehicles } from "@/lib/jsonDb";
 
@@ -119,7 +120,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: getLocalVehicles() });
     }
 
-    const client = getSupabaseClient(token);
+    const db = await resolveRequestDb(request);
+    if (!db) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const client = db.client;
 
     // Fetch vehicles, join with driver and conductor profiles
     // We handle the join queries safely

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { resolveRequestDb } from "@/lib/driverSession";
 import { z } from "zod";
 
 const stopCreateSchema = z.object({
@@ -86,7 +87,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: filtered });
     }
 
-    const client = getSupabaseClient(token);
+    const db = await resolveRequestDb(request);
+    if (!db) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const client = db.client;
     
     let query = client.from("stops").select("id, tenant_id, route_id, name, location, sequence_no, geofence_radius_meters, stop_type, distance_from_prev_meters, duration_from_prev_seconds, created_at, updated_at");
     

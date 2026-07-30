@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 
 export async function POST(request: Request) {
   try {
@@ -15,11 +16,18 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(bytes);
 
     if (isSupabaseConfigured) {
-      const client = getSupabaseClient();
-      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
-      const fileName = `${folder}/${Date.now()}_${sanitizedName}`;
+      const authHeader = request.headers.get("authorization");
+      const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
+      const userClient = getSupabaseClient(token);
+      const { data: { user } } = await userClient.auth.getUser();
 
-      const { data, error } = await client.storage
+      // Prefer service role for storage writes; fall back to user-scoped client
+      const client = getServiceSupabaseClient() ?? userClient;
+      const sanitizedName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+      const ownerFolder = user?.id || folder;
+      const fileName = `${ownerFolder}/${Date.now()}_${sanitizedName}`;
+
+      const { error } = await client.storage
         .from("avatars")
         .upload(fileName, buffer, {
           contentType: file.type || "image/jpeg",

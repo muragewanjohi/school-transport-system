@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:http/http.dart' as http;
+import 'package:driver_app/services/driver_api_auth.dart';
 
 class RouteMapWidget extends StatefulWidget {
   final String routeId;
@@ -64,7 +65,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
       final baseUrl = _getApiBaseUrl();
       final response = await http.get(
         Uri.parse('$baseUrl/api/stops?route_id=${widget.routeId}'),
-        headers: {'Content-Type': 'application/json'},
+        headers: await DriverApiAuth.headers(),
       ).timeout(const Duration(seconds: 10));
 
       if (response.statusCode == 200) {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { resolveRequestDb } from "@/lib/driverSession";
 import { z } from "zod";
 
 const tripCreateSchema = z.object({
@@ -324,7 +325,11 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: result.data });
     }
 
-    const client = getSupabaseClient(token);
+    const db = await resolveRequestDb(request);
+    if (!db) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const client = db.client;
 
     if (result.data.manifest_id && result.data.attendance) {
       const updateData: Record<string, any> = { attendance: result.data.attendance };

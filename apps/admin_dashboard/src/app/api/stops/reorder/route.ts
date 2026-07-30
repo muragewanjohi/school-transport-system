@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 
 export async function POST(request: Request) {
   try {
@@ -17,9 +18,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock" });
     }
 
-    const client = getSupabaseClient(token);
+    const userClient = getSupabaseClient(token);
+    const client = getServiceSupabaseClient() ?? userClient;
 
-    // Try calling the RPC first (clean & atomic)
+    // Try calling the RPC first (clean & atomic) via service role
     const { error: rpcError } = await client.rpc("reorder_stops", {
       stop_ids: stop_ids,
     });

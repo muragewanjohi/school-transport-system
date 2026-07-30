@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { resolveRequestDb } from "@/lib/driverSession";
 import { z } from "zod";
 import { getLocalStudents, saveLocalStudents } from "@/lib/jsonDb";
 
@@ -101,12 +102,20 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: getLocalStudents() });
     }
 
-    const client = getSupabaseClient(token);
+    const db = await resolveRequestDb(request);
+    if (!db) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const client = db.client;
     
     // Fetch students from database
-    const { data: students, error: studentsError } = await client
+    let studentsQuery = client
       .from("students")
       .select("id, name, route_id, nfc_card_hash, pickup_stop_id, dropoff_stop_id, schedule_ids, guardians, status, grade, class_name");
+    if (db.driver?.tenant_id) {
+      studentsQuery = studentsQuery.eq("tenant_id", db.driver.tenant_id);
+    }
+    const { data: students, error: studentsError } = await studentsQuery;
 
     if (studentsError) {
       console.warn("Supabase students fetch error:", studentsError.message);

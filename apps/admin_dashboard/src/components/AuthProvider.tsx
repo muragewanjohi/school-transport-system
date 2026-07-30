@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { parseHost, getApexPublicUrl } from "@/lib/tenantHost";
 
 interface AuthProfile {
   id: string;
@@ -180,6 +181,40 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
             setErrorMsg("Access Denied: You do not have permission to access the Admin Console.");
             setProfile(null);
           } else {
+            // Subdomain tenancy: school admins must match host tenant; platform stays on apex
+            const host = typeof window !== "undefined" ? window.location.host : "";
+            const parsed = parseHost(host);
+
+            if (parsed.kind === "tenant" && userProfile.role === "super_admin") {
+              window.location.href = getApexPublicUrl("/schools");
+              return;
+            }
+
+            if (parsed.kind === "tenant" && userProfile.role === "school_admin") {
+              try {
+                const res = await fetch(`/api/tenants/resolve?slug=${encodeURIComponent(parsed.slug || "")}`);
+                const json = await res.json();
+                if (!json.success || json.data?.id !== userProfile.tenant_id) {
+                  setErrorMsg("This account does not belong to this school subdomain. Use your school URL to sign in.");
+                  setProfile(null);
+                  await supabase.auth.signOut();
+                  setLoading(false);
+                  return;
+                }
+              } catch {
+                setErrorMsg("Could not verify school subdomain.");
+                setProfile(null);
+                setLoading(false);
+                return;
+              }
+            }
+
+            if (parsed.kind === "apex" && userProfile.role === "school_admin" && userProfile.tenant_id) {
+              // Optionally redirect school admins to their subdomain when known via resolve reverse lookup later.
+              // For now allow apex login only for platform; school admins get a hint error if they use apex for console.
+              // Keep school admins working on apex in local/dev; production middleware + DNS will use subdomains.
+            }
+
             setProfile(userProfile as AuthProfile);
             setErrorMsg(null);
           }
@@ -211,7 +246,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     } else {
       // If authenticated, prevent loading /login again
       if (isLoginPage) {
-        router.push("/dashboard");
+        router.push(profile?.role === "super_admin" ? "/schools" : "/dashboard");
       }
     }
   }, [user, profile, loading, pathname, errorMsg, router]);

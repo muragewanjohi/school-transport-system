@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { z } from "zod";
 
 const loginSchema = z.object({
@@ -103,9 +104,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock", session: dynamicSession });
     }
 
-    const client = getSupabaseClient();
+    const client = getServiceSupabaseClient() ?? getSupabaseClient();
 
-    // Call stored procedure to verify credentials bypassing RLS
+    // Call stored procedure to verify credentials (service role; RPC is not anon-callable)
     const { data, error } = await client
       .rpc("verify_parent_login", { phone_num: phone, otp_val: otp });
 

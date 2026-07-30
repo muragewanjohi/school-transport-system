@@ -87,20 +87,29 @@
 - Integrated Mapbox Traffic & Directions Matrix API: configured asynchronous `eta_calculation_queue` table and triggers, created `calculate-eta` Edge Function to query Mapbox driving-traffic Matrix API with Haversine fallback, updated the configurations dashboard UI to document `{duration_mins}` and `{eta_time}` custom templates, styled dashboard maps with `traffic-night-v2` styles, and modified Flutter driver app maps to stream `traffic-day-v2` raster tiles.
 - Redesigned the public marketing landing (`/`) for **On The Bus**: light conversion-focused layout with hero device mocks, features, how-it-works, stakeholders, KPIs, testimonials, pricing, and CTA; CSS scoped under `.landing-page`.
 - Updated `/` landing to match the Stitch **OnTheBus Landing Page** Green Edition screen (project `14780419113259071345`), including local hero/media assets under `public/stitch/`.
+- Implemented Phase 1 Schools console: migration `20260730180000_schools_campuses_billing.sql` (soft-delete tenants, `campuses`, `campus_monthly_fee_kes`, `admin_campus_access`, platform settings), `/api/tenants` + `/api/tenants/[id]`, `/schools` UI with email invite onboarding, sidebar link for `role = super_admin`, billing fee rollup by campus count.
+- Applied `schools_campuses_billing` migration to the linked Supabase project via MCP; seeded default campus for Safaricom Track School; promoted `muragedev@gmail.com` to platform `super_admin` (`tenant_id` null + auth metadata).
+- Applied security advisor hardening: removed sandbox `Allow public *` RLS policies, locked SECURITY DEFINER search_path/execute grants, tightened avatars storage policies; login/reorder RPCs now service-role only via Next.js API routes. Remaining PostGIS/`spatial_ref_sys` advisories are unactionable false positives.
+- Secured driver ops: signed `drv.*` session tokens from `/api/auth/driver-login`, `/api/driver/telemetry` + auth-gated fleet/students/stops/trips/config APIs via service role; Flutter driver app sends Bearer token (re-login required).
 
 ## In Progress
 
+- Phase 1 admin Schools (tenants) console: migration, `/api/tenants`, `/schools` UI, platform invite flow.
 - Designing the parent real-time map tracking view inside the Parent mobile application.
 
 ## Next Up
 
+- Add `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SITE_URL` to `.env.local` and Vercel (required for school invite emails).
+- Sign out/in as `muragedev@gmail.com` and verify `/schools`.
+- Phase 2: Resolve `tenant_id` from JWT on all admin APIs (stop `tenants.limit(1)`); enforce null-tenant platform vs scoped school admin.
+- Phase 3: Tenant impersonation + PII masking for platform support.
+- Persist campus location usage in route builder (replace local-only School Locations state).
+- Attendance logs and alerts history consoles.
 - Bootstrapping the Parent mobile application (`apps/parent_app`) Flutter workspace.
-- Implement the live coordinate channel listener to receive vehicle coordinates in the Parent App.
-- Add route-boundary geofence calculations and proximity notification logs in the Parent App.
 
 ## Open Questions
 
-- *None.*
+- *None.* (School onboarding decisions resolved 2026-07-30.)
 
 ## Architecture Decisions
 
@@ -108,6 +117,11 @@
 - **Pure Serverless Transition (Vercel + Supabase):** Swapped persistent servers for Next.js route handlers, Supabase Realtime Channels, and Deno edge workers.
 - **PostGIS Trigger Evaluation:** Computing geofences dynamically at the database layer via SQL triggers. When new vehicle coordinates are written, PostGIS calculates boundary intersections directly on the metal, avoiding network overhead, and triggering Supabase Edge Functions for SMS dispatch.
 - **Queue-Based Notification Engine:** Used an `alerts_queue` table combined with Supabase database webhooks to decouple spatial compute from external network API execution.
+- **Platform vs Tenant Admin:** `profiles.role = super_admin` is platform-only with `tenant_id = null`. School operators use `role = school_admin` with a required `tenant_id`; their `admin_role` (including `"Super Admin"`) is tenant-scoped only.
+- **Soft-Delete Tenants:** Schools are suspended/soft-deleted (`deleted_at`), never hard-deleted through the product UI.
+- **School Admin Invite:** First school admin is provisioned via email invite; platform operators do not set the invitee password in the onboarding drawer.
+- **Subdomain Tenancy (Vercel):** School consoles live at `{slug}.onthebusapp.com`; `tenants.domain` stores the slug. Apex `onthebusapp.com` is marketing + platform `/schools`. Invites redirect to the school subdomain.- **Campus Permissions (deferred enforce):** Capability via `admin_role`; site scope via `admin_campus_access` (or tenant-wide mode). Billing stays tenant-scoped.
+- **Multi-Campus Billing:** One invoice per tenant. Platform fee = `active_campus_count × campus_monthly_fee_kes` (default KES 10,000). **Platform `super_admin` can edit the per-campus flat fee** per school (and a default for new onboardings); school roles view-only. SMS remains a separate usage line. Unpaid tenant suspends all campuses.
 
 ## Session Notes
 

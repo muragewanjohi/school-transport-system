@@ -25,11 +25,129 @@
 
 ## Auth and Access Model
 
-- **Row Level Security (RLS):** All database tables have RLS active. Every client request, API invocation, and WebSockets subscription carries a JWT containing the user's authenticated `tenant_id` and role context (`super_admin`, `school_admin`, `driver`, `parent`, `conductor`).
+- **Row Level Security (RLS):** All database tables have RLS active. Every client request, API invocation, and WebSockets subscription carries a JWT containing the user's authenticated `tenant_id` (nullable for platform roles) and role context (`super_admin`, `school_admin`, `driver`, `parent`, `conductor`).
 - **Unified Web Dashboard Access Control:**
-  - **School Admins (`school_admin`):** Access is strictly scoped to their matching `tenant_id`. They can register students, assign routes, bind NFC cards, view metrics, manage vehicles/conductors, and log service checks.
-  - **Support Team (`super_admin`):** Granted system-wide access to monitor tenant metrics, onboard new schools, and troubleshoot system anomalies.
-  - **Tenant Impersonation Mode:** Support users can view a specific school's dashboard. During impersonation, support roles are restricted to read-only views on student identities, and all sensitive contact details are dynamically masked in the UI.
+  - **School Admins (`school_admin`):** Access is strictly scoped to their matching `tenant_id`. They can register students, assign routes, bind NFC cards, view metrics, manage vehicles/conductors, and log service checks. Within a tenant, sub-roles are expressed via `admin_role` (e.g. Super Admin, Dispatcher, Fleet Manager) — these are still tenant-bound and never have a null `tenant_id`.
+  - **Platform Support (`profiles.role = super_admin`):** Platform operators are **not** members of any school. Their `tenant_id` is **null**. They have system-wide access to onboard schools (tenants), monitor cross-tenant metrics, and troubleshoot anomalies. Do not confuse platform `super_admin` with a school admin whose `admin_role` is `"Super Admin"`.
+  - **Tenant Impersonation Mode:** Platform `super_admin` users can enter a specific school's dashboard context. During impersonation, support roles are restricted to read-only views on student identities, and all sensitive contact details are dynamically masked in the UI.
+- **School (Tenant) Lifecycle:**
+  - Schools are rows in `public.tenants`. Soft-delete only (`deleted_at` / suspended status); hard delete of tenant rows is forbidden in product flows because of cascading student/fleet data.
+  - Onboarding creates the tenant, seeds billing + config, creates the **default campus**, and sends an **email invite** to the first school admin (no password set by the platform operator in the onboarding drawer).
+  - **v1 product constraint:** exactly one active campus per tenant in the UI. The data model still uses a first-class `campuses` table (not lat/lng on `tenants`) so multi-campus can unlock without a schema rewrite.
+  - **`tenants.domain` is the subdomain slug** (e.g. `school1`), not a free-form email domain. Full school URL: `https://{domain}.onthebusapp.com`.
+
+## Hosting & Subdomain Tenancy (Vercel)
+
+Root domain: **`onthebusapp.com`** (wildcard `*.onthebusapp.com` on Vercel).
+
+| Host | Audience | Primary routes |
+| :--- | :--- | :--- |
+| `onthebusapp.com`, `www.onthebusapp.com` | Public marketing + platform operators | `/`, `/login` (platform), `/schools` |
+| `{slug}.onthebusapp.com` | That school's admins | `/login`, `/dashboard`, fleet/students/routes/… |
+| Reserved slugs (not tenants) | — | `www`, `platform`, `admin`, `api`, `app`, `static`, `cdn` |
+
+Rules:
+
+1. **Resolve tenant** from the Host header: strip `.onthebusapp.com` → lookup `tenants.domain = slug` where `deleted_at IS NULL` and `status = 'active'`.
+2. **School login** only succeeds on that school's subdomain; after Auth, `profiles.tenant_id` must match the host tenant (else sign out + error).
+3. **Platform `super_admin`** logs in on the apex (`onthebusapp.com`); accessing a school subdomain as platform may later support impersonation — v1 redirects platform users from school hosts back to apex `/schools`.
+4. **Invites** use `https://{slug}.onthebusapp.com/reset-password` (and Supabase redirect allow-list must include `https://*.onthebusapp.com/**`).
+5. **Local dev:** `localhost` / `*.localhost` treated as apex unless `x-tenant-slug` / `?tenant=` override is set for testing.
+
+Middleware sets request headers `x-host-kind` (`apex` \| `tenant` \| `local`) and `x-tenant-slug` for server components and route handlers.
+## Multi-Campus Model (Designed Now, Multi Unlock Later)
+
+### Hierarchy
+
+```
+Platform (super_admin, tenant_id null)
+  └── Tenant / School org (billing, brand, contract)
+        └── Campus (physical site: name + PostGIS point)
+              └── Operational data (routes, stops, students, trips, …)
+```
+
+- **Tenant** = commercial / legal school organization (billing, SMS sender branding, subscription).
+- **Campus** = one physical school site under that org. Never treat a campus as its own tenant (that breaks shared billing and cross-campus admins).
+- Isolation invariant unchanged: every operational row keeps `tenant_id` for RLS. `campus_id` is a **secondary scope inside the tenant**.
+
+### Target tables (introduce `campuses` in Phase 1)
+
+| Table | Purpose |
+| :--- | :--- |
+| `campuses` | `id`, `tenant_id`, `name`, `location` (PostGIS Point), `status`, `deleted_at`, timestamps. Unique active “default” campus per tenant in v1. |
+| `admin_campus_access` | Junction: `profile_id` × `campus_id`. Which school admins may act on which campuses. |
+| Operational tables | Add nullable-then-required `campus_id` on `routes`, `stops`, `students`, `vehicles`, `schedules`, `trips` (and related). Staff profiles may use the junction or a home-campus plus optional multi-assign later. |
+
+**v1 behavior:** on school onboard, insert one campus; all operational rows point at it; UI hides campus pickers. **Multi unlock:** allow N campuses; show campus switcher / filters; enforce `admin_campus_access`.
+
+### What stays tenant-scoped vs campus-scoped
+
+| Tenant-scoped (org-wide) | Campus-scoped (site ops) |
+| :--- | :--- |
+| Billing / plan / invoice | Routes, stops, schedules, trips |
+| Tenant config defaults (SMS templates can stay tenant-wide) | Students (primary campus) |
+| School admin user directory | Live telemetry views filtered by campus fleet |
+| Platform onboarding | Vehicles (home campus; optional later: shared pool flag) |
+
+### Billing & multi-campus
+
+**Contract lives on the tenant, not the campus.** `billing_status` remains `UNIQUE(tenant_id)` — one subscription, one invoice, one renewal, one pay/suspend switch for the whole school organization. Campuses are never separately invoiced.
+
+**Price scales with active campus count.** Schools with more campuses pay more on that single invoice.
+
+| Component | Rule |
+| :--- | :--- |
+| Campus flat fee | **Per active campus / month**, amount stored as `campus_monthly_fee_kes` (default **KES 10,000** for new schools) |
+| Monthly plan total (platform fee) | `active_campus_count × campus_monthly_fee_kes` |
+| Example (default rate) | 1 campus → KES 10,000/mo; 5 campuses → KES 50,000/mo |
+| Who can edit the rate | **Platform `super_admin` only** — editable in the platform Schools / Billing console per tenant (and optionally a platform-wide default applied when onboarding a new school). School Bursars and tenant admins can **view** the rate and computed total; they cannot change `campus_monthly_fee_kes`. |
+| Soft-deleted / suspended campuses | Excluded from `active_campus_count` and from the fee |
+| SMS / usage | Remains a separate meter on the same invoice (e.g. KES 1 / SMS) unless a later plan bundles it |
+| `price_desc` / displayed amount | Derived at read time from campus count × current fee (never treat a static string as the source of truth) |
+
+**Showback:** Billing UI for tenant-wide roles (Bursar, tenant Super Admin, Operations Admin) shows org total (`N × 10,000` + SMS) and a per-campus line (“Campus fee × N”) plus optional usage breakdown by campus. Campus-limited admins do not manage plan or payment (default: hide `/billing` unless tenant-wide billing role).
+
+**Entitlements / suspension:** Unpaid or suspended tenant locks **all** campuses together.
+
+**Platform view:** One billing record per school org; show `active_campus_count`, computed monthly platform fee, and rolled-up usage.
+
+**Schema note:** Keep the commercial row on `billing_status` (tenant). Column `campus_monthly_fee_kes INT NOT NULL DEFAULT 10000` is the editable rate. Platform APIs allow PATCH of this field for `super_admin` only; school roles are read-only on fee fields. Optional platform default table/config key `default_campus_monthly_fee_kes` seeds new tenants on onboard. Compute `platform_fee_kes = active_campus_count * campus_monthly_fee_kes`. Optional later: `billing_usage_snapshots` for historical showback — not required for Phase 1.
+
+Drivers/conductors: assign to vehicles/routes that already imply a campus; optional explicit multi-campus staff access later if a driver runs routes for two sites.
+
+### Permissions model
+
+Three layers (AND together):
+
+1. **Platform vs school:** `role = super_admin` (`tenant_id` null) vs `role = school_admin` (`tenant_id` required).
+2. **Capability (`admin_role`):** what actions they may perform (Fleet Manager vs Roster Manager vs Bursar, etc.).
+3. **Campus scope (`admin_campus_access`):** which campuses those actions apply to.
+
+Rules:
+
+- **Tenant Super Admin / Operations Admin (school):** either `campus_access_mode = 'all'` on the profile **or** an implicit “all campuses in tenant” when no junction rows exist and mode is all. Can manage campuses and assign other admins’ campus lists.
+- **Campus-limited admins:** one or more rows in `admin_campus_access`. APIs filter `WHERE campus_id IN (allowed)`. Cross-campus create/update returns 403.
+- **Bursar / billing roles:** typically tenant-wide (billing is not per campus in v1); campus junction optional / ignored for billing routes.
+- **Platform `super_admin`:** all tenants; impersonation picks a tenant, then optionally a campus; PII still masked.
+
+JWT / session claims (when multi unlocks): keep `tenant_id`; add `campus_ids` (array) or resolve campus allow-list server-side from `admin_campus_access` so tokens stay small. Active UI campus filter can be a header/`X-Campus-Id` for list endpoints, always validated against the allow-list.
+
+### RLS sketch (multi unlock)
+
+- Keep existing `tenant_id = jwt_tenant_id()` as the hard wall.
+- Add campus predicate for school admins: `campus_id IN (SELECT campus_id FROM admin_campus_access WHERE profile_id = auth.uid())` **OR** profile has tenant-wide campus mode.
+- Platform `super_admin` bypasses campus predicates (and uses impersonation + masking in the app layer).
+
+### Product UX when multi unlocks
+
+- Global **campus switcher** in the shell (“All campuses” only for tenant-wide admins).
+- List pages default to active campus; “All” aggregates only if permitted.
+- Route builder start/end school pin = that campus’s location.
+- Onboarding a second campus: name + map pin; optional clone of config; no automatic copy of students/routes.
+
+### Phase 1 implementation rule (avoid rewrite)
+
+Do **not** store the sole campus coordinates only on `tenants`. Create `campuses`, insert the default campus on tenant create, and attach new operational rows to `campus_id`. Defer: multi-campus UI, `admin_campus_access` enforcement UI, and campus switcher — but keep column/table shapes ready.
 - **Driver Token Scope:** Drivers are authorized exclusively to broadcast coordinate arrays to their active `route_id` channels and write check-ins for students assigned to their scheduled run.
 - **Conductor Token Scope:** Conductors can read assigned routes and student checklist manifests, read active vehicle attributes inside their tenant, and check-in students.
 - **Parent Resource Rules:** RLS policies restrict parents to reading telemetry and subscribing to realtime coordinates *only* for the specific `route_id` mapped to their own registered children.

@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { resolveRequestDb } from "@/lib/driverSession";
 import { z } from "zod";
 
 // Zod schema for telemetry ingestion validation
 const telemetryIngestSchema = z.object({
+  tenant_id: z.string().uuid("Invalid tenant ID").optional(),
   vehicle_id: z.string().uuid("Invalid vehicle ID format"),
   route_id: z.string().uuid("Invalid route ID format"),
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   speed: z.number().nonnegative().optional(),
   bearing: z.number().min(0).max(360).optional(),
+  is_emergency: z.boolean().optional(),
 });
-
 interface TelemetryPoint {
   id: string;
   vehicle_id: string;
@@ -111,35 +113,50 @@ export async function POST(request: Request) {
       );
     }
 
-    const { vehicle_id, route_id, latitude, longitude, speed, bearing } = validationResult.data;
-
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
+    const { tenant_id, vehicle_id, route_id, latitude, longitude, speed, bearing, is_emergency } =
+      validationResult.data;
 
     if (!isSupabaseConfigured) {
-      // Simulator Success Mock
       return NextResponse.json({
         success: true,
         source: "mock",
         data: {
           message: "Telemetry coordinate accepted (Mock Mode)",
           timestamp: new Date().toISOString(),
-          details: { vehicle_id, route_id, latitude, longitude, speed, bearing }
+          details: { tenant_id, vehicle_id, route_id, latitude, longitude, speed, bearing, is_emergency }
         }
       });
     }
 
-    const client = getSupabaseClient(token);
+    const db = await resolveRequestDb(request);
+    if (!db) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
 
-    // Insert live coordinates using WKT (Well-Known Text) for PostGIS compatibility
-    const { data: telemetryInsert, error } = await client
+    const resolvedTenantId = tenant_id || db.driver?.tenant_id;
+    if (!resolvedTenantId) {
+      return NextResponse.json({ success: false, error: "tenant_id is required" }, { status: 400 });
+    }
+
+    if (db.mode === "driver" && db.driver) {
+      if (db.driver.tenant_id !== resolvedTenantId) {
+        return NextResponse.json({ success: false, error: "Tenant mismatch" }, { status: 403 });
+      }
+      if (db.driver.vehicle_id && db.driver.vehicle_id !== vehicle_id) {
+        return NextResponse.json({ success: false, error: "Vehicle not assigned to driver" }, { status: 403 });
+      }
+    }
+
+    const { data: telemetryInsert, error } = await db.client
       .from("live_coordinates")
       .insert({
+        tenant_id: resolvedTenantId,
         vehicle_id,
         route_id,
         coordinates: `POINT(${longitude} ${latitude})`,
         speed: speed ?? null,
         bearing: bearing ?? null,
+        is_emergency: is_emergency ?? false,
       })
       .select()
       .single();
@@ -155,8 +172,7 @@ export async function POST(request: Request) {
       success: true,
       source: "supabase",
       data: telemetryInsert,
-    });
-  } catch (err: unknown) {
+    });  } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
     return NextResponse.json(
       { success: false, error: errorMessage },

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { resolveRequestDb } from "@/lib/driverSession";
 
 const mockDriverTrips = [
   {
@@ -65,7 +66,11 @@ export async function GET(request: Request) {
       });
     }
 
-    const client = getSupabaseClient();
+    const db = await resolveRequestDb(request);
+    if (!db) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const client = db.client;
 
     let vehicleId = vehicleIdParam;
     

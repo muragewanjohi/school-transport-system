@@ -67,6 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
         await prefs.setString('tenant_id', session['tenant_id'] ?? '');
         await prefs.setString('vehicle_id', session['vehicle_id'] ?? '');
         await prefs.setString('route_id', session['route_id'] ?? '');
+        await prefs.setString('access_token', session['access_token'] ?? '');
         await prefs.setBool('is_logged_in', true);
 
         if (!mounted) return;

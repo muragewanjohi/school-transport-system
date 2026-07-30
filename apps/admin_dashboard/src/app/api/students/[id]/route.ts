@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { resolveRequestDb } from "@/lib/driverSession";
 import { z } from "zod";
 import { getLocalStudents, saveLocalStudents } from "@/lib/jsonDb";
 
@@ -170,7 +171,22 @@ export async function PUT(
       return NextResponse.json({ success: false, error: "Student not found in mock list" }, { status: 404 });
     }
 
-    const client = getSupabaseClient(token);
+    const db = await resolveRequestDb(request);
+    if (!db) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const client = db.client;
+
+    // Drivers may only flip attendance status
+    if (db.mode === "driver") {
+      const allowedKeys = Object.keys(result.data);
+      if (allowedKeys.some((k) => k !== "status")) {
+        return NextResponse.json(
+          { success: false, error: "Drivers may only update student attendance status" },
+          { status: 403 }
+        );
+      }
+    }
 
     // Build update payload dynamically
     const updatePayload: Record<string, any> = {};

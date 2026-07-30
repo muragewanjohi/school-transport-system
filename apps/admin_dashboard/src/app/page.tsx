@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import {
   MapPin,
   Users,
@@ -89,7 +88,7 @@ const STEPS = [
   "Trip Complete",
 ] as const;
 
-const TRUST = ["KCA ACADEMY", "GREENFIELD", "AKILI SCHOOLS", "KIAMBU HIGH", "PREMIER ACADEMY"] as const;
+const TRUST = ["AKILI SCHOOLS", "PREMIER ACADEMY"] as const;
 
 const TESTIMONIALS = [
   {
@@ -97,21 +96,21 @@ const TESTIMONIALS = [
       "OnTheBus has transformed the way we manage our transport. Parents are happier and our operations are more efficient.",
     name: "Mr. David Otieno",
     role: "Transport Manager",
-    avatar: "/stitch/avatar-1.png",
+    avatar: "/stitch/avatar-1.jpg",
   },
   {
     quote:
       "I can see my child's bus in real time and get alerts when they arrive. It gives me so much peace of mind every day.",
     name: "Mrs. Grace Njeri",
     role: "Parent",
-    avatar: "/stitch/avatar-2.png",
+    avatar: "/stitch/avatar-2.jpg",
   },
   {
     quote:
       "The driver app is simple and helps me stay on schedule and communicate with parents easily. It makes my job much smoother.",
     name: "John Kamau",
     role: "School Bus Driver",
-    avatar: "/stitch/avatar-3.png",
+    avatar: "/stitch/avatar-3.jpg",
   },
 ] as const;
 
@@ -233,21 +232,19 @@ export default function LandingPage() {
             <div className="landing-hero-visual">
               <div className="lp-hero-glow" aria-hidden />
               <div className="lp-hero-dashboard">
-                <Image
-                  src="/stitch/hero-dashboard.png"
+                <img
+                  src="/stitch/hero-dashboard.jpg"
                   alt="OnTheBus school admin dashboard with live bus map"
                   width={1000}
                   height={720}
-                  priority
                 />
               </div>
               <div className="lp-hero-phone">
-                <Image
-                  src="/stitch/hero-phone.png"
+                <img
+                  src="/stitch/hero-phone.jpg"
                   alt="OnTheBus parent app showing child bus status"
                   width={480}
                   height={960}
-                  priority
                 />
               </div>
             </div>
@@ -363,8 +360,8 @@ export default function LandingPage() {
             </div>
 
             <div className="lp-stakeholder-visual">
-              <Image
-                src="/stitch/stakeholder.png"
+              <img
+                src="/stitch/stakeholder.jpg"
                 alt="OnTheBus ecosystem across admin, driver, and parent apps"
                 width={900}
                 height={700}
@@ -416,7 +413,7 @@ export default function LandingPage() {
                   <Quote className="lp-quote-mark" size={40} aria-hidden />
                   <p>“{item.quote}”</p>
                   <footer>
-                    <Image src={item.avatar} alt="" width={48} height={48} className="lp-avatar-img" />
+                    <img src={item.avatar} alt="" width={48} height={48} className="lp-avatar-img" />
                     <div>
                       <strong>{item.name}</strong>
                       <span>{item.role}</span>

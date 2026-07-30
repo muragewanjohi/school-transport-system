@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { resolveRequestDb } from "@/lib/driverSession";
+import { extractBearerToken } from "@/lib/authApi";
 
 const mockConfig = {
   school_name: "Safaricom Track School",
@@ -33,23 +35,31 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: mockConfig });
     }
 
-    const client = getSupabaseClient(token);
+    const db = await resolveRequestDb(request);
+    if (!db) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const client = db.client;
 
-    // Fetch tenant from active user's profile
-    let tenantId: string | null = null;
-    const { data: { user } } = await client.auth.getUser();
-    if (user) {
-      const { data: profile } = await client
-        .from("profiles")
-        .select("tenant_id")
-        .eq("id", user.id)
-        .single();
-      tenantId = profile?.tenant_id || null;
+    // Fetch tenant from active user's profile or driver session
+    let tenantId: string | null = db.driver?.tenant_id ?? null;
+    if (!tenantId) {
+      const token = extractBearerToken(request);
+      const userClient = getSupabaseClient(token);
+      const { data: { user } } = await userClient.auth.getUser();
+      if (user) {
+        const { data: profile } = await db.client
+          .from("profiles")
+          .select("tenant_id")
+          .eq("id", user.id)
+          .single();
+        tenantId = profile?.tenant_id || null;
+      }
     }
 
     // Fallback to first tenant if not explicitly authenticated (e.g. sandbox API call)
     if (!tenantId) {
-      const { data: firstTenant } = await client
+      const { data: firstTenant } = await db.client
         .from("tenants")
         .select("id")
         .limit(1)

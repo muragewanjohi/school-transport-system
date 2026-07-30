@@ -18,7 +18,8 @@ import {
   MapPin,
   Shield,
   CreditCard,
-  Clock
+  Clock,
+  Building2
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -74,6 +75,19 @@ function SidebarContent() {
 
       <nav className="sidebar-menu">
         <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "4px" }}>
+          {/* Platform: Schools (platform super_admin only) */}
+          {profile?.role === "super_admin" && (
+            <li>
+              <Link
+                href="/schools"
+                className={`menu-item ${pathname === "/schools" ? "active" : ""}`}
+              >
+                <Building2 size={18} />
+                <span>Schools</span>
+              </Link>
+            </li>
+          )}
+
           {/* Real-time Tracking */}
           <li>
             <Link 
@@ -282,7 +296,7 @@ function SidebarContent() {
                 {profile.name}
               </span>
               <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {profile.admin_role || "Administrator"}
+                {profile.role === "super_admin" ? "Platform Super Admin" : (profile.admin_role || "Administrator")}
               </span>
             </div>
           </div>
