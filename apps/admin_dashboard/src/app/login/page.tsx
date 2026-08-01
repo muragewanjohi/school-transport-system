@@ -23,6 +23,12 @@ export default function LoginPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const parsed = parseHost(window.location.host);
+    const reason = new URLSearchParams(window.location.search).get("reason");
+    if (reason === "use-school-subdomain") {
+      setError(
+        "School dashboards are on your school subdomain (e.g. yourschool.onthebusapp.com). www.onthebusapp.com is for platform operators only."
+      );
+    }
     if (parsed.kind === "tenant" && parsed.slug) {
       setTenantSlug(parsed.slug);
       fetch(`/api/tenants/resolve?slug=${encodeURIComponent(parsed.slug)}`)
@@ -66,8 +72,12 @@ export default function LoginPage() {
         };
         localStorage.setItem("safaricom_admin_mock_session", JSON.stringify(mockProfile));
         
-        // Force page reload to trigger AuthProvider session update
-        window.location.href = isPlatform ? "/schools" : "/dashboard";
+        if (isPlatform) {
+          window.location.href = "/schools";
+        } else {
+          // School sandbox: prefer subdomain when not on localhost
+          window.location.href = "/dashboard";
+        }
         return;
       }
 
@@ -145,7 +155,7 @@ export default function LoginPage() {
           <p style={{ margin: "8px 0 0", color: "var(--text-muted)", fontSize: "0.9rem" }}>
             {tenantSlug
               ? `School portal · ${tenantSlug}.onthebusapp.com`
-              : "Platform · onthebusapp.com"}
+              : "Platform operators only · www.onthebusapp.com — schools use their subdomain"}
           </p>
           <p className="subtitle">Real-time School Fleet & Route Operations</p>
         </div>

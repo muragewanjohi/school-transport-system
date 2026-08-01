@@ -75,19 +75,42 @@ function SidebarContent() {
 
       <nav className="sidebar-menu">
         <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: "4px" }}>
-          {/* Platform: Schools (platform super_admin only) */}
+          {/* Platform console nav (platform super_admin only) */}
           {profile?.role === "super_admin" && (
-            <li>
-              <Link
-                href="/schools"
-                className={`menu-item ${pathname === "/schools" ? "active" : ""}`}
-              >
-                <Building2 size={18} />
-                <span>Schools</span>
-              </Link>
-            </li>
+            <>
+              <li>
+                <Link
+                  href="/schools"
+                  className={`menu-item ${pathname === "/schools" && (!tabParam || tabParam === "schools") ? "active" : ""}`}
+                >
+                  <Building2 size={18} />
+                  <span>Schools</span>
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/schools?tab=billing"
+                  className={`menu-item ${pathname === "/schools" && tabParam === "billing" ? "active" : ""}`}
+                >
+                  <CreditCard size={18} />
+                  <span>Billing</span>
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/schools?tab=settings"
+                  className={`menu-item ${pathname === "/schools" && tabParam === "settings" ? "active" : ""}`}
+                >
+                  <Settings size={18} />
+                  <span>Platform Settings</span>
+                </Link>
+              </li>
+            </>
           )}
 
+          {/* School console nav — not shown for platform operators on apex */}
+          {profile?.role !== "super_admin" && (
+            <>
           {/* Real-time Tracking */}
           <li>
             <Link 
@@ -271,6 +294,8 @@ function SidebarContent() {
               <span>System Config</span>
             </Link>
           </li>
+            </>
+          )}
         </ul>
       </nav>
       <div style={{ padding: "16px", borderTop: "1px solid var(--border-default)", display: "flex", flexDirection: "column", gap: "12px" }}>

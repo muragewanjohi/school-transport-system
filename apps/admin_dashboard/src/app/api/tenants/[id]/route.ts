@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { getCallerProfile, isPlatformSuperAdmin } from "@/lib/authApi";
+import { removeTenantSubdomain } from "@/lib/vercelDomains";
 
 const updateSchoolSchema = z.object({
   name: z.string().min(2).optional(),
@@ -18,6 +19,7 @@ const updateSchoolSchema = z.object({
   campus_latitude: z.number().min(-90).max(90).optional(),
   campus_longitude: z.number().min(-180).max(180).optional(),
   campus_monthly_fee_kes: z.number().int().min(0).optional(),
+  is_paid: z.boolean().optional(),
 });
 
 type RouteContext = { params: Promise<{ id: string }> };
@@ -138,7 +140,18 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (input.name !== undefined) tenantPatch.name = input.name;
     if (input.domain !== undefined) tenantPatch.domain = input.domain;
-    if (input.status !== undefined) tenantPatch.status = input.status;
+    if (input.status !== undefined) {
+      tenantPatch.status = input.status;
+      // Start/stop the suspension retention clock only on actual transitions
+      const { data: current } = await adminClient
+        .from("tenants")
+        .select("status")
+        .eq("id", id)
+        .maybeSingle();
+      if (current && current.status !== input.status) {
+        tenantPatch.suspended_at = input.status === "suspended" ? new Date().toISOString() : null;
+      }
+    }
     if (input.contact_email !== undefined) tenantPatch.contact_email = input.contact_email || null;
     if (input.contact_phone !== undefined) tenantPatch.contact_phone = input.contact_phone;
 
@@ -187,16 +200,19 @@ export async function PATCH(request: Request, context: RouteContext) {
       }
     }
 
-    if (input.campus_monthly_fee_kes !== undefined) {
-      await adminClient.from("billing_status").upsert(
-        {
-          tenant_id: id,
-          campus_monthly_fee_kes: input.campus_monthly_fee_kes,
-          price_desc: `KES ${input.campus_monthly_fee_kes.toLocaleString()} / month per campus + SMS usage`,
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: "tenant_id" }
-      );
+    if (input.campus_monthly_fee_kes !== undefined || input.is_paid !== undefined) {
+      const billingPatch: Record<string, string | number | boolean> = {
+        tenant_id: id,
+        updated_at: new Date().toISOString(),
+      };
+      if (input.campus_monthly_fee_kes !== undefined) {
+        billingPatch.campus_monthly_fee_kes = input.campus_monthly_fee_kes;
+        billingPatch.price_desc = `KES ${input.campus_monthly_fee_kes.toLocaleString()} / month per campus + SMS usage`;
+      }
+      if (input.is_paid !== undefined) {
+        billingPatch.is_paid = input.is_paid;
+      }
+      await adminClient.from("billing_status").upsert(billingPatch, { onConflict: "tenant_id" });
     }
 
     if (input.name !== undefined) {
@@ -256,6 +272,14 @@ export async function DELETE(request: Request, context: RouteContext) {
       return NextResponse.json({ success: false, error: "Service role key missing" }, { status: 500 });
     }
 
+    // Capture the slug before it is renamed so we can release the Vercel domain
+    const { data: existing } = await adminClient
+      .from("tenants")
+      .select("domain")
+      .eq("id", id)
+      .is("deleted_at", null)
+      .maybeSingle();
+
     const now = new Date().toISOString();
     const { data: tenant, error } = await adminClient
       .from("tenants")
@@ -281,7 +305,21 @@ export async function DELETE(request: Request, context: RouteContext) {
       .eq("tenant_id", id)
       .is("deleted_at", null);
 
-    return NextResponse.json({ success: true, source: "supabase", data: { id, deleted: true } });
+    // Best-effort: release the subdomain from the Vercel project
+    let vercelDetail: string | null = null;
+    if (existing?.domain && !existing.domain.startsWith("deleted-")) {
+      const vercel = await removeTenantSubdomain(existing.domain);
+      vercelDetail = vercel.detail;
+      if (!vercel.ok) {
+        console.error(`Vercel domain cleanup for tenant ${id}: ${vercel.detail}`);
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      source: "supabase",
+      data: { id, deleted: true, vercel: vercelDetail },
+    });
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
     return NextResponse.json({ success: false, error: errorMessage }, { status: 500 });

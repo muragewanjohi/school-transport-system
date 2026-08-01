@@ -91,6 +91,7 @@
 - Applied `schools_campuses_billing` migration to the linked Supabase project via MCP; seeded default campus for Safaricom Track School; promoted `muragedev@gmail.com` to platform `super_admin` (`tenant_id` null + auth metadata).
 - Applied security advisor hardening: removed sandbox `Allow public *` RLS policies, locked SECURITY DEFINER search_path/execute grants, tightened avatars storage policies; login/reorder RPCs now service-role only via Next.js API routes. Remaining PostGIS/`spatial_ref_sys` advisories are unactionable false positives.
 - Secured driver ops: signed `drv.*` session tokens from `/api/auth/driver-login`, `/api/driver/telemetry` + auth-gated fleet/students/stops/trips/config APIs via service role; Flutter driver app sends Bearer token (re-login required).
+- Tenant retention lifecycle (2026-08-01): migration `20260801000000_tenant_lifecycle.sql` (`tenants.suspended_at`, `suspended_purge_days` / `deleted_purge_days` settings, applied via MCP); `/api/platform/purge` run daily by Vercel Cron; soft delete now releases the school subdomain from Vercel (`src/lib/vercelDomains.ts`); retention editable in `/schools?tab=settings`.
 
 ## In Progress
 
@@ -118,7 +119,7 @@
 - **PostGIS Trigger Evaluation:** Computing geofences dynamically at the database layer via SQL triggers. When new vehicle coordinates are written, PostGIS calculates boundary intersections directly on the metal, avoiding network overhead, and triggering Supabase Edge Functions for SMS dispatch.
 - **Queue-Based Notification Engine:** Used an `alerts_queue` table combined with Supabase database webhooks to decouple spatial compute from external network API execution.
 - **Platform vs Tenant Admin:** `profiles.role = super_admin` is platform-only with `tenant_id = null`. School operators use `role = school_admin` with a required `tenant_id`; their `admin_role` (including `"Super Admin"`) is tenant-scoped only.
-- **Soft-Delete Tenants:** Schools are suspended/soft-deleted (`deleted_at`), never hard-deleted through the product UI.
+- **Soft-Delete Tenants:** Schools are suspended/soft-deleted (`deleted_at`), never hard-deleted through the product UI. Automated retention purge (Vercel Cron → `/api/platform/purge`) soft-deletes schools suspended beyond `suspended_purge_days` and permanently purges soft-deleted schools beyond `deleted_purge_days` (both platform-configurable; 0 disables).
 - **School Admin Invite:** First school admin is provisioned via email invite; platform operators do not set the invitee password in the onboarding drawer.
 - **Subdomain Tenancy (Vercel):** School consoles live at `{slug}.onthebusapp.com`; `tenants.domain` stores the slug. Apex `onthebusapp.com` is marketing + platform `/schools`. Invites redirect to the school subdomain.- **Campus Permissions (deferred enforce):** Capability via `admin_role`; site scope via `admin_campus_access` (or tenant-wide mode). Billing stays tenant-scoped.
 - **Multi-Campus Billing:** One invoice per tenant. Platform fee = `active_campus_count × campus_monthly_fee_kes` (default KES 10,000). **Platform `super_admin` can edit the per-campus flat fee** per school (and a default for new onboardings); school roles view-only. SMS remains a separate usage line. Unpaid tenant suspends all campuses.

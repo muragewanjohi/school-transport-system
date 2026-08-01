@@ -68,10 +68,46 @@ export function getTenantPublicUrl(slug: string, path = "/"): string {
 
 export function getApexPublicUrl(path = "/"): string {
   const normalized = path.startsWith("/") ? path : `/${path}`;
-  if (process.env.NEXT_PUBLIC_SITE_URL?.includes("localhost")) {
+  const configured = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
+  if (configured) {
+    // Prefer configured site URL (may be https://www.onthebusapp.com or https://onthebusapp.com)
+    try {
+      const u = new URL(configured);
+      if (u.hostname.includes("localhost")) {
+        return `http://localhost:3000${normalized}`;
+      }
+      return `${u.origin}${normalized}`;
+    } catch {
+      /* fall through */
+    }
+  }
+  if (process.env.NODE_ENV !== "production") {
     return `http://localhost:3000${normalized}`;
   }
-  return `https://${ROOT_DOMAIN}${normalized}`;
+  return `https://www.${ROOT_DOMAIN}${normalized}`;
+}
+
+/** Console paths that belong on school subdomains, not the apex platform host */
+export const SCHOOL_CONSOLE_PREFIXES = [
+  "/dashboard",
+  "/fleet",
+  "/students",
+  "/staff",
+  "/routes",
+  "/billing",
+  "/config",
+  "/users",
+] as const;
+
+export function isSchoolConsolePath(pathname: string): boolean {
+  return SCHOOL_CONSOLE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+}
+
+/** Platform-only paths (apex) */
+export function isPlatformConsolePath(pathname: string): boolean {
+  return pathname === "/schools" || pathname.startsWith("/schools/");
 }
 
 export function isValidTenantSlug(slug: string): boolean {

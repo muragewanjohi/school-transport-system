@@ -3,7 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { parseHost, getApexPublicUrl } from "@/lib/tenantHost";
+import { parseHost, getApexPublicUrl, getTenantPublicUrl, isSchoolConsolePath, isPlatformConsolePath } from "@/lib/tenantHost";
 
 interface AuthProfile {
   id: string;
@@ -209,10 +209,36 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
               }
             }
 
-            if (parsed.kind === "apex" && userProfile.role === "school_admin" && userProfile.tenant_id) {
-              // Optionally redirect school admins to their subdomain when known via resolve reverse lookup later.
-              // For now allow apex login only for platform; school admins get a hint error if they use apex for console.
-              // Keep school admins working on apex in local/dev; production middleware + DNS will use subdomains.
+            // Apex / www is platform-only: send school admins to their subdomain console
+            if (
+              (parsed.kind === "apex" || parsed.kind === "local") &&
+              userProfile.role === "school_admin" &&
+              userProfile.tenant_id &&
+              parsed.kind === "apex"
+            ) {
+              try {
+                const res = await fetch(
+                  `/api/tenants/resolve?tenant_id=${encodeURIComponent(userProfile.tenant_id)}`
+                );
+                const json = await res.json();
+                const slug = json.data?.domain as string | undefined;
+                if (json.success && slug) {
+                  window.location.href = getTenantPublicUrl(slug, "/dashboard");
+                  return;
+                }
+                setErrorMsg(
+                  "School accounts must sign in on their subdomain (e.g. yourschool.onthebusapp.com), not www.onthebusapp.com."
+                );
+                setProfile(null);
+                await supabase.auth.signOut();
+                setLoading(false);
+                return;
+              } catch {
+                setErrorMsg("Could not resolve your school subdomain. Contact support.");
+                setProfile(null);
+                setLoading(false);
+                return;
+              }
             }
 
             setProfile(userProfile as AuthProfile);
@@ -237,16 +263,43 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     const publicRoutes = ["/", "/login", "/reset-password"];
     const isPublicPage = publicRoutes.includes(pathname);
     const isLoginPage = pathname === "/login";
+    const host = typeof window !== "undefined" ? window.location.host : "";
+    const parsed = parseHost(host);
 
     if (!user || (isSupabaseConfigured && !profile && errorMsg)) {
-      // If unauthenticated or role-blocked, redirect to /login for non-public pages
       if (!isPublicPage) {
         router.push("/login");
       }
-    } else {
-      // If authenticated, prevent loading /login again
+      return;
+    }
+
+    if (!profile) return;
+
+    // Platform operators: never land on school ops pages (even on apex before middleware)
+    if (profile.role === "super_admin") {
+      if (isLoginPage || isSchoolConsolePath(pathname) || pathname === "/") {
+        if (isLoginPage || isSchoolConsolePath(pathname)) {
+          router.replace("/schools");
+          return;
+        }
+      }
+      if (parsed.kind === "tenant") {
+        window.location.href = getApexPublicUrl("/schools");
+        return;
+      }
+      return;
+    }
+
+    // School admins: apex is not their console
+    if (profile.role === "school_admin") {
+      if (parsed.kind === "apex") {
+        // Profile fetch effect redirects to subdomain; keep login from bouncing to /dashboard
+        if (isLoginPage || isPlatformConsolePath(pathname) || isSchoolConsolePath(pathname)) {
+          return;
+        }
+      }
       if (isLoginPage) {
-        router.push(profile?.role === "super_admin" ? "/schools" : "/dashboard");
+        router.replace("/dashboard");
       }
     }
   }, [user, profile, loading, pathname, errorMsg, router]);

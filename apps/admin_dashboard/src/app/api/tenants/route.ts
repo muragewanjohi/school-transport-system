@@ -42,6 +42,13 @@ type MockSchool = {
   platform_fee_kes: number;
   active_campus_count: number;
   students_count: number;
+  vehicles_count: number;
+  routes_count: number;
+  drivers_count: number;
+  is_paid: boolean;
+  plan_name: string;
+  next_renewal: string | null;
+  sms_used_this_month: number;
   invite_status?: string;
 };
 
@@ -65,6 +72,13 @@ const mockSchools: MockSchool[] = [
     platform_fee_kes: 10000,
     active_campus_count: 1,
     students_count: 0,
+    vehicles_count: 0,
+    routes_count: 0,
+    drivers_count: 0,
+    is_paid: false,
+    plan_name: "Pro",
+    next_renewal: null,
+    sms_used_this_month: 0,
   },
 ];
 
@@ -107,17 +121,39 @@ export async function GET(request: Request) {
 
     const tenantIds = (tenants ?? []).map((t) => t.id);
     const campusesByTenant = new Map<string, { id: string; name: string; latitude: number | null; longitude: number | null }[]>();
-    const feeByTenant = new Map<string, number>();
+    const billingByTenant = new Map<
+      string,
+      {
+        campus_monthly_fee_kes: number;
+        is_paid: boolean;
+        plan_name: string;
+        next_renewal: string | null;
+        sms_used_this_month: number;
+      }
+    >();
     const studentsByTenant = new Map<string, number>();
+    const vehiclesByTenant = new Map<string, number>();
+    const routesByTenant = new Map<string, number>();
+    const driversByTenant = new Map<string, number>();
 
     if (tenantIds.length > 0) {
-      const { data: campuses } = await adminClient
-        .from("campuses")
-        .select("id, tenant_id, name, latitude, longitude")
-        .in("tenant_id", tenantIds)
-        .is("deleted_at", null);
+      const [campusRes, billingRes, studentRes, vehicleRes, routeRes, driverRes] = await Promise.all([
+        adminClient
+          .from("campuses")
+          .select("id, tenant_id, name, latitude, longitude")
+          .in("tenant_id", tenantIds)
+          .is("deleted_at", null),
+        adminClient
+          .from("billing_status")
+          .select("tenant_id, campus_monthly_fee_kes, is_paid, plan_name, next_renewal, sms_used_this_month")
+          .in("tenant_id", tenantIds),
+        adminClient.from("students").select("tenant_id").in("tenant_id", tenantIds),
+        adminClient.from("vehicles").select("tenant_id").in("tenant_id", tenantIds),
+        adminClient.from("routes").select("tenant_id").in("tenant_id", tenantIds),
+        adminClient.from("profiles").select("tenant_id").eq("role", "driver").in("tenant_id", tenantIds),
+      ]);
 
-      for (const campus of campuses ?? []) {
+      for (const campus of campusRes.data ?? []) {
         const list = campusesByTenant.get(campus.tenant_id) ?? [];
         list.push({
           id: campus.id,
@@ -128,28 +164,31 @@ export async function GET(request: Request) {
         campusesByTenant.set(campus.tenant_id, list);
       }
 
-      const { data: billingRows } = await adminClient
-        .from("billing_status")
-        .select("tenant_id, campus_monthly_fee_kes")
-        .in("tenant_id", tenantIds);
-
-      for (const row of billingRows ?? []) {
-        feeByTenant.set(row.tenant_id, row.campus_monthly_fee_kes ?? 10000);
+      for (const row of billingRes.data ?? []) {
+        billingByTenant.set(row.tenant_id, {
+          campus_monthly_fee_kes: row.campus_monthly_fee_kes ?? 10000,
+          is_paid: row.is_paid ?? false,
+          plan_name: row.plan_name ?? "Pro",
+          next_renewal: row.next_renewal ?? null,
+          sms_used_this_month: row.sms_used_this_month ?? 0,
+        });
       }
 
-      const { data: studentRows } = await adminClient
-        .from("students")
-        .select("tenant_id")
-        .in("tenant_id", tenantIds);
-
-      for (const row of studentRows ?? []) {
-        studentsByTenant.set(row.tenant_id, (studentsByTenant.get(row.tenant_id) ?? 0) + 1);
-      }
+      const tally = (rows: { tenant_id: string }[] | null, map: Map<string, number>) => {
+        for (const row of rows ?? []) {
+          map.set(row.tenant_id, (map.get(row.tenant_id) ?? 0) + 1);
+        }
+      };
+      tally(studentRes.data, studentsByTenant);
+      tally(vehicleRes.data, vehiclesByTenant);
+      tally(routeRes.data, routesByTenant);
+      tally(driverRes.data, driversByTenant);
     }
 
     const data = (tenants ?? []).map((tenant) => {
       const campuses = campusesByTenant.get(tenant.id) ?? [];
-      const fee = feeByTenant.get(tenant.id) ?? 10000;
+      const billing = billingByTenant.get(tenant.id);
+      const fee = billing?.campus_monthly_fee_kes ?? 10000;
       const activeCampusCount = campuses.length;
       const primary = campuses[0] ?? null;
 
@@ -167,6 +206,13 @@ export async function GET(request: Request) {
         active_campus_count: activeCampusCount,
         platform_fee_kes: activeCampusCount * fee,
         students_count: studentsByTenant.get(tenant.id) ?? 0,
+        vehicles_count: vehiclesByTenant.get(tenant.id) ?? 0,
+        routes_count: routesByTenant.get(tenant.id) ?? 0,
+        drivers_count: driversByTenant.get(tenant.id) ?? 0,
+        is_paid: billing?.is_paid ?? false,
+        plan_name: billing?.plan_name ?? "Pro",
+        next_renewal: billing?.next_renewal ?? null,
+        sms_used_this_month: billing?.sms_used_this_month ?? 0,
       };
     });
 
@@ -211,6 +257,13 @@ export async function POST(request: Request) {
         platform_fee_kes: input.campus_monthly_fee_kes ?? 10000,
         active_campus_count: 1,
         students_count: 0,
+        vehicles_count: 0,
+        routes_count: 0,
+        drivers_count: 0,
+        is_paid: false,
+        plan_name: "Pro",
+        next_renewal: null,
+        sms_used_this_month: 0,
         invite_status: "mock_invite_queued",
       };
       mockSchools.unshift(mock);
