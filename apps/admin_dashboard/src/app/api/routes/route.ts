@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import {
+  demoReadonlyForbiddenResponse,
+  getCallerProfile,
+  isDemoReadonly,
+} from "@/lib/authApi";
 
 const schoolLocationSchema = z.object({
   name: z.string().min(2),
@@ -116,6 +121,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const caller = await getCallerProfile(request);
+    if (isDemoReadonly(caller)) {
+      return demoReadonlyForbiddenResponse();
+    }
+
     const body: unknown = await request.json();
     const result = routeCreateSchema.safeParse(body);
 

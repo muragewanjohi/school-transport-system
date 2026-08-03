@@ -3,6 +3,11 @@ import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { resolveRequestDb } from "@/lib/driverSession";
 import { z } from "zod";
 import { getLocalVehicles, saveLocalVehicles } from "@/lib/jsonDb";
+import {
+  demoReadonlyForbiddenResponse,
+  getCallerProfile,
+  isDemoReadonly,
+} from "@/lib/authApi";
 
 const vehicleSchema = z.object({
   license_plate: z.string().min(3, "License plate must be at least 3 characters"),
@@ -180,6 +185,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const caller = await getCallerProfile(request);
+    if (isDemoReadonly(caller)) {
+      return demoReadonlyForbiddenResponse();
+    }
+
     const body: unknown = await request.json();
     const result = vehicleSchema.safeParse(body);
 

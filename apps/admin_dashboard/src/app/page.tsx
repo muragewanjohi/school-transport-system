@@ -171,8 +171,7 @@ export default function LandingPage() {
           </ul>
 
           <div className="landing-nav-actions">
-            <Link href="/login" className="lp-link-login">Login</Link>
-            <a href="#contact" className="lp-btn lp-btn-primary lp-btn-pill">Request Demo</a>
+            <Link href="/request-demo" className="lp-btn lp-btn-primary lp-btn-pill">Request Demo</Link>
             <button
               type="button"
               className="landing-nav-toggle"
@@ -189,8 +188,7 @@ export default function LandingPage() {
           <a href="#features" onClick={closeMenu}>Features</a>
           <a href="#solutions" onClick={closeMenu}>Solutions</a>
           <a href="#how-it-works" onClick={closeMenu}>How It Works</a>
-          <a href="#contact" onClick={closeMenu}>Pricing</a>
-          <Link href="/login" onClick={closeMenu}>Login</Link>
+          <Link href="/request-demo" onClick={closeMenu}>Request Demo</Link>
         </div>
       </nav>
 
@@ -214,9 +212,9 @@ export default function LandingPage() {
               </p>
 
               <div className="hero-actions">
-                <a href="#contact" className="lp-btn lp-btn-primary lp-btn-lg">
+                <Link href="/request-demo" className="lp-btn lp-btn-primary lp-btn-lg">
                   Request Demo <ArrowRight size={18} />
-                </a>
+                </Link>
                 <a href="#how-it-works" className="lp-btn lp-btn-outline-green lp-btn-lg">
                   <Play size={18} /> Watch Overview
                 </a>
@@ -434,12 +432,12 @@ export default function LandingPage() {
                 efficient school transport.
               </p>
               <div className="lp-cta-actions">
-                <a
-                  href="mailto:hello@onthebus.app?subject=OnTheBus%20Demo%20Request"
+                <Link
+                  href="/request-demo"
                   className="lp-btn lp-btn-white lp-btn-lg"
                 >
                   Request Demo
-                </a>
+                </Link>
                 <a
                   href="mailto:sales@onthebus.app?subject=OnTheBus%20Sales"
                   className="lp-btn lp-btn-outline-white lp-btn-lg"

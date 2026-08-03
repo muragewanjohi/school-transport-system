@@ -19,7 +19,8 @@ import {
   Shield,
   CreditCard,
   Clock,
-  Building2
+  Building2,
+  BellRing
 } from "lucide-react";
 
 export default function Sidebar() {
@@ -50,6 +51,7 @@ function SidebarContent() {
 
   const [staffExpanded, setStaffExpanded] = useState(false);
   const [routesExpanded, setRoutesExpanded] = useState(false);
+  const [pendingDemoRequests, setPendingDemoRequests] = useState(0);
 
   // Automatically expand sections based on active pathname
   useEffect(() => {
@@ -60,6 +62,30 @@ function SidebarContent() {
       setRoutesExpanded(true);
     }
   }, [pathname]);
+
+  useEffect(() => {
+    if (profile?.role !== "super_admin") return;
+
+    let cancelled = false;
+    const loadPendingDemoRequests = async () => {
+      try {
+        const response = await fetch("/api/demo-requests?summary=1");
+        const json = await response.json();
+        if (!cancelled && json.success) {
+          setPendingDemoRequests(Number(json.data?.pending_count) || 0);
+        }
+      } catch {
+        // Keep navigation usable when notification loading fails.
+      }
+    };
+
+    void loadPendingDemoRequests();
+    const interval = window.setInterval(loadPendingDemoRequests, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [profile?.role]);
 
   return (
     <aside className="sidebar">
@@ -85,6 +111,36 @@ function SidebarContent() {
                 >
                   <Building2 size={18} />
                   <span>Schools</span>
+                </Link>
+              </li>
+              <li>
+                <Link
+                  href="/schools?tab=demos"
+                  className={`menu-item ${pathname === "/schools" && tabParam === "demos" ? "active" : ""}`}
+                >
+                  <BellRing size={18} />
+                  <span>Demo Requests</span>
+                  {pendingDemoRequests > 0 && (
+                    <span
+                      aria-label={`${pendingDemoRequests} pending demo requests`}
+                      style={{
+                        marginLeft: "auto",
+                        minWidth: 20,
+                        height: 20,
+                        padding: "0 6px",
+                        borderRadius: 999,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        background: "var(--state-error)",
+                        color: "white",
+                        fontSize: "0.72rem",
+                        fontWeight: 700,
+                      }}
+                    >
+                      {pendingDemoRequests > 99 ? "99+" : pendingDemoRequests}
+                    </span>
+                  )}
                 </Link>
               </li>
               <li>

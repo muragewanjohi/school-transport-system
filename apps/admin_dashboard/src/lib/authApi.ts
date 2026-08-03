@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 
 export interface ApiCallerProfile {
@@ -44,4 +45,19 @@ export async function getCallerProfile(request: Request): Promise<ApiCallerProfi
 
 export function isPlatformSuperAdmin(profile: ApiCallerProfile | null): boolean {
   return profile?.role === "super_admin";
+}
+
+/** Read-only Demo Viewer sessions must not mutate school data */
+export function isDemoReadonly(profile: ApiCallerProfile | null): boolean {
+  return profile?.admin_role === "Demo Viewer";
+}
+
+export function demoReadonlyForbiddenResponse(): NextResponse {
+  return NextResponse.json(
+    {
+      success: false,
+      error: "Demo Viewer access is read-only. Request a full demo to make changes.",
+    },
+    { status: 403 }
+  );
 }

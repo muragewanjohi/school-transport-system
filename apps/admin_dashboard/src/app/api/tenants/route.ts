@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
-import { getTenantPublicUrl } from "@/lib/tenantHost";
+import { getTenantInviteRedirectUrl, isValidTenantSlug } from "@/lib/tenantHost";
 import { extractBearerToken, getCallerProfile, isPlatformSuperAdmin } from "@/lib/authApi";
 
 const createSchoolSchema = z.object({
@@ -111,8 +111,9 @@ export async function GET(request: Request) {
 
     const { data: tenants, error } = await adminClient
       .from("tenants")
-      .select("id, name, domain, status, deleted_at, contact_email, contact_phone, created_at")
+      .select("id, name, domain, status, deleted_at, contact_email, contact_phone, created_at, is_demo")
       .is("deleted_at", null)
+      .eq("is_demo", false)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -237,6 +238,13 @@ export async function POST(request: Request) {
 
     const input = parsed.data;
 
+    if (!isValidTenantSlug(input.domain)) {
+      return NextResponse.json(
+        { success: false, error: "This subdomain is reserved or invalid" },
+        { status: 400 }
+      );
+    }
+
     if (!isSupabaseConfigured) {
       const mock: MockSchool = {
         id: crypto.randomUUID(),
@@ -358,11 +366,11 @@ export async function POST(request: Request) {
       { onConflict: "tenant_id" }
     );
 
-    const siteUrl = getTenantPublicUrl(input.domain, "/reset-password");
+    const inviteRedirectTo = getTenantInviteRedirectUrl(input.domain, "/reset-password");
     const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
       input.admin_email,
       {
-        redirectTo: siteUrl,
+        redirectTo: inviteRedirectTo,
         data: {
           name: input.admin_name,
           phone: input.admin_phone || null,

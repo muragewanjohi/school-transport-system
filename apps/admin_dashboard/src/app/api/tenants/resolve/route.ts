@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
-import { isValidTenantSlug } from "@/lib/tenantHost";
+import { isTenantSlugSyntaxValid } from "@/lib/tenantHost";
 
 /**
  * Public resolve: map subdomain slug → school display info (no secrets),
@@ -17,7 +17,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: "slug or tenant_id required" }, { status: 400 });
     }
 
-    if (slug && !isValidTenantSlug(slug)) {
+    if (slug && !isTenantSlugSyntaxValid(slug)) {
       return NextResponse.json({ success: false, error: "Invalid school subdomain" }, { status: 400 });
     }
 

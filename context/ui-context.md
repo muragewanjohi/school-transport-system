@@ -22,7 +22,13 @@ Scoped CSS variables on `.landing-page` (Stitch Green Edition; do not reuse as g
 | Bright accent | `--lp-primary-bright` | `#5ADF82` |
 | Border | `--lp-outline` | `#BCCABB` |
 
-Primary CTAs: **Request Demo**. Secondary: **Login** → `/login`. Hero/media assets live in `apps/admin_dashboard/public/stitch/`. Authenticated console remains `/dashboard`.
+Primary CTAs: **Request Demo** → `/request-demo` (lead form; not mailto). Landing nav has no Login link (operators reach `/login` directly). Hero/media assets live in `apps/admin_dashboard/public/stitch/`. Authenticated console remains `/dashboard`.
+
+### Request Demo page (`/request-demo`)
+Public apex-only marketing page using `.landing-page` tokens. Captures school leads (name, role, school, searchable country combobox with filter-at-top, city/area, WhatsApp/phone with country dial code, required work email, fleet size, preferred time). On success, the requester immediately gets a Resend confirmation email (“We've received your demo request”), sales is notified, and the visitor is told to wait for an emailed demo school URL and login details after approval. Contact Sales remains a secondary mailto/WhatsApp path.
+
+### Demo request management (`/schools?tab=demos`)
+Platform-only tab using the existing dark console patterns. Shows pending request count, contact and school details, provisioned demo URL, expiry (default 14 days, editable), requested time/fleet size, submission time, and status actions (Confirm provisions the store; Complete purges it). **Edit** opens the full-page detail at `/schools/demos/[id]` (editable while pending). After Confirm & provision, that page shows school URL, admin email/password, Flutter phone + OTP (also kept in sessionStorage for the browser tab). The platform sidebar displays a badge while pending requests need review.
 
 ## Colors
 

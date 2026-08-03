@@ -40,11 +40,14 @@ Update the relevant context file whenever implementation changes:
 - System architecture or boundaries in [architecture.md](file:///c:/Dev/School-Transpot/context/architecture.md).
 - Storage schema changes or model updates in [architecture.md](file:///c:/Dev/School-Transpot/context/architecture.md).
 - Code standards or API conventions in [code-standards.md](file:///c:/Dev/School-Transpot/context/code-standards.md).
+- Active module BDD scenarios in [bdd.md](file:///c:/Dev/School-Transpot/context/bdd.md) (**overwrite** when starting a new module).
 - Progress milestones in [progress-tracker.md](file:///c:/Dev/School-Transpot/context/progress-tracker.md).
 
 ## Before Moving to the Next Unit
 
 1. The current unit passes linting and compilation checks without warnings.
-2. The code is verified end-to-end via automated or manual testing.
+2. **Testing gate (required):** Follow **Definition of Done (testing gate)** in [progress-tracker.md](file:///c:/Dev/School-Transpot/context/progress-tracker.md) — overwrite [bdd.md](file:///c:/Dev/School-Transpot/context/bdd.md) with Given/When/Then for the **current** module only (do not append prior modules), automate tests for the changed stack, and ensure they pass. Do **not** mark the unit Completed for compile/build success alone.
+   - **Node / Next.js / Deno:** Apply [Node.js Testing Best Practices](https://github.com/goldbergyoni/nodejs-testing-best-practices) (behavior-focused names, AAA/GWT, mock external I/O, error paths, no flaky sleeps).
+   - **Flutter:** Unit + widget tests (and integration_test for E2E claims); fake platform channels; mock network.
 3. No invariants defined in [architecture.md](file:///c:/Dev/School-Transpot/context/architecture.md) have been violated (e.g., no mixed-tenant ingestion, no PII leakage).
-4. [progress-tracker.md](file:///c:/Dev/School-Transpot/context/progress-tracker.md) is updated to reflect the completed state.
+4. [progress-tracker.md](file:///c:/Dev/School-Transpot/context/progress-tracker.md) is updated to reflect the completed state, including [bdd.md](file:///c:/Dev/School-Transpot/context/bdd.md) scenario titles and test file paths.

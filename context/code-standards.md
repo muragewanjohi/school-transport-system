@@ -47,6 +47,27 @@
 - **Tokens Only:** All colors, spacing, borders, and transitions must reference variables defined in the CSS custom properties context (web) or the unified ThemeData class (Flutter). Hardcoded hex colors and layout margins are prohibited.
 - **Responsive Layout Scales:** Use flexbox, grid layouts, and media queries (web) or LayoutBuilder/MediaQuery (Flutter) to scale layout dimensions dynamically.
 
+## Testing & BDD
+
+Modules must satisfy the **Definition of Done (testing gate)** in [progress-tracker.md](progress-tracker.md) before being marked complete.
+
+### BDD
+
+- Express behavior as Given / When / Then in [bdd.md](bdd.md) for the **current** module only.
+- **Overwrite** [bdd.md](bdd.md) when starting a new module/feature (do not append history there).
+- Automate scenarios with stack-appropriate tests; keep scenario titles aligned with `describe`/`it` or `testWidgets` names.
+
+### Node.js / Next.js / Deno
+
+- Follow [Node.js Testing Best Practices](https://github.com/goldbergyoni/nodejs-testing-best-practices): three-part test names, AAA/GWT structure, test public behavior, isolate global state, mock third-party I/O (Resend, SMS, Maps, Vercel), cover auth/validation errors, keep suites deterministic and fast.
+- Prefer black-box tests of Route Handlers and Edge Function entrypoints over private implementation details.
+- Use synthetic PII only in fixtures.
+
+### Flutter
+
+- Unit-test pure Dart and state notifiers; widget-test UI with `testWidgets` and overridden providers; use `integration_test` only when claiming end-to-end Done.
+- Fake NFC/location channels; mock Supabase/HTTP. `flutter analyze` and `flutter test` must pass for the touched package.
+
 ## File Organization
 
 - `apps/driver_app/` — Flutter mobile application for bus drivers (tracking & NFC boarding).

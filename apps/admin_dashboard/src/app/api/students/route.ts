@@ -3,6 +3,11 @@ import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { resolveRequestDb } from "@/lib/driverSession";
 import { z } from "zod";
 import { getLocalStudents, saveLocalStudents } from "@/lib/jsonDb";
+import {
+  demoReadonlyForbiddenResponse,
+  getCallerProfile,
+  isDemoReadonly,
+} from "@/lib/authApi";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -158,6 +163,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const caller = await getCallerProfile(request);
+    if (isDemoReadonly(caller)) {
+      return demoReadonlyForbiddenResponse();
+    }
+
     const body: unknown = await request.json();
     const result = studentCreateSchema.safeParse(body);
 

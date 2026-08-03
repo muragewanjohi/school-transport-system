@@ -21,6 +21,7 @@ interface AuthContextType {
   loading: boolean;
   signOut: () => Promise<void>;
   isSandbox: boolean;
+  isDemoReadonly: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -29,6 +30,7 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   signOut: async () => {},
   isSandbox: false,
+  isDemoReadonly: false,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -41,6 +43,10 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const tokenRef = useRef<string | null>(null);
+  const demoReadonlyRef = useRef(false);
+
+  const isDemoReadonly = profile?.admin_role === "Demo Viewer";
+  demoReadonlyRef.current = isDemoReadonly;
 
   // Patch window.fetch to automatically append JWT access tokens
   useEffect(() => {
@@ -52,9 +58,32 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
         // Only intercept local API route handler calls
         if (url.startsWith("/api/") && isSupabaseConfigured) {
           try {
+            const method = (init?.method || "GET").toUpperCase();
+            const pathOnly = url.split("?")[0];
+            // Public lead capture must work even if a Demo Viewer session is still active
+            const isPublicDemoLeadPost =
+              method === "POST" && pathOnly === "/api/demo-requests";
+
+            if (
+              demoReadonlyRef.current &&
+              method !== "GET" &&
+              method !== "HEAD" &&
+              method !== "OPTIONS" &&
+              !isPublicDemoLeadPost
+            ) {
+              return new Response(
+                JSON.stringify({
+                  success: false,
+                  error: "Demo Viewer access is read-only. Request a full demo to make changes.",
+                }),
+                { status: 403, headers: { "Content-Type": "application/json" } }
+              );
+            }
+
             const token = tokenRef.current;
             
-            if (token) {
+            // Do not attach Demo Viewer JWT to the public request-demo form POST
+            if (token && !isPublicDemoLeadPost) {
               init = init || {};
               const headers = new Headers(init.headers);
               if (!headers.has("Authorization")) {
@@ -209,12 +238,20 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
               }
             }
 
-            // Apex / www is platform-only: send school admins to their subdomain console
+            // Apex / www is platform-only for console routes: send school admins to their subdomain.
+            // Allow marketing pages (/ , /request-demo, /demo/*) without redirect or error.
+            const onMarketingPublic =
+              typeof window !== "undefined" &&
+              (window.location.pathname === "/" ||
+                window.location.pathname.startsWith("/request-demo") ||
+                window.location.pathname.startsWith("/demo/"));
+
             if (
               (parsed.kind === "apex" || parsed.kind === "local") &&
               userProfile.role === "school_admin" &&
               userProfile.tenant_id &&
-              parsed.kind === "apex"
+              parsed.kind === "apex" &&
+              !onMarketingPublic
             ) {
               try {
                 const res = await fetch(
@@ -260,8 +297,11 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loading) return;
 
-    const publicRoutes = ["/", "/login", "/reset-password"];
-    const isPublicPage = publicRoutes.includes(pathname);
+    const publicRoutes = ["/", "/login", "/reset-password", "/request-demo", "/demo/explore"];
+    const isPublicPage =
+      publicRoutes.includes(pathname) ||
+      pathname.startsWith("/request-demo") ||
+      pathname.startsWith("/demo/");
     const isLoginPage = pathname === "/login";
     const host = typeof window !== "undefined" ? window.location.host : "";
     const parsed = parseHost(host);
@@ -318,7 +358,13 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Render a full-screen glassmorphic loading spinner while verifying session
-  if (loading) {
+  const marketingPublic =
+    pathname === "/" ||
+    pathname.startsWith("/request-demo") ||
+    pathname.startsWith("/demo/");
+
+  // Marketing pages must SSR and hydrate identically — never swap in the auth shell.
+  if (loading && !marketingPublic) {
     return (
       <div style={{
         display: "flex",
@@ -365,8 +411,8 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
     );
   }
 
-  // If there's a critical access-denied error, render a clean error page (unless they're on /login)
-  if (errorMsg && pathname !== "/login") {
+  // If there's a critical access-denied error, render a clean error page (unless public/marketing)
+  if (errorMsg && pathname !== "/login" && !marketingPublic) {
     return (
       <div style={{
         display: "flex",
@@ -424,7 +470,38 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, signOut: handleSignOut, isSandbox: !isSupabaseConfigured }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        loading,
+        signOut: handleSignOut,
+        isSandbox: !isSupabaseConfigured,
+        isDemoReadonly,
+      }}
+    >
+      {isDemoReadonly && isSchoolConsolePath(pathname) ? (
+        <div
+          role="status"
+          style={{
+            position: "sticky",
+            top: 0,
+            zIndex: 2000,
+            background: "#0b3d24",
+            color: "#e8fff1",
+            textAlign: "center",
+            padding: "10px 16px",
+            fontSize: "0.9rem",
+            fontFamily: "var(--font-sans), sans-serif",
+            borderBottom: "1px solid rgba(90, 223, 130, 0.35)",
+          }}
+        >
+          Demo School — read-only explore mode. Changes are disabled.{" "}
+          <a href="/request-demo" style={{ color: "#5adf82", fontWeight: 600 }}>
+            Book a full walkthrough
+          </a>
+        </div>
+      ) : null}
       {children}
     </AuthContext.Provider>
   );

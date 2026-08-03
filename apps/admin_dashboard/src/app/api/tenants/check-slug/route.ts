@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { getCallerProfile, isPlatformSuperAdmin } from "@/lib/authApi";
-import { isValidTenantSlug, RESERVED_SUBDOMAINS } from "@/lib/tenantHost";
+import { isValidTenantSlug, isOnboardingBlockedSlug } from "@/lib/tenantHost";
 
 /**
  * Platform-only: check whether a subdomain slug is free for onboarding.
@@ -19,7 +19,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: "slug required" }, { status: 400 });
     }
 
-    if (RESERVED_SUBDOMAINS.has(slug)) {
+    if (isOnboardingBlockedSlug(slug)) {
       return NextResponse.json({
         success: true,
         data: { slug, valid: false, available: false, reason: "reserved" },

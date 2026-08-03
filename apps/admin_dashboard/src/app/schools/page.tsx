@@ -18,6 +18,9 @@ import {
   Settings,
   School,
   MessageSquareText,
+  BellRing,
+  Mail,
+  Phone,
   CircleCheck,
   CircleAlert,
   ExternalLink,
@@ -27,6 +30,11 @@ import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import {
+  clearDemoProvisionCredentials,
+  saveDemoProvisionCredentials,
+} from "@/lib/demoRequestCredentials";
 
 interface SchoolRow {
   id: string;
@@ -55,7 +63,30 @@ interface SchoolRow {
   sms_used_this_month: number;
 }
 
-type TabId = "schools" | "billing" | "settings";
+type DemoRequestStatus = "pending" | "confirmed" | "completed" | "declined";
+
+interface DemoRequestRow {
+  id: string;
+  full_name: string;
+  role: string;
+  school_name: string;
+  country: string;
+  city: string;
+  phone: string;
+  email: string | null;
+  fleet_size: string;
+  preferred_time: string;
+  notes: string | null;
+  status: DemoRequestStatus;
+  reviewed_at: string | null;
+  created_at: string;
+  provisioned_tenant_id?: string | null;
+  demo_slug?: string | null;
+  demo_expires_at?: string | null;
+  demo_school_url?: string | null;
+}
+
+type TabId = "schools" | "demos" | "billing" | "settings";
 
 interface Toast {
   id: number;
@@ -70,6 +101,16 @@ function formatKes(amount: number): string {
 function formatDate(iso: string | null): string {
   if (!iso) return "—";
   return new Date(iso).toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-KE", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 export default function SchoolsPage() {
@@ -94,8 +135,14 @@ function PlatformConsole() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
-  const activeTab: TabId = tabParam === "billing" || tabParam === "settings" ? tabParam : "schools";
+  const activeTab: TabId =
+    tabParam === "demos" || tabParam === "billing" || tabParam === "settings"
+      ? tabParam
+      : "schools";
   const [schools, setSchools] = useState<SchoolRow[]>([]);
+  const [demoRequests, setDemoRequests] = useState<DemoRequestRow[]>([]);
+  const [demoRequestsLoading, setDemoRequestsLoading] = useState(true);
+  const [updatingDemoRequestId, setUpdatingDemoRequestId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -160,13 +207,106 @@ function PlatformConsole() {
     }
   };
 
+  const fetchDemoRequests = async () => {
+    setDemoRequestsLoading(true);
+    try {
+      const res = await fetch("/api/demo-requests");
+      const json = await res.json();
+      if (json.success) {
+        setDemoRequests(json.data as DemoRequestRow[]);
+      } else {
+        pushToast("error", json.error || "Failed to load demo requests");
+      }
+    } catch {
+      pushToast("error", "Network error while loading demo requests");
+    } finally {
+      setDemoRequestsLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isPlatformAdmin) {
       void fetchSchools();
       void fetchSettings();
+      void fetchDemoRequests();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlatformAdmin]);
+
+  const handleDemoRequestStatus = async (
+    requestId: string,
+    status: DemoRequestStatus
+  ) => {
+    setUpdatingDemoRequestId(requestId);
+    try {
+      const res = await fetch("/api/demo-requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: requestId, status }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        pushToast("error", json.error || "Failed to update demo request");
+        return;
+      }
+      setDemoRequests((prev) =>
+        prev.map((item) => (item.id === requestId ? { ...item, ...(json.data as DemoRequestRow) } : item))
+      );
+      if (status === "confirmed") {
+        if (json.credentials) {
+          saveDemoProvisionCredentials(requestId, json.credentials);
+        }
+        const emailSent = Boolean(json.provision_email_sent);
+        pushToast(
+          "success",
+          emailSent
+            ? "Confirmed — opening provisioned credentials…"
+            : "Confirmed — opening credentials (email not sent; check RESEND_API_KEY)."
+        );
+        router.push(`/schools/demos/${requestId}`);
+        return;
+      } else if (status === "completed") {
+        clearDemoProvisionCredentials(requestId);
+        const emailSent = Boolean(json.completion_email_sent);
+        pushToast(
+          "success",
+          emailSent
+            ? "Completed — demo store removed and thank-you emailed."
+            : "Completed — demo store removed (thank-you email not sent)."
+        );
+        await fetchDemoRequests();
+      } else {
+        pushToast("success", `Demo request marked ${status}.`);
+        await fetchDemoRequests();
+      }
+    } catch {
+      pushToast("error", "Network error while updating demo request");
+    } finally {
+      setUpdatingDemoRequestId(null);
+    }
+  };
+
+  const handleDemoExpiryChange = async (requestId: string, demoExpiresAt: string) => {
+    setUpdatingDemoRequestId(requestId);
+    try {
+      const res = await fetch("/api/demo-requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: requestId, demo_expires_at: new Date(demoExpiresAt).toISOString() }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        pushToast("error", json.error || "Failed to update demo expiry");
+        return;
+      }
+      pushToast("success", "Demo expiry updated.");
+      await fetchDemoRequests();
+    } catch {
+      pushToast("error", "Network error while updating demo expiry");
+    } finally {
+      setUpdatingDemoRequestId(null);
+    }
+  };
 
   const stats = useMemo(() => {
     const active = schools.filter((s) => s.status === "active");
@@ -185,6 +325,8 @@ function PlatformConsole() {
       smsUsed: schools.reduce((sum, s) => sum + (s.sms_used_this_month || 0), 0),
     };
   }, [schools]);
+
+  const pendingDemoRequests = demoRequests.filter((request) => request.status === "pending").length;
 
   const filtered = schools.filter((school) => {
     const q = search.toLowerCase();
@@ -295,6 +437,7 @@ function PlatformConsole() {
 
   const tabs: { id: TabId; label: string; icon: React.ElementType }[] = [
     { id: "schools", label: "Schools", icon: Building2 },
+    { id: "demos", label: "Demo Requests", icon: BellRing },
     { id: "billing", label: "Billing", icon: CreditCard },
     { id: "settings", label: "Platform Settings", icon: Settings },
   ];
@@ -349,6 +492,9 @@ function PlatformConsole() {
                 {tab.label}
                 {tab.id === "billing" && stats.unpaidCount > 0 && (
                   <span className="tab-badge">{stats.unpaidCount}</span>
+                )}
+                {tab.id === "demos" && pendingDemoRequests > 0 && (
+                  <span className="tab-badge">{pendingDemoRequests}</span>
                 )}
               </button>
             ))}
@@ -455,6 +601,189 @@ function PlatformConsole() {
                               <button className="icon-btn danger" title="Soft delete" onClick={() => handleSoftDelete(school)}>
                                 <Trash2 size={15} />
                               </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* --------------------------- Demo requests tab --------------------------- */}
+          {activeTab === "demos" && (
+            <>
+              <div className="toolbar">
+                <div>
+                  <div className="cell-primary">Demo request inbox</div>
+                  <div className="cell-muted">
+                    {pendingDemoRequests} request{pendingDemoRequests === 1 ? "" : "s"} waiting for review
+                  </div>
+                </div>
+                <button className="btn-ghost accent" onClick={() => void fetchDemoRequests()}>
+                  Refresh
+                </button>
+              </div>
+
+              <div className="data-table-wrap">
+                {demoRequestsLoading ? (
+                  <div className="table-empty">
+                    <p>Loading demo requests...</p>
+                  </div>
+                ) : demoRequests.length === 0 ? (
+                  <div className="table-empty">
+                    <BellRing size={28} style={{ marginBottom: 12, opacity: 0.6 }} />
+                    <p>No demo requests yet.</p>
+                  </div>
+                ) : (
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Contact</th>
+                        <th>School</th>
+                        <th>Request</th>
+                        <th>Demo store</th>
+                        <th>Submitted</th>
+                        <th>Status</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {demoRequests.map((request) => (
+                        <tr key={request.id}>
+                          <td>
+                            <div className="school-name">{request.full_name}</div>
+                            <div className="cell-muted">{request.role}</div>
+                            <a className="demo-contact-link" href={`tel:${request.phone}`}>
+                              <Phone size={11} /> {request.phone}
+                            </a>
+                            {request.email && (
+                              <a className="demo-contact-link" href={`mailto:${request.email}`}>
+                                <Mail size={11} /> {request.email}
+                              </a>
+                            )}
+                          </td>
+                          <td>
+                            <div className="cell-primary">{request.school_name}</div>
+                            <div className="cell-muted">
+                              {request.city}, {request.country}
+                            </div>
+                            {request.notes && (
+                              <div className="demo-notes" title={request.notes}>
+                                {request.notes}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <div className="fleet-chips">
+                              <span className="chip">
+                                <Bus size={12} /> {request.fleet_size} buses
+                              </span>
+                            </div>
+                            <div className="cell-muted" style={{ marginTop: 6 }}>
+                              Preferred: {request.preferred_time}
+                            </div>
+                          </td>
+                          <td>
+                            {request.demo_school_url || request.demo_slug ? (
+                              <>
+                                <a
+                                  className="demo-contact-link"
+                                  href={request.demo_school_url || undefined}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                >
+                                  {request.demo_slug}.onthebusapp.com
+                                </a>
+                                <div className="cell-muted" style={{ marginTop: 6 }}>
+                                  Expires
+                                </div>
+                                <input
+                                  type="datetime-local"
+                                  className="input"
+                                  style={{ marginTop: 4, maxWidth: 200 }}
+                                  disabled={updatingDemoRequestId === request.id}
+                                  defaultValue={
+                                    request.demo_expires_at
+                                      ? new Date(request.demo_expires_at).toISOString().slice(0, 16)
+                                      : ""
+                                  }
+                                  key={`${request.id}-${request.demo_expires_at || "none"}`}
+                                  onBlur={(e) => {
+                                    if (!e.target.value || !request.demo_expires_at) return;
+                                    const nextIso = new Date(e.target.value).toISOString();
+                                    if (nextIso === new Date(request.demo_expires_at).toISOString()) return;
+                                    void handleDemoExpiryChange(request.id, e.target.value);
+                                  }}
+                                />
+                              </>
+                            ) : (
+                              <div className="cell-muted">
+                                {request.status === "pending"
+                                  ? "Provisioned on confirm (14 days)"
+                                  : "—"}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <div className="cell-primary">{formatDateTime(request.created_at)}</div>
+                            {request.reviewed_at && (
+                              <div className="cell-muted">
+                                Reviewed {formatDateTime(request.reviewed_at)}
+                              </div>
+                            )}
+                          </td>
+                          <td>
+                            <span
+                              className={`status-badge ${
+                                request.status === "confirmed" || request.status === "completed"
+                                  ? "success"
+                                  : request.status === "declined"
+                                    ? "error"
+                                    : "warning"
+                              }`}
+                            >
+                              {request.status}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="demo-request-actions">
+                              <Link
+                                href={`/schools/demos/${request.id}`}
+                                className="btn-ghost"
+                                title="Open full page"
+                              >
+                                <Edit size={14} /> Edit
+                              </Link>
+                              {request.status === "pending" && (
+                                <>
+                                  <button
+                                    className="btn-ghost accent"
+                                    disabled={updatingDemoRequestId === request.id}
+                                    onClick={() => void handleDemoRequestStatus(request.id, "confirmed")}
+                                  >
+                                    Confirm & provision
+                                  </button>
+                                  <button
+                                    className="btn-ghost"
+                                    disabled={updatingDemoRequestId === request.id}
+                                    onClick={() => void handleDemoRequestStatus(request.id, "declined")}
+                                  >
+                                    Decline
+                                  </button>
+                                </>
+                              )}
+                              {request.status === "confirmed" && (
+                                <button
+                                  className="btn-ghost accent"
+                                  disabled={updatingDemoRequestId === request.id}
+                                  onClick={() => void handleDemoRequestStatus(request.id, "completed")}
+                                >
+                                  Complete & purge
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -907,6 +1236,33 @@ function PlatformConsole() {
         }
         .school-domain:hover { text-decoration: underline; }
         .school-contact { color: var(--text-muted); font-size: 0.75rem; margin-top: 2px; }
+        .demo-contact-link {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          width: fit-content;
+          margin-top: 4px;
+          color: var(--accent-primary);
+          font-size: 0.76rem;
+          text-decoration: none;
+        }
+        .demo-contact-link:hover { text-decoration: underline; }
+        .demo-notes {
+          max-width: 260px;
+          margin-top: 7px;
+          color: var(--text-muted);
+          font-size: 0.76rem;
+          line-height: 1.4;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .demo-request-actions {
+          display: flex;
+          gap: 6px;
+          justify-content: flex-end;
+          min-width: 150px;
+        }
 
         .fleet-chips { display: flex; gap: 6px; flex-wrap: wrap; }
         .chip {

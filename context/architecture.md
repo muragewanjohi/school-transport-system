@@ -47,15 +47,19 @@ Root domain: **`onthebusapp.com`** (wildcard `*.onthebusapp.com` on Vercel).
 | :--- | :--- | :--- |
 | `onthebusapp.com`, `www.onthebusapp.com` | Public marketing + platform operators | `/`, `/login` (platform), `/schools` |
 | `{slug}.onthebusapp.com` | That school's admins | `/login`, `/dashboard`, fleet/students/routes/… |
-| Reserved slugs (not tenants) | — | `www`, `platform`, `admin`, `api`, `app`, `static`, `cdn` |
+| Reserved slugs (not tenants) | — | `www`, `platform`, `admin`, `api`, `app`, `static`, `cdn`, `mail`, `smtp`, `ftp` |
+| Internal Demo School | `demo.onthebusapp.com` | Static sales sandbox (`domain = demo`, `is_demo = true`). Blocked for customer onboarding. |
+| Per-lead demo store | `{school-slug}-demo.onthebusapp.com` | Provisioned on Confirm from a demo request. `is_demo = true`, `demo_expires_at`, linked `demo_request_id`. Slugs ending in `-demo` are blocked for real onboarding. |
 
 Rules:
 
 1. **Resolve tenant** from the Host header: strip `.onthebusapp.com` → lookup `tenants.domain = slug` where `deleted_at IS NULL` and `status = 'active'`.
 2. **School login** only succeeds on that school's subdomain; after Auth, `profiles.tenant_id` must match the host tenant (else sign out + error).
 3. **Platform `super_admin`** logs in on the apex (`onthebusapp.com`); accessing a school subdomain as platform may later support impersonation — v1 redirects platform users from school hosts back to apex `/schools`.
-4. **Invites** use `https://{slug}.onthebusapp.com/reset-password` (and Supabase redirect allow-list must include `https://*.onthebusapp.com/**`).
+4. **Invites** always use `https://{slug}.onthebusapp.com/reset-password` (even when the platform console is run on localhost). Supabase Auth **Site URL** must be `https://onthebusapp.com` (not localhost), and the redirect allow-list must include `https://*.onthebusapp.com/**`. If `redirectTo` is missing from the allow-list, Auth silently falls back to Site URL.
 5. **Local dev:** `localhost` / `*.localhost` treated as apex unless `x-tenant-slug` / `?tenant=` override is set for testing.
+6. **Demo stores (`is_demo`):** Synthetic PII only; outbound SMS is dry-run only. Per-lead stores are named from the demo request, geo-shifted to the request city/area, and seeded with a slim roster (1 admin Auth user, 1 driver, 1 conductor, 3 guardians, 5 students with avatars). The request phone logs into Flutter parent + driver apps (role-scoped OTP; OTP not cleared on `is_demo`). Default `demo_expires_at` is 14 days (editable). Complete or expiry hard-deletes the tenant (cascade) and Auth admin user.
+7. **Demo request operations:** `demo_requests.status` moves through `pending`, `confirmed`, `completed`, or `declined`. Platform admins manage requests at `/schools?tab=demos`. Emails via Resend: (1) submit — receipt + sales notify; (2) Confirm — provision store + email URL/admin password/phone+OTP/expiry; (3) Complete — thank-you after purge.
 
 Middleware sets request headers `x-host-kind` (`apex` \| `tenant` \| `local`) and `x-tenant-slug` for server components and route handlers.
 ## Multi-Campus Model (Designed Now, Multi Unlock Later)

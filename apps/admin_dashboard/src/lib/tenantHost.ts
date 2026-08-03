@@ -1,6 +1,6 @@
 export const ROOT_DOMAIN = "onthebusapp.com";
 
-/** Subdomains that must never resolve as school tenants */
+/** Subdomains that must never resolve as school tenants (treated as apex) */
 export const RESERVED_SUBDOMAINS = new Set([
   "www",
   "platform",
@@ -12,6 +12,18 @@ export const RESERVED_SUBDOMAINS = new Set([
   "mail",
   "smtp",
   "ftp",
+]);
+
+/**
+ * Platform Demo School slug. Resolves as a real tenant host (`demo.onthebusapp.com`)
+ * but must never be claimed during customer onboarding.
+ */
+export const DEMO_TENANT_SLUG = "demo";
+
+/** Slugs blocked for new school onboarding (reserved apex + demo school) */
+export const ONBOARDING_BLOCKED_SLUGS = new Set([
+  ...RESERVED_SUBDOMAINS,
+  DEMO_TENANT_SLUG,
 ]);
 
 export type HostKind = "apex" | "tenant" | "local";
@@ -66,6 +78,16 @@ export function getTenantPublicUrl(slug: string, path = "/"): string {
   return `${base.replace(/\/$/, "")}${normalized}`;
 }
 
+/**
+ * Auth invite / recovery emails must land on the live school host.
+ * Never use localhost here — invites are opened from real inboxes, and
+ * Supabase falls back to Site URL when redirectTo is not allow-listed.
+ */
+export function getTenantInviteRedirectUrl(slug: string, path = "/reset-password"): string {
+  const normalized = path.startsWith("/") ? path : `/${path}`;
+  return `https://${slug}.${ROOT_DOMAIN}${normalized}`;
+}
+
 export function getApexPublicUrl(path = "/"): string {
   const normalized = path.startsWith("/") ? path : `/${path}`;
   const configured = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "");
@@ -111,10 +133,22 @@ export function isPlatformConsolePath(pathname: string): boolean {
 }
 
 export function isValidTenantSlug(slug: string): boolean {
+  return isTenantSlugSyntaxValid(slug) && !isOnboardingBlockedSlug(slug);
+}
+
+/** Syntax validation for resolving existing tenants, including the Demo School */
+export function isTenantSlugSyntaxValid(slug: string): boolean {
   return (
     /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug) &&
     slug.length >= 2 &&
-    slug.length <= 48 &&
-    !RESERVED_SUBDOMAINS.has(slug)
+    slug.length <= 48
   );
+}
+
+export function isOnboardingBlockedSlug(slug: string): boolean {
+  const normalized = slug.trim().toLowerCase();
+  if (ONBOARDING_BLOCKED_SLUGS.has(normalized)) return true;
+  // Per-lead demo stores use `{school}-demo`; never claimable for real schools
+  if (normalized.endsWith("-demo")) return true;
+  return false;
 }

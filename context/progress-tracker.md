@@ -8,6 +8,74 @@
 
 - Configure the Next.js admin app workspace, integrate CSS design tokens, and build the interactive UI simulator panel.
 
+## Definition of Done (testing gate)
+
+A feature unit, API route, Edge Function, or Flutter screen **must not** be moved to **Completed** until the checklist below is satisfied. Compile/build success alone is not enough.
+
+### 1. Behavior-Driven Development (BDD) — all stacks
+
+**Working file:** [bdd.md](bdd.md) — the single source of active BDD scenarios for the module currently in progress.
+
+| Rule | Detail |
+| :--- | :--- |
+| **Write here first** | Before or while implementing, author Given / When / Then scenarios in [bdd.md](bdd.md). |
+| **Overwrite per module** | Starting a **new** module or feature **replaces the entire** [bdd.md](bdd.md) file (do not append prior modules). Prior behavior is preserved in tests and Completed notes. |
+| **Minimum** | At least one happy-path scenario and one failure/edge scenario. |
+| **Automate** | Map each scenario to a test (Node: Vitest/Jest + optional Cucumber/Gherkin; Flutter: `bdd_widget_test` / Gherkin or clearly named `testWidgets` that mirror the scenario title). Update the Automation map table in [bdd.md](bdd.md). |
+| **Complete** | Only after scenarios pass; cite [bdd.md](bdd.md) scenario titles (and test paths) in the **Completed** bullet. |
+
+| Step | Expectation |
+| :--- | :--- |
+| **Discover** | Capture the user/system behavior in plain language (role, goal, outcome). |
+| **Specify** | Overwrite [bdd.md](bdd.md) with Module metadata + Gherkin scenarios for this unit only. |
+| **Automate** | Map each scenario to a test; fill the Automation map in [bdd.md](bdd.md). |
+| **Verify** | All scenarios for this module pass locally (and in CI when present). Set Status → `passing`. |
+| **Document** | Reference scenario titles / test paths in the **Completed** bullet; next module overwrites [bdd.md](bdd.md) again. |
+
+### 2. Node.js / Next.js / Deno (`apps/admin_dashboard`, `supabase/functions`)
+
+Follow [Node.js Testing Best Practices](https://github.com/goldbergyoni/nodejs-testing-best-practices) (Goldberg / Yoni). Apply at least:
+
+| Practice | Application here |
+| :--- | :--- |
+| **Include 3 parts in names** | `describe`/`it` names state unit under test, condition, and expected result (e.g. `POST /api/demo-requests › valid payload › returns 200 and persists lead`). |
+| **Structure tests by AAA / GWT** | Arrange–Act–Assert (or Given–When–Then) clearly separated; one logical assert focus per test. |
+| **Test the public API / behavior** | Prefer route-handler and service-level tests over brittle internal implementation details. |
+| **Avoid global state leakage** | Isolate env, DB, and mocks per test; reset Supabase mocks / fetch stubs in `beforeEach`/`afterEach`. |
+| **Use realistic, but not production, data** | Fixtures with synthetic PII only; never real parent phones or student names from production. |
+| **Mock external I/O at boundaries** | Resend, Africa's Talking, Vercel Domains, Google Geocoding — mock HTTP; do not call live third parties in unit/integration tests. |
+| **Test error paths** | 4xx validation, 401/403 auth, 5xx upstream failures, and timeout/abort where relevant. |
+| **Prefer black-box integration for APIs** | Hit Route Handlers with `Request` objects (or a thin test helper); assert status, JSON body, and side effects via mocked clients. |
+| **Keep tests deterministic & fast** | No arbitrary `sleep`; fake timers for expiry/TTL; aim for suite runtime that stays within the 10-minute verification budget for the unit. |
+| **Cover security-sensitive paths** | RLS/tenant mismatch, demo vs paid tenant SMS kill-switch, platform-only routes. |
+
+**Commands (when configured):** e.g. `npm test` / `npm run test:unit` in `apps/admin_dashboard`; Edge Function tests colocated or under `supabase/functions/**/test`. Fail CI if coverage of the changed module’s critical paths is missing.
+
+### 3. Flutter (`apps/driver_app`, `apps/parent_app`)
+
+Use official Flutter testing layers and BDD-aligned naming:
+
+| Layer | Tooling / practice |
+| :--- | :--- |
+| **Unit** | Pure Dart tests for mappers, validators, Riverpod/Bloc notifiers (mock repositories). |
+| **Widget** | `testWidgets` + `WidgetTester` for screens/forms; pump with controlled providers; assert text, disabled states, error banners. |
+| **Golden (optional)** | For stable visual chrome (login, checklist) where regressions are costly. |
+| **Integration** | `integration_test` for critical flows (login → console, OTP → home) on a device/emulator when the module claims end-to-end Done. |
+| **Async / platform** | Fake `MethodChannel`s for NFC/location; never require real GPS/NFC hardware to mark a unit complete. |
+| **Network** | Mock Supabase / HTTP clients; assert loading → success/error UI. |
+
+**Commands:** `flutter test` (unit/widget); `flutter test integration_test` when claiming E2E Done. Analyze with `flutter analyze` clean before complete.
+
+### 4. Completion checklist (paste into Completed notes)
+
+Before moving an item to **Completed**, confirm:
+
+1. BDD scenarios written to [bdd.md](bdd.md) (happy + failure), Status `passing`, and automated where feasible.
+2. Stack-appropriate tests added/updated and **passing**.
+3. Lint/analyze + compile/build clean for the touched app(s).
+4. No architecture invariant regressions (tenant isolation, PII in logs, demo SMS dry-run).
+5. Manual smoke only as a supplement — not a substitute — for the automated gate above.
+
 ## Completed
 
 - Reviewed ecosystem features, invariants, boundaries, and overall scopes.
@@ -92,6 +160,10 @@
 - Applied security advisor hardening: removed sandbox `Allow public *` RLS policies, locked SECURITY DEFINER search_path/execute grants, tightened avatars storage policies; login/reorder RPCs now service-role only via Next.js API routes. Remaining PostGIS/`spatial_ref_sys` advisories are unactionable false positives.
 - Secured driver ops: signed `drv.*` session tokens from `/api/auth/driver-login`, `/api/driver/telemetry` + auth-gated fleet/students/stops/trips/config APIs via service role; Flutter driver app sends Bearer token (re-login required).
 - Tenant retention lifecycle (2026-08-01): migration `20260801000000_tenant_lifecycle.sql` (`tenants.suspended_at`, `suspended_purge_days` / `deleted_purge_days` settings, applied via MCP); `/api/platform/purge` run daily by Vercel Cron; soft delete now releases the school subdomain from Vercel (`src/lib/vercelDomains.ts`); retention editable in `/schools?tab=settings`.
+- Request Demo + Demo School (2026-08-03): `/request-demo` lead form + `POST /api/demo-requests`; static internal `demo` tenant; SMS kill-switch; landing CTAs rewired off mailto. Resend emails: receipt on submit, confirm, complete.
+- Demo request operations (2026-08-03): platform pending-request badge and `/schools?tab=demos` workflow (`pending` → `confirmed` / `completed` / `declined`).
+- Per-school demo stores (2026-08-03): Confirm provisions `{slug}-demo.onthebusapp.com` with geo-shifted slim roster (1 driver, 1 conductor, 3 guardians, 5 students + avatars); request phone for Flutter parent/driver OTP; school name from request; 14-day `demo_expires_at`; Complete/expiry hard-purge + Auth cleanup.
+- BDD gate bootstrap (2026-08-03): Vitest in `apps/admin_dashboard`; per-school demo store scenarios in [bdd.md](bdd.md) Status `passing` (`npm test` — slug/phone/onboarding guards; 11 tests).
 
 ## In Progress
 
@@ -101,16 +173,19 @@
 ## Next Up
 
 - Add `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SITE_URL` to `.env.local` and Vercel (required for school invite emails).
+- Supabase Auth URL config (hosted): Site URL = `https://onthebusapp.com`; Redirect URLs include `https://*.onthebusapp.com/**`. Invite `redirectTo` must never be localhost — fixed via `getTenantInviteRedirectUrl`.
 - Sign out/in as `muragedev@gmail.com` and verify `/schools`.
 - Phase 2: Resolve `tenant_id` from JWT on all admin APIs (stop `tenants.limit(1)`); enforce null-tenant platform vs scoped school admin.
 - Phase 3: Tenant impersonation + PII masking for platform support.
 - Persist campus location usage in route builder (replace local-only School Locations state).
 - Attendance logs and alerts history consoles.
 - Bootstrapping the Parent mobile application (`apps/parent_app`) Flutter workspace.
+- Optional: Calendly/Cal.com embed on `/request-demo`; canned GPS replay loop for demo trips.
+- Optional: `RESEND_API_KEY` + `DEMO_REQUESTS_NOTIFY_EMAIL` for demo lead email delivery.
 
 ## Open Questions
 
-- *None.* (School onboarding decisions resolved 2026-07-30.)
+- *None.* (School onboarding decisions resolved 2026-07-30. Demo conversion path resolved 2026-08-03: hybrid form + seeded demo school.)
 
 ## Architecture Decisions
 
@@ -123,6 +198,8 @@
 - **School Admin Invite:** First school admin is provisioned via email invite; platform operators do not set the invitee password in the onboarding drawer.
 - **Subdomain Tenancy (Vercel):** School consoles live at `{slug}.onthebusapp.com`; `tenants.domain` stores the slug. Apex `onthebusapp.com` is marketing + platform `/schools`. Invites redirect to the school subdomain.- **Campus Permissions (deferred enforce):** Capability via `admin_role`; site scope via `admin_campus_access` (or tenant-wide mode). Billing stays tenant-scoped.
 - **Multi-Campus Billing:** One invoice per tenant. Platform fee = `active_campus_count × campus_monthly_fee_kes` (default KES 10,000). **Platform `super_admin` can edit the per-campus flat fee** per school (and a default for new onboardings); school roles view-only. SMS remains a separate usage line. Unpaid tenant suspends all campuses.
+- **Testing gate before Complete:** A module is not Done until BDD scenarios in [bdd.md](bdd.md) (happy + failure) are specified, the file Status is `passing`, and tests are automated where feasible; Node/Next/Deno tests follow [Node.js Testing Best Practices](https://github.com/goldbergyoni/nodejs-testing-best-practices); Flutter uses unit/widget/integration layers per Flutter testing guidance. Each new module **overwrites** [bdd.md](bdd.md). See **Definition of Done (testing gate)** above.
+- **Request Demo + per-school demo stores:** Apex `/request-demo` captures leads into `demo_requests`. Confirm provisions a dedicated `is_demo` tenant at `{school-slug}-demo.onthebusapp.com` (school name + geo from request; slim roster with avatars; request phone for Flutter parent/driver). Complete or `demo_expires_at` hard-deletes the store. Static `demo` tenant remains an internal sales sandbox. Slugs ending in `-demo` (and reserved `demo`) are blocked for real onboarding. SMS hard-disabled for demo tenants.
 
 ## Session Notes
 

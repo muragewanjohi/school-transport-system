@@ -47,6 +47,33 @@ export async function GET(request: Request) {
     const notes: string[] = [];
     let softDeleted = 0;
     let purged = 0;
+    let demoPurged = 0;
+
+    // Stage 0: expired per-lead demo stores -> hard delete + Auth cleanup
+    {
+      const nowIso = new Date(nowMs).toISOString();
+      const { data: expiredDemos, error: demoQueryError } = await adminClient
+        .from("tenants")
+        .select("id, name, domain, demo_expires_at")
+        .eq("is_demo", true)
+        .not("demo_expires_at", "is", null)
+        .lt("demo_expires_at", nowIso)
+        .neq("domain", "demo");
+
+      if (demoQueryError) {
+        notes.push(`demo expiry query failed: ${demoQueryError.message}`);
+      } else {
+        const { purgeDemoTenant } = await import("@/lib/demoProvision");
+        for (const tenant of expiredDemos ?? []) {
+          const result = await purgeDemoTenant(adminClient, tenant.id);
+          if (!result.ok) {
+            notes.push(`demo purge ${tenant.id} failed: ${result.detail}`);
+            continue;
+          }
+          demoPurged += 1;
+        }
+      }
+    }
 
     // Stage 1: expired suspensions -> soft delete
     if (suspendedDays > 0) {
@@ -55,6 +82,7 @@ export async function GET(request: Request) {
         .from("tenants")
         .select("id, name, domain, suspended_at")
         .eq("status", "suspended")
+        .eq("is_demo", false)
         .is("deleted_at", null)
         .not("suspended_at", "is", null)
         .lt("suspended_at", suspendedCutoff);
@@ -100,6 +128,7 @@ export async function GET(request: Request) {
       const { data: expiredDeleted, error } = await adminClient
         .from("tenants")
         .select("id, name, deleted_at")
+        .eq("is_demo", false)
         .not("deleted_at", "is", null)
         .lt("deleted_at", deletedCutoff);
 
@@ -123,6 +152,7 @@ export async function GET(request: Request) {
       data: {
         softDeleted,
         purged,
+        demoPurged,
         suspended_purge_days: suspendedDays,
         deleted_purge_days: deletedDays,
         notes,

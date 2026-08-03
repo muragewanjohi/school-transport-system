@@ -34,6 +34,29 @@ Deno.serve(async (req) => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+    // Demo School: never send real SMS — mark processed and exit
+    if (record.tenant_id) {
+      const { data: tenantRow } = await supabase
+        .from("tenants")
+        .select("is_demo")
+        .eq("id", record.tenant_id)
+        .maybeSingle();
+
+      if (tenantRow?.is_demo) {
+        if (id) {
+          await supabase.from("alerts_queue").update({ processed: true }).eq("id", id);
+        }
+        return new Response(
+          JSON.stringify({
+            success: true,
+            dry_run: true,
+            message: "Demo tenant SMS suppressed",
+          }),
+          { headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     // Fetch recipient phone and details (bypassing RLS with service role client)
     let parentPhone = "";
     let studentName = "";
