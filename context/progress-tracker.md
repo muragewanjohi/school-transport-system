@@ -164,6 +164,8 @@ Before moving an item to **Completed**, confirm:
 - Demo request operations (2026-08-03): platform pending-request badge and `/schools?tab=demos` workflow (`pending` → `confirmed` / `completed` / `declined`).
 - Per-school demo stores (2026-08-03): Confirm provisions `{slug}-demo.onthebusapp.com` with geo-shifted slim roster (1 driver, 1 conductor, 3 guardians, 5 students + avatars); request phone for Flutter parent/driver OTP; school name from request; 14-day `demo_expires_at`; Complete/expiry hard-purge + Auth cleanup.
 - BDD gate bootstrap (2026-08-03): Vitest in `apps/admin_dashboard`; per-school demo store scenarios in [bdd.md](bdd.md) Status `passing` (`npm test` — slug/phone/onboarding guards; 11 tests).
+- Interactive journey preview (2026-08-03): landing-page steps now reveal branded stage imagery and concise guidance on hover/focus, with a touch-friendly mobile accordion and reduced-motion support. BDD scenarios in [bdd.md](bdd.md) Status `passing`; desktop hover, keyboard semantics, and 390 px mobile tap verified; `npm test` (11 passing) and `npm run build` pass.
+- Play Store prep (2026-08-03): Parent Android `applicationId`/`namespace` corrected to `com.schooltrack.parent_app` (was duplicated `...parent_app.parent_app`); launcher display names set to **OnTheBus Driver** / **OnTheBus Parent** (Android + iOS); release signing wired in both `android/app/build.gradle.kts` files via gitignored `android/key.properties` (+ `key.properties.example`).
 
 ## In Progress
 

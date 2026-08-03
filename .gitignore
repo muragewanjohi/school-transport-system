@@ -48,3 +48,6 @@ build/
 # Supabase local exclusions
 supabase/.temp/
 supabase/functions/.import_map.json
+
+# Local Play Store AAB copies
+releases/

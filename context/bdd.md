@@ -10,94 +10,76 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Per-school demo stores |
+| **Name** | Interactive journey step preview |
 | **Stack** | `next` |
-| **Owner path(s)** | `apps/admin_dashboard/src/lib/demoProvision.ts`, `apps/admin_dashboard/src/lib/tenantHost.ts`, `apps/admin_dashboard/src/app/api/demo-requests/route.ts` |
+| **Owner path(s)** | `apps/admin_dashboard/src/app/page.tsx`, `apps/admin_dashboard/src/app/globals.css`, `apps/admin_dashboard/public/stitch/journey/` |
 | **Started** | 2026-08-03 |
 | **Status** | `passing` |
 
 ## Goal
 
-Platform Confirm provisions a time-boxed `{school}-demo.onthebusapp.com` store with geo-shifted slim roster and emails admin + Flutter (request phone) credentials; Complete/expiry purge the store.
+Visitors can hover, focus, or tap any “How it works” step and immediately see a polished visual and concise explanation of that stage.
 
 ## Actors
 
-- Lead requester (e.g. Jane at Nairobi School)
-- Platform super admin
-- Resend (email)
-- Flutter parent / driver apps (phone + OTP)
+- Prospective school administrator
+- Parent or driver comparing the product
+- Keyboard, touch, and reduced-motion users
 
 ## Scenarios
 
 ### Happy path
 
 ```gherkin
-Feature: Per-school demo stores
+Feature: Interactive journey step preview
 
-  Scenario: Slug builder › school name › yields Option A demo subdomain slug
-    Given a demo request school name "Nairobi School"
-    When the demo slug is built
-    Then the slug is "nairobi-school-demo"
-    And the slug length is at most 48 characters
+  Scenario: Desktop visitor › hovers a step › corresponding preview appears
+    Given the seven journey steps are visible
+    When the visitor hovers "Parents Receive Alerts"
+    Then step 4 becomes visually active
+    And the parent alert image, title, and description appear below the timeline
 
-  Scenario: Phone normalizer › leading zero Kenyan mobile › becomes E.164 +254
-    Given a submitted phone "0712345678"
-    When the phone is normalized for demo login
-    Then the result is "+254712345678"
+  Scenario: Keyboard visitor › focuses a step › corresponding preview appears
+    Given focus is on a journey step button
+    When the visitor moves focus to "Students Board the Bus"
+    Then step 5 becomes active
+    And the preview region announces the new title and description
 
-  Scenario: Phone normalizer › already E.164 › remains stable
-    Given a submitted phone "+254712345678"
-    When the phone is normalized for demo login
-    Then the result is "+254712345678"
-
-  Scenario: Onboarding guard › slug ending in -demo › is blocked for real schools
-    Given a candidate onboarding slug "acme-academy-demo"
-    When onboarding slug validation runs
-    Then the slug is rejected as blocked
-    And "demo" alone remains blocked
-    And "acme-academy" remains allowed
-
-  Scenario: Default expiry › confirm without custom date › uses 14 days
-    Given DEMO_DEFAULT_EXPIRY_DAYS is 14
-    When a demo store is confirmed without an explicit expiry override
-    Then the default expiry window is 14 days from confirm
+  Scenario: Touch visitor › taps a mobile step › inline preview expands
+    Given the mobile journey list is visible
+    When the visitor taps "Trip Complete"
+    Then the trip-complete image and description appear with that step
 ```
 
 ### Failure / edge
 
 ```gherkin
-  Scenario: Slug builder › collision attempt index › appends numeric infix before -demo
-    Given school name "Nairobi School"
-    And attempt index 2
-    When the demo slug is built
-    Then the slug is "nairobi-school-2-demo"
+  Scenario: Pointer leaves timeline › active preview › remains stable
+    Given the visitor selected step 3
+    When the pointer leaves the step
+    Then step 3 remains active
+    And the preview does not disappear or cause layout shift
 
-  Scenario: Slug builder › empty / punctuation-only name › falls back to school-demo
-    Given a school name "!!!"
-    When the demo slug is built
-    Then the slug is "school-demo"
-
-  Scenario: Onboarding guard › reserved apex slug › is blocked
-    Given a candidate onboarding slug "www"
-    When onboarding slug validation runs
-    Then the slug is rejected as blocked
+  Scenario: Reduced-motion visitor › changes steps › content switches without motion
+    Given prefers-reduced-motion is enabled
+    When the visitor selects another step
+    Then the correct content appears
+    And decorative transitions are disabled
 ```
 
 ## Automation map
 
-| Scenario title | Test file / `describe`/`it` name | Status |
+| Scenario title | Test / verification | Status |
 | :--- | :--- | :--- |
-| Slug builder › school name › yields Option A demo subdomain slug | `src/lib/demoProvision.test.ts` › `buildDemoSlug › Nairobi School › returns nairobi-school-demo` | `done` |
-| Phone normalizer › leading zero Kenyan mobile › becomes E.164 +254 | `src/lib/demoProvision.test.ts` › `normalizeDemoPhone › leading 0 › converts to +254` | `done` |
-| Phone normalizer › already E.164 › remains stable | `src/lib/demoProvision.test.ts` › `normalizeDemoPhone › E.164 › unchanged` | `done` |
-| Onboarding guard › slug ending in -demo › is blocked for real schools | `src/lib/tenantHost.test.ts` › `isOnboardingBlockedSlug › *-demo and demo › blocked; real slug allowed` | `done` |
-| Default expiry › confirm without custom date › uses 14 days | `src/lib/demoProvision.test.ts` › `DEMO_DEFAULT_EXPIRY_DAYS › constant › is 14` | `done` |
-| Slug builder › collision attempt index › appends numeric infix before -demo | `src/lib/demoProvision.test.ts` › `buildDemoSlug › attempt 2 › returns nairobi-school-2-demo` | `done` |
-| Slug builder › empty / punctuation-only name › falls back to school-demo | `src/lib/demoProvision.test.ts` › `buildDemoSlug › punctuation only › returns school-demo` | `done` |
-| Onboarding guard › reserved apex slug › is blocked | `src/lib/tenantHost.test.ts` › `isOnboardingBlockedSlug › www › blocked` | `done` |
+| Desktop hover shows corresponding preview | Browser hover verified `aria-selected=true`; heading changed to “One live source of truth” | `done` |
+| Keyboard focus changes preview | Desktop tabs are focusable with `onFocus`; accessibility snapshot verifies tab semantics | `done` |
+| Mobile tap expands preview | 390×844 browser test; “Trip Complete” changed to `expanded` and showed “Closed out safely” | `done` |
+| Pointer leave keeps preview stable | State changes only on enter/focus/click; no `onMouseLeave` reset | `done` |
+| Reduced motion disables transitions | `prefers-reduced-motion` disables preview, image, icon, and arrow animation; production build passed | `done` |
 
 ## Notes
 
-- Synthetic PII only (`Nairobi School`, `+254712345678`).
-- Full `provisionDemoStore` / Resend / purge flows need mocked Supabase + HTTP — tracked as follow-up; pure helpers and onboarding guards covered in this pass.
-- Run: `npm test` in `apps/admin_dashboard`.
+- Preview images contain no real PII.
+- Generated imagery follows the OnTheBus navy + emerald visual system.
+- The interaction must be progressive: step labels remain understandable if imagery fails.
+- Verification: `npm test` (11 passed), `npm run build` (passed), browser desktop/mobile interaction checks (passed).

@@ -1,0 +1,10 @@
+# Copy to key.properties (gitignored) and fill in real values.
+# Generate a keystore from apps/driver_app/android/:
+#   keytool -genkey -v -keystore upload-keystore.jks -keyalg RSA -keysize 2048 -validity 10000 -alias upload
+#
+# storeFile is relative to android/app/ (so ../ points at android/).
+
+storePassword=YOUR_STORE_PASSWORD
+keyPassword=YOUR_KEY_PASSWORD
+keyAlias=upload
+storeFile=../upload-keystore.jks

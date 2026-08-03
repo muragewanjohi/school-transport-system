@@ -1,4 +1,4 @@
-package com.schooltrack.parent_app.parent_app
+package com.schooltrack.parent_app
 
 import io.flutter.embedding.android.FlutterActivity
 

@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   MapPin,
   Users,
@@ -79,13 +80,69 @@ const FEATURES: FeatureItem[] = [
 ];
 
 const STEPS = [
-  "School Configures Routes",
-  "Driver Starts Trip",
-  "Bus Location Streams Live",
-  "Parents Receive Alerts",
-  "Students Board the Bus",
-  "School Receives Attendance",
-  "Trip Complete",
+  {
+    title: "School Configures Routes",
+    shortTitle: "Plan every route",
+    description:
+      "Transport teams map stops, assign vehicles, and build reliable schedules around each school day.",
+    image: "/stitch/journey/journey-route-setup.png",
+    imageAlt: "School transport administrator configuring routes on a map",
+    icon: Route,
+  },
+  {
+    title: "Driver Starts Trip",
+    shortTitle: "A confident start",
+    description:
+      "The driver confirms the vehicle, route, and student manifest before beginning the journey.",
+    image: "/stitch/journey/journey-driver-start.png",
+    imageAlt: "School bus driver starting a trip from a mounted phone",
+    icon: Play,
+  },
+  {
+    title: "Bus Location Streams Live",
+    shortTitle: "Live from the road",
+    description:
+      "Secure GPS updates keep the school and authorized guardians aligned with the bus in real time.",
+    image: "/stitch/journey/journey-live-location.png",
+    imageAlt: "School bus broadcasting its live location along a city route",
+    icon: Navigation,
+  },
+  {
+    title: "Parents Receive Alerts",
+    shortTitle: "Reassurance, right on time",
+    description:
+      "Guardians receive clear alerts for departures, approaching stops, boarding, and safe arrivals.",
+    image: "/stitch/journey/journey-parent-alerts.png",
+    imageAlt: "Parent receiving a school bus arrival alert on a phone",
+    icon: Bell,
+  },
+  {
+    title: "Students Board the Bus",
+    shortTitle: "Every child accounted for",
+    description:
+      "Digital check-in gives drivers and conductors an accurate manifest without slowing boarding.",
+    image: "/stitch/journey/journey-student-boarding.png",
+    imageAlt: "Students boarding a school bus while a conductor checks attendance",
+    icon: Users,
+  },
+  {
+    title: "School Receives Attendance",
+    shortTitle: "One live source of truth",
+    description:
+      "The school sees attendance and trip status update instantly, helping staff act on exceptions early.",
+    image: "/stitch/journey/journey-attendance.png",
+    imageAlt: "School administrator reviewing a live transport attendance dashboard",
+    icon: BarChart3,
+  },
+  {
+    title: "Trip Complete",
+    shortTitle: "Closed out safely",
+    description:
+      "The journey ends with a verified arrival, a complete digital record, and everyone informed.",
+    image: "/stitch/journey/journey-trip-complete.png",
+    imageAlt: "School bus safely parked at campus after completing its route",
+    icon: CheckCircle2,
+  },
 ] as const;
 
 const TRUST = ["AKILI SCHOOLS", "PREMIER ACADEMY"] as const;
@@ -117,6 +174,7 @@ const TESTIMONIALS = [
 export default function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [stepsVisible, setStepsVisible] = useState(false);
+  const [activeStep, setActiveStep] = useState(0);
   const stepsRef = useRef<HTMLDivElement | null>(null);
   const pageRef = useRef<HTMLDivElement | null>(null);
 
@@ -294,27 +352,113 @@ export default function LandingPage() {
               <p>Seven steps to total transparency and safety.</p>
             </div>
 
-            <div className={`lp-steps${stepsVisible ? " is-visible" : ""}`} ref={stepsRef}>
-              <div className="lp-steps-line" aria-hidden />
-              {STEPS.map((label, index) => (
-                <div
-                  key={label}
-                  className={`lp-step${index === 0 ? " is-active" : ""}`}
-                  style={{ transitionDelay: stepsVisible ? `${index * 70}ms` : "0ms" }}
-                >
-                  <div className="lp-step-num">{index + 1}</div>
-                  <h4>{label}</h4>
+            <div className="lp-journey-desktop">
+              <div
+                className={`lp-steps${stepsVisible ? " is-visible" : ""}`}
+                ref={stepsRef}
+                role="tablist"
+                aria-label="How OnTheBus works"
+              >
+                <div className="lp-steps-line" aria-hidden />
+                {STEPS.map((step, index) => {
+                  const StepIcon = step.icon;
+                  const isActive = activeStep === index;
+                  return (
+                    <button
+                      type="button"
+                      key={step.title}
+                      role="tab"
+                      aria-selected={isActive}
+                      aria-controls="journey-step-preview"
+                      className={`lp-step${isActive ? " is-active" : ""}`}
+                      style={{ transitionDelay: stepsVisible ? `${index * 70}ms` : "0ms" }}
+                      onMouseEnter={() => setActiveStep(index)}
+                      onFocus={() => setActiveStep(index)}
+                      onClick={() => setActiveStep(index)}
+                    >
+                      <span className="lp-step-num">
+                        <span aria-hidden>{index + 1}</span>
+                        <StepIcon className="lp-step-icon" size={18} aria-hidden />
+                      </span>
+                      <span className="lp-step-title">{step.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <article
+                id="journey-step-preview"
+                className="lp-journey-preview"
+                role="tabpanel"
+                aria-live="polite"
+                key={STEPS[activeStep].title}
+              >
+                <div className="lp-journey-preview-media">
+                  <Image
+                    src={STEPS[activeStep].image}
+                    alt={STEPS[activeStep].imageAlt}
+                    width={1024}
+                    height={576}
+                    sizes="(min-width: 1024px) 60vw, 100vw"
+                    quality={82}
+                  />
+                  <span className="lp-journey-preview-index" aria-hidden>
+                    {String(activeStep + 1).padStart(2, "0")}
+                  </span>
                 </div>
-              ))}
+                <div className="lp-journey-preview-copy">
+                  <span className="lp-journey-kicker">Step {activeStep + 1} of {STEPS.length}</span>
+                  <h3>{STEPS[activeStep].shortTitle}</h3>
+                  <p>{STEPS[activeStep].description}</p>
+                  <div className="lp-journey-preview-title">
+                    <CheckCircle2 size={17} aria-hidden />
+                    {STEPS[activeStep].title}
+                  </div>
+                </div>
+              </article>
             </div>
 
-            <div className="lp-steps-mobile">
-              {STEPS.map((label, index) => (
-                <div key={label} className="lp-step-mobile-row">
-                  <div className={`lp-step-num${index === 0 ? " is-active" : ""}`}>{index + 1}</div>
-                  <p>{label}</p>
-                </div>
-              ))}
+            <div className="lp-steps-mobile" ref={stepsRef}>
+              {STEPS.map((step, index) => {
+                const StepIcon = step.icon;
+                const isActive = activeStep === index;
+                return (
+                  <article
+                    key={step.title}
+                    className={`lp-step-mobile-row${isActive ? " is-active" : ""}`}
+                  >
+                    <button
+                      type="button"
+                      aria-expanded={isActive}
+                      className="lp-step-mobile-trigger"
+                      onClick={() => setActiveStep(index)}
+                    >
+                      <span className="lp-step-num">
+                        <span aria-hidden>{index + 1}</span>
+                        <StepIcon className="lp-step-icon" size={17} aria-hidden />
+                      </span>
+                      <span>{step.title}</span>
+                      <ArrowRight className="lp-step-mobile-arrow" size={18} aria-hidden />
+                    </button>
+                    {isActive && (
+                      <div className="lp-step-mobile-preview">
+                        <Image
+                          src={step.image}
+                          alt={step.imageAlt}
+                          width={1024}
+                          height={576}
+                          sizes="(max-width: 1023px) 100vw, 1px"
+                          quality={80}
+                        />
+                        <div>
+                          <strong>{step.shortTitle}</strong>
+                          <p>{step.description}</p>
+                        </div>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
             </div>
           </div>
         </section>
