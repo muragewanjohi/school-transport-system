@@ -166,6 +166,8 @@ Before moving an item to **Completed**, confirm:
 - BDD gate bootstrap (2026-08-03): Vitest in `apps/admin_dashboard`; per-school demo store scenarios in [bdd.md](bdd.md) Status `passing` (`npm test` — slug/phone/onboarding guards; 11 tests).
 - Interactive journey preview (2026-08-03): landing-page steps now reveal branded stage imagery and concise guidance on hover/focus, with a touch-friendly mobile accordion and reduced-motion support. BDD scenarios in [bdd.md](bdd.md) Status `passing`; desktop hover, keyboard semantics, and 390 px mobile tap verified; `npm test` (11 passing) and `npm run build` pass.
 - Play Store prep (2026-08-03): Parent Android `applicationId`/`namespace` corrected to `com.schooltrack.parent_app` (was duplicated `...parent_app.parent_app`); launcher display names set to **OnTheBus Driver** / **OnTheBus Parent** (Android + iOS); release signing wired in both `android/app/build.gradle.kts` files via gitignored `android/key.properties` (+ `key.properties.example`).
+- Public legal pages (2026-08-05): landing footer Legal links to `/privacy`, `/terms`, `/delete-account`; Play-aligned privacy/terms copy; delete-account is school-first with `support@onthebus.app` escalation.
+- Play Review School seed (2026-08-05): `npm run seed:play-review` provisions permanent `play-review` tenant (`is_demo`, no expiry) with Driver `+254700000001` / Parent `+254700000002` / OTP `123456`; credentials written to gitignored `.play-review-credentials.local`.
 
 ## In Progress
 

@@ -632,8 +632,9 @@ export default function LandingPage() {
             </div>
             <div className="lp-footer-col">
               <h4>Legal</h4>
-              <a href="#contact">Privacy Policy</a>
-              <a href="#contact">Terms of Service</a>
+              <Link href="/privacy">Privacy Policy</Link>
+              <Link href="/terms">Terms of Service</Link>
+              <Link href="/delete-account">Delete Account</Link>
             </div>
           </div>
 

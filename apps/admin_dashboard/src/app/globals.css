@@ -1707,6 +1707,151 @@ code, pre {
   }
 }
 
+/* Legal document pages */
+.legal-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.legal-header {
+  border-bottom: 1px solid var(--lp-outline);
+  background: rgba(248, 249, 255, 0.92);
+  backdrop-filter: blur(8px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.legal-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 14px;
+  padding-bottom: 14px;
+}
+
+.legal-brand img {
+  height: 44px;
+  width: auto;
+  display: block;
+}
+
+.legal-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px 18px;
+}
+
+.legal-nav a {
+  color: var(--lp-muted);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.legal-nav a:hover {
+  color: var(--lp-primary);
+}
+
+.legal-main {
+  flex: 1;
+  padding: 48px 0 72px;
+  max-width: 760px;
+}
+
+.legal-kicker {
+  color: var(--lp-primary);
+  font-weight: 700;
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin: 0 0 8px;
+}
+
+.legal-main h1 {
+  color: var(--lp-ink);
+  font-size: clamp(1.75rem, 4vw, 2.4rem);
+  line-height: 1.15;
+  margin: 0 0 8px;
+}
+
+.legal-updated {
+  color: var(--lp-muted);
+  margin: 0 0 32px;
+  font-size: 0.95rem;
+}
+
+.legal-body {
+  color: var(--lp-muted);
+  line-height: 1.7;
+  font-size: 1.02rem;
+}
+
+.legal-body h2 {
+  color: var(--lp-ink);
+  font-size: 1.25rem;
+  margin: 2rem 0 0.75rem;
+}
+
+.legal-body h3 {
+  color: var(--lp-ink);
+  font-size: 1.05rem;
+  margin: 1.35rem 0 0.5rem;
+}
+
+.legal-body p,
+.legal-body ul,
+.legal-body ol {
+  margin: 0 0 1rem;
+}
+
+.legal-body ul,
+.legal-body ol {
+  padding-left: 1.25rem;
+}
+
+.legal-body li {
+  margin-bottom: 0.4rem;
+}
+
+.legal-body a {
+  color: var(--lp-primary);
+  font-weight: 600;
+}
+
+.legal-footer {
+  border-top: 1px solid var(--lp-outline);
+  padding: 24px 0 36px;
+  background: var(--lp-surface-soft);
+}
+
+.legal-footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px 24px;
+  color: var(--lp-muted);
+  font-size: 0.9rem;
+}
+
+.legal-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
+.legal-footer-links a {
+  color: var(--lp-ink);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.legal-footer-links a:hover {
+  color: var(--lp-primary);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .landing-hero-visual {
     animation: none;

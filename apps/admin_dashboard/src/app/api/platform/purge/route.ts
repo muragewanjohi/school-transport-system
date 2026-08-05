@@ -58,7 +58,8 @@ export async function GET(request: Request) {
         .eq("is_demo", true)
         .not("demo_expires_at", "is", null)
         .lt("demo_expires_at", nowIso)
-        .neq("domain", "demo");
+        .neq("domain", "demo")
+        .neq("domain", "play-review");
 
       if (demoQueryError) {
         notes.push(`demo expiry query failed: ${demoQueryError.message}`);

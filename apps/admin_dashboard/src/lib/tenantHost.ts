@@ -20,10 +20,14 @@ export const RESERVED_SUBDOMAINS = new Set([
  */
 export const DEMO_TENANT_SLUG = "demo";
 
+/** Permanent Google Play review sandbox (never claimable for real schools) */
+export const PLAY_REVIEW_TENANT_SLUG = "play-review";
+
 /** Slugs blocked for new school onboarding (reserved apex + demo school) */
 export const ONBOARDING_BLOCKED_SLUGS = new Set([
   ...RESERVED_SUBDOMAINS,
   DEMO_TENANT_SLUG,
+  PLAY_REVIEW_TENANT_SLUG,
 ]);
 
 export type HostKind = "apex" | "tenant" | "local";
