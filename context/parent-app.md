@@ -206,7 +206,7 @@ Purpose
 
 Show where everything is.
 
-Display Mapbox map.
+Display Google Maps (native Maps SDK).
 
 Markers
 
@@ -690,7 +690,7 @@ Large typography.
 
 Friendly illustrations.
 
-Mapbox maps.
+Google Maps (native Maps SDK).
 
 Minimal icons.
 
@@ -724,7 +724,7 @@ Flutter
 
 Maps
 
-Mapbox
+Google Maps
 
 Push Notifications
 

@@ -17,7 +17,7 @@ class LocationTrackingService {
         autoStart: false, // Start manually on driver 'Start Trip' toggle
         isForegroundMode: true,
         notificationChannelId: 'telemetry_foreground_channel',
-        initialNotificationTitle: 'Safaricom Track Active',
+        initialNotificationTitle: 'OnTheBus Driver Active',
         initialNotificationContent: 'GPS telemetry engine starting...',
         foregroundServiceNotificationId: 888,
       ),
@@ -81,7 +81,7 @@ void onStart(ServiceInstance service) async {
     if (tenantId == null || vehicleId == null || routeId == null || accessToken == null || apiBaseUrl == null) {
       if (service is AndroidServiceInstance) {
         service.setForegroundNotificationInfo(
-          title: "Safaricom Track Active",
+          title: "OnTheBus Driver Active",
           content: "Waiting for trip details assignment...",
         );
       }
@@ -100,7 +100,7 @@ void onStart(ServiceInstance service) async {
       // Update foreground notification with live coordinates or SOS status
       if (service is AndroidServiceInstance) {
         service.setForegroundNotificationInfo(
-          title: isEmergency ? "⚠️ CRITICAL SOS ACTIVE" : "Safaricom Track Running",
+          title: isEmergency ? "⚠️ CRITICAL SOS ACTIVE" : "OnTheBus Driver Running",
           content: isEmergency
               ? "Distress Signal Broadcasting..."
               : "Bus Location: Lat ${position.latitude.toStringAsFixed(5)}, Lng ${position.longitude.toStringAsFixed(5)}",
@@ -139,7 +139,7 @@ void onStart(ServiceInstance service) async {
     } catch (e) {
       if (service is AndroidServiceInstance) {
         service.setForegroundNotificationInfo(
-          title: isEmergency ? "⚠️ SOS Broadcast Warning" : "Safaricom Track Warning",
+          title: isEmergency ? "⚠️ SOS Broadcast Warning" : "OnTheBus Driver Warning",
           content: "Failed to stream GPS: ${e.toString().split('\n').first}",
         );
       }

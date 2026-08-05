@@ -168,6 +168,9 @@ Before moving an item to **Completed**, confirm:
 - Play Store prep (2026-08-03): Parent Android `applicationId`/`namespace` corrected to `com.schooltrack.parent_app` (was duplicated `...parent_app.parent_app`); launcher display names set to **OnTheBus Driver** / **OnTheBus Parent** (Android + iOS); release signing wired in both `android/app/build.gradle.kts` files via gitignored `android/key.properties` (+ `key.properties.example`).
 - Public legal pages (2026-08-05): landing footer Legal links to `/privacy`, `/terms`, `/delete-account`; Play-aligned privacy/terms copy; delete-account is school-first with `support@onthebus.app` escalation.
 - Play Review School seed (2026-08-05): `npm run seed:play-review` provisions permanent `play-review` tenant (`is_demo`, no expiry) with Driver `+254700000001` / Parent `+254700000002` / OTP `123456`; credentials written to gitignored `.play-review-credentials.local`.
+- Driver light theme + Play Review day window (2026-08-05): Driver app switched to light OnTheBus UI; Play Review schedules at 08:00/10:00/12:00/14:00/17:00; fixed `on_trip_status_update` to use `vehicles.license_plate`.
+- Driver map + stop-gated boarding (2026-08-05): Home/Trip map uses Google Maps SDK + Directions (via `/api/maps/directions`); live bus marker seeded from foreground GPS; boarding/drop-off filtered to the current stop geofence (client + driver API PUT enforcement).
+- Unified Google Maps (2026-08-05): Driver + Parent use `google_maps_flutter`; Admin already on Maps JS; shared Directions/Places proxies at `/api/maps/directions` and `/api/maps/places`.
 
 ## In Progress
 
@@ -193,6 +196,8 @@ Before moving an item to **Completed**, confirm:
 
 ## Architecture Decisions
 
+- **Google Maps across clients:** Admin uses Maps JavaScript API + Directions/Places. Driver and Parent use `google_maps_flutter` with native `MAPS_API_KEY`. Road polylines for mobile come from `POST /api/maps/directions` (server key → Google Directions). Parent relocate search uses `GET /api/maps/places`.
+- **Stop-gated boarding:** Drivers may board a student only inside that student’s `pickup_stop` geofence and drop off only inside `dropoff_stop` geofence (radius = `stops.geofence_radius_meters`, default 50 m). Enforced in Driver UI and on driver attendance `PUT /api/students/[id]`.
 - **Workspaces Monorepo:** Consolidated driver/parent mobile folders, Next.js web folders, and Supabase migrations.
 - **Pure Serverless Transition (Vercel + Supabase):** Swapped persistent servers for Next.js route handlers, Supabase Realtime Channels, and Deno edge workers.
 - **PostGIS Trigger Evaluation:** Computing geofences dynamically at the database layer via SQL triggers. When new vehicle coordinates are written, PostGIS calculates boundary intersections directly on the metal, avoiding network overhead, and triggering Supabase Edge Functions for SMS dispatch.

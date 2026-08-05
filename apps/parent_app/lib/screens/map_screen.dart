@@ -1,8 +1,9 @@
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:parent_app/services/supabase_service.dart';
+import 'package:parent_app/services/google_directions_service.dart';
 import 'package:parent_app/screens/relocate_screen.dart';
 
 class MapScreen extends StatefulWidget {
@@ -24,7 +25,9 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  final MapController _mapController = MapController();
+  GoogleMapController? _mapController;
+  BitmapDescriptor? _busIcon;
+  BitmapDescriptor? _schoolIcon;
 
   // Route and Stop state
   List<dynamic> _stops = [];
@@ -52,6 +55,7 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    _loadMarkerIcons();
     _fetchStudentAndRouteData();
     _subscribeToLiveTelemetry();
   }
@@ -59,7 +63,37 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void dispose() {
     _liveSubscription?.cancel();
+    _mapController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadMarkerIcons() async {
+    try {
+      final bus = await BitmapDescriptor.asset(
+        const ImageConfiguration(size: Size(48, 48)),
+        'assets/bus-icon.png',
+      );
+      final school = await BitmapDescriptor.asset(
+        const ImageConfiguration(size: Size(40, 40)),
+        'assets/school-location-icon.png',
+      );
+      if (!mounted) return;
+      setState(() {
+        _busIcon = bus;
+        _schoolIcon = school;
+      });
+    } catch (_) {}
+  }
+
+  double _haversineMeters(LatLng a, LatLng b) {
+    const earth = 6371000.0;
+    final dLat = (b.latitude - a.latitude) * math.pi / 180;
+    final dLon = (b.longitude - a.longitude) * math.pi / 180;
+    final lat1 = a.latitude * math.pi / 180;
+    final lat2 = b.latitude * math.pi / 180;
+    final h = math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) * math.cos(lat2) * math.sin(dLon / 2) * math.sin(dLon / 2);
+    return earth * 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
   }
 
   Future<void> _fetchStudentAndRouteData() async {
@@ -113,15 +147,15 @@ class _MapScreenState extends State<MapScreen> {
       final details = await SupabaseService.fetchRouteDetails(widget.routeId);
       if (details != null && mounted) {
         final List<dynamic> stopsList = details['stops'] ?? [];
-        final List<LatLng> polyPoints = [];
+        final List<LatLng> stopPoints = [];
 
         for (var stop in stopsList) {
           if (stop['location'] != null && stop['location']['coordinates'] != null) {
-            final double lng = stop['location']['coordinates'][0] as double;
-            final double lat = stop['location']['coordinates'][1] as double;
-            polyPoints.add(LatLng(lat, lng));
+            final coords = stop['location']['coordinates'] as List;
+            final double lng = (coords[0] as num).toDouble();
+            final double lat = (coords[1] as num).toDouble();
+            stopPoints.add(LatLng(lat, lng));
 
-            // Default pickup stage from stops list if available
             if (stop['stop_type'] == 'pickup' || _pickupStageLocation == null) {
               _pickupStageLocation = LatLng(lat, lng);
               if (stop['name'] != null) {
@@ -131,16 +165,15 @@ class _MapScreenState extends State<MapScreen> {
           }
         }
 
-        // Fallback pickup stage coordinate near home if missing
         _pickupStageLocation ??= LatLng(_homeLocation.latitude + 0.0015, _homeLocation.longitude + 0.0012);
 
+        final road = await GoogleDirectionsService.fetchDrivingRoute(stopPoints);
         setState(() {
           _stops = stopsList;
-          _polylinePoints = polyPoints;
+          _polylinePoints = road.isNotEmpty ? road : stopPoints;
         });
 
-        // Center map on live bus or home location
-        _mapController.move(_homeLocation, 14.5);
+        _mapController?.animateCamera(CameraUpdate.newLatLngZoom(_homeLocation, 14.5));
       }
     } catch (e) {
       print('Error fetching map route data: $e');
@@ -175,6 +208,9 @@ class _MapScreenState extends State<MapScreen> {
               _liveSpeed = (latest['speed'] as num?)?.toDouble() ?? 0.0;
               _isEmergency = latest['is_emergency'] as bool? ?? false;
             });
+            _mapController?.animateCamera(
+              CameraUpdate.newLatLng(LatLng(lat, lng)),
+            );
           }
         }
       }
@@ -184,8 +220,7 @@ class _MapScreenState extends State<MapScreen> {
   // Dynamic metric calculations
   int get _distanceMeters {
     if (_pickupStageLocation == null) return 150;
-    const distanceCalc = Distance();
-    final double dist = distanceCalc.as(LengthUnit.Meter, _homeLocation, _pickupStageLocation!);
+    final dist = _haversineMeters(_homeLocation, _pickupStageLocation!);
     return dist.round() > 0 ? dist.round() : 150;
   }
 
@@ -228,95 +263,53 @@ class _MapScreenState extends State<MapScreen> {
                              _studentStatus == 'Boarded';
     final bool isDropped = _transitStatus == 'Dropped' || _transitStatus == 'At School';
 
-    final List<Marker> markers = [];
+    final Set<Marker> markers = {};
 
-    // 1. School Destination Marker (using existing asset)
     for (var stop in _stops) {
       if (stop['location'] != null && stop['location']['coordinates'] != null) {
-        final double lng = stop['location']['coordinates'][0] as double;
-        final double lat = stop['location']['coordinates'][1] as double;
-        final String stopName = stop['name'] ?? 'School';
+        final coords = stop['location']['coordinates'] as List;
+        final double lng = (coords[0] as num).toDouble();
+        final double lat = (coords[1] as num).toDouble();
+        final String stopName = stop['name'] ?? 'Stop';
         final bool isSchool = stopName.toLowerCase().contains('school') ||
-            stopName.toLowerCase().contains('academy');
+            stopName.toLowerCase().contains('academy') ||
+            stopName.toLowerCase().contains('gate');
+        final stopId = (stop['id'] ?? stopName).toString();
 
-        if (isSchool) {
-          markers.add(
-            Marker(
-              point: LatLng(lat, lng),
-              width: 50,
-              height: 50,
-              child: Container(
-                padding: const EdgeInsets.all(4),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  shape: BoxShape.circle,
-                  boxShadow: [
-                    BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 3)),
-                  ],
-                ),
-                child: Image.asset(
-                  'assets/school-location-icon.png',
-                  width: 38,
-                  height: 38,
-                  fit: BoxFit.contain,
-                ),
-              ),
-            ),
-          );
-        }
+        markers.add(
+          Marker(
+            markerId: MarkerId('stop-$stopId'),
+            position: LatLng(lat, lng),
+            infoWindow: InfoWindow(title: stopName),
+            icon: isSchool
+                ? (_schoolIcon ??
+                    BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen))
+                : BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
+          ),
+        );
       }
     }
 
-    // 2. Pickup Stage Pin (Purple marker on route)
     if (_pickupStageLocation != null) {
       markers.add(
         Marker(
-          point: _pickupStageLocation!,
-          width: 36,
-          height: 36,
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF8B5CF6),
-              shape: BoxShape.circle,
-              boxShadow: [
-                BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 3)),
-              ],
-            ),
-            child: const Icon(
-              Icons.location_on_rounded,
-              color: Colors.white,
-              size: 22,
-            ),
-          ),
+          markerId: const MarkerId('pickup-stage'),
+          position: _pickupStageLocation!,
+          infoWindow: InfoWindow(title: _pickupStageName, snippet: 'Pickup stage'),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueViolet),
         ),
       );
     }
 
-    // 3. Home Location Pin (Blue circle pin with white home icon)
     markers.add(
       Marker(
-        point: _homeLocation,
-        width: 48,
-        height: 48,
-        child: Container(
-          decoration: BoxDecoration(
-            color: const Color(0xFF2563EB),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2.5),
-            boxShadow: const [
-              BoxShadow(color: Colors.black26, blurRadius: 8, offset: Offset(0, 4)),
-            ],
-          ),
-          child: const Icon(
-            Icons.home_rounded,
-            color: Colors.white,
-            size: 26,
-          ),
-        ),
+        markerId: const MarkerId('home'),
+        position: _homeLocation,
+        infoWindow: const InfoWindow(title: 'Home'),
+        icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
       ),
     );
 
-    // 4. Live Bus Marker + Speech Bubble Callout ("8 mins away") - only if trip active
     if (_isTripActive) {
       final LatLng busPosition = (_liveLat != null && _liveLng != null)
           ? LatLng(_liveLat!, _liveLng!)
@@ -324,54 +317,19 @@ class _MapScreenState extends State<MapScreen> {
 
       markers.add(
         Marker(
-          point: busPosition,
-          width: 140,
-          height: 100,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(12),
-                  boxShadow: const [
-                    BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 4)),
-                  ],
-                ),
-                child: const Column(
-                  children: [
-                    Text(
-                      '8 mins',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                    Text(
-                      'away',
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: Color(0xFF64748B),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 4),
-              Image.asset(
-                'assets/bus-icon.png',
-                width: 42,
-                height: 42,
-                fit: BoxFit.contain,
-              ),
-            ],
+          markerId: const MarkerId('live-bus'),
+          position: busPosition,
+          infoWindow: InfoWindow(
+            title: _licensePlate,
+            snippet: _isEmergency ? 'SOS active' : '8 mins away',
           ),
+          icon: _busIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
+          zIndexInt: 5,
         ),
       );
     } else if (_pickupStageLocation != null) {
-      // 5. Inactive Trip Speech Bubble Callout Marker (Image 2)
+      // Keep inactive mid-point marker as a simple map annotation via InfoWindow-less pin.
       final LatLng midPoint = LatLng(
         (_homeLocation.latitude + _pickupStageLocation!.latitude) / 2,
         (_homeLocation.longitude + _pickupStageLocation!.longitude) / 2,
@@ -379,57 +337,38 @@ class _MapScreenState extends State<MapScreen> {
 
       markers.add(
         Marker(
-          point: midPoint,
-          width: 140,
-          height: 65,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFF1F5F9)),
-              boxShadow: const [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 10,
-                  offset: Offset(0, 4),
-                )
-              ],
-            ),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  '${_distanceMeters} m',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                Text(
-                  '${_walkTimeMins} min walk',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF475569),
-                  ),
-                ),
-              ],
-            ),
+          markerId: const MarkerId('walk-hint'),
+          position: midPoint,
+          infoWindow: InfoWindow(
+            title: '$_walkTimeMins min walk',
+            snippet: '$_distanceMeters m from home',
           ),
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueMagenta),
         ),
       );
     }
 
-    // Google Maps Vector/Roadmap style tile url template
-    final String googleMapsUrlTemplate =
-        'https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}';
-
-    // Generate dotted walking path points
     final List<LatLng> walkingPath = _pickupStageLocation != null
         ? _generateDottedWalkingPath(_homeLocation, _pickupStageLocation!, 20)
         : [];
+
+    final Set<Polyline> polylines = {
+      if (_polylinePoints.length >= 2)
+        Polyline(
+          polylineId: const PolylineId('route'),
+          points: _polylinePoints,
+          width: 5,
+          color: const Color(0xFF2563EB),
+        ),
+      if (walkingPath.length >= 2)
+        Polyline(
+          polylineId: const PolylineId('walk'),
+          points: walkingPath,
+          width: 4,
+          color: const Color(0xFF8B5CF6),
+          patterns: [PatternItem.dot, PatternItem.gap(12)],
+        ),
+    };
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -437,42 +376,18 @@ class _MapScreenState extends State<MapScreen> {
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF2563EB)))
           : Stack(
               children: [
-                // 1. Google Map Canvas
-                FlutterMap(
-                  mapController: _mapController,
-                  options: MapOptions(
-                    initialCenter: _homeLocation,
-                    initialZoom: 14.5,
+                GoogleMap(
+                  initialCameraPosition: CameraPosition(
+                    target: _homeLocation,
+                    zoom: 14.5,
                   ),
-                  children: [
-                    TileLayer(
-                      urlTemplate: googleMapsUrlTemplate,
-                      userAgentPackageName: 'com.schooltrack.parent_app',
-                    ),
-                    // Route Polyline (Blue)
-                    if (_polylinePoints.isNotEmpty)
-                      PolylineLayer(
-                        polylines: [
-                          Polyline(
-                            points: _polylinePoints,
-                            strokeWidth: 5.0,
-                            color: const Color(0xFF2563EB),
-                          ),
-                        ],
-                      ),
-                    // Dotted Walking Path from Home to Pickup Stage (Purple Dotted Line)
-                    if (walkingPath.isNotEmpty)
-                      PolylineLayer(
-                        polylines: [
-                          Polyline(
-                            points: walkingPath,
-                            strokeWidth: 3.5,
-                            color: const Color(0xFF8B5CF6),
-                          ),
-                        ],
-                      ),
-                    MarkerLayer(markers: markers),
-                  ],
+                  myLocationButtonEnabled: false,
+                  zoomControlsEnabled: false,
+                  mapToolbarEnabled: false,
+                  compassEnabled: false,
+                  markers: markers,
+                  polylines: polylines,
+                  onMapCreated: (controller) => _mapController = controller,
                 ),
 
                 // 2. TOP FLOATING CARD: Home Address (Inactive) vs Active Bus Info

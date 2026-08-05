@@ -8,6 +8,7 @@ import {
   getCallerProfile,
   isDemoReadonly,
 } from "@/lib/authApi";
+import { haversineDistanceMeters, parseGeoPoint } from "@/lib/geoUtils";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -195,6 +196,96 @@ export async function PUT(
           { success: false, error: "Drivers may only update student attendance status" },
           { status: 403 }
         );
+      }
+
+      // Enforce stop geofence: board at pickup stop, drop at dropoff stop.
+      if (result.data.status) {
+        const { data: existingStudent, error: existingError } = await client
+          .from("students")
+          .select("id, route_id, pickup_stop_id, dropoff_stop_id")
+          .eq("id", id)
+          .single();
+
+        if (existingError || !existingStudent) {
+          return NextResponse.json(
+            { success: false, error: existingError?.message ?? "Student not found" },
+            { status: 404 }
+          );
+        }
+
+        const requiredStopId =
+          result.data.status === "Present"
+            ? existingStudent.pickup_stop_id
+            : existingStudent.dropoff_stop_id;
+
+        if (requiredStopId) {
+          const { data: stopRow, error: stopError } = await client
+            .from("stops")
+            .select("id, name, location, geofence_radius_meters")
+            .eq("id", requiredStopId)
+            .single();
+
+          if (stopError || !stopRow) {
+            return NextResponse.json(
+              { success: false, error: "Assigned stop not found for attendance action" },
+              { status: 400 }
+            );
+          }
+
+          const stopPoint = parseGeoPoint(stopRow.location);
+          if (!stopPoint) {
+            return NextResponse.json(
+              { success: false, error: "Assigned stop has invalid coordinates" },
+              { status: 400 }
+            );
+          }
+
+          const { data: liveRows, error: liveError } = await client
+            .from("live_coordinates")
+            .select("coordinates, created_at")
+            .eq("route_id", existingStudent.route_id)
+            .order("created_at", { ascending: false })
+            .limit(1);
+
+          if (liveError || !liveRows || liveRows.length === 0) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: "No live bus location available. Start the trip and wait for GPS before boarding.",
+              },
+              { status: 403 }
+            );
+          }
+
+          const busPoint = parseGeoPoint(liveRows[0].coordinates);
+          if (!busPoint) {
+            return NextResponse.json(
+              { success: false, error: "Live bus location could not be parsed" },
+              { status: 403 }
+            );
+          }
+
+          const radius =
+            typeof stopRow.geofence_radius_meters === "number" && stopRow.geofence_radius_meters >= 5
+              ? stopRow.geofence_radius_meters
+              : 50;
+          const distance = haversineDistanceMeters(
+            busPoint.lat,
+            busPoint.lng,
+            stopPoint.lat,
+            stopPoint.lng
+          );
+
+          if (distance > radius) {
+            return NextResponse.json(
+              {
+                success: false,
+                error: `Bus must be at ${stopRow.name ?? "the assigned stop"} to update attendance (within ${radius}m).`,
+              },
+              { status: 403 }
+            );
+          }
+        }
       }
     }
 

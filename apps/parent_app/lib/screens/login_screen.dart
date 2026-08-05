@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:parent_app/screens/dashboard_screen.dart';
+import 'package:parent_app/config/api_config.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -29,15 +29,7 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // Get the base API URL mapping localhost correctly for Android emulator and iOS simulator
-  String _getApiBaseUrl() {
-    try {
-      if (Platform.isAndroid) {
-        return 'http://10.0.2.2:3000';
-      }
-    } catch (_) {}
-    return 'http://localhost:3000';
-  }
+  String _getApiBaseUrl() => ApiConfig.baseUrl;
 
   String _getFormattedPhoneNumber() {
     var rawPhone = _phoneController.text.trim().replaceAll(RegExp(r'[\s\-()]+'), '');

@@ -9,7 +9,7 @@ import 'package:parent_app/screens/map_screen.dart';
 import 'package:parent_app/screens/relocate_screen.dart';
 import 'package:parent_app/screens/attendance_form_screen.dart';
 import 'package:parent_app/screens/notifications_screen.dart';
-import 'package:latlong2/latlong.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});

@@ -11,58 +11,49 @@ import 'package:driver_app/services/location_service.dart';
 import 'package:driver_app/screens/login_screen.dart';
 import 'package:driver_app/services/driver_api_auth.dart';
 import 'package:driver_app/screens/student_selection_screen.dart';
+import 'package:driver_app/config/api_config.dart';
+import 'package:driver_app/widgets/route_map_widget.dart';
+import 'package:driver_app/utils/geo_utils.dart';
+import 'package:driver_app/providers/trip_providers.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 
-// Riverpod provider for managing active trip state
-final tripActiveProvider = StateProvider<bool>((ref) => false);
-
-// Riverpod provider for tracking emergency SOS status
-final emergencyActiveProvider = StateProvider<bool>((ref) => false);
-
-// Riverpod provider for storing the latest received telemetry coordinates
-class TelemetryCoords {
-  final double latitude;
-  final double longitude;
-  final double speed;
-  final double bearing;
-  final String timestamp;
-
-  TelemetryCoords({
-    required this.latitude,
-    required this.longitude,
-    required this.speed,
-    required this.bearing,
-    required this.timestamp,
-  });
-}
-
-final telemetryCoordsProvider = StateProvider<TelemetryCoords?>((ref) => null);
+export 'package:driver_app/providers/trip_providers.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // Keep startup resilient: a failed plugin init must not leave Android on the
+  // native splash forever (first Flutter frame never draws).
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (e, st) {
+    debugPrint('Firebase init failed: $e\n$st');
+  }
 
-  // Initialize Supabase client
-  await Supabase.initialize(
-    url: SupabaseService.url,
-    publishableKey: SupabaseService.anonKey,
-  );
+  try {
+    await Supabase.initialize(
+      url: SupabaseService.url,
+      publishableKey: SupabaseService.anonKey,
+    );
+  } catch (e, st) {
+    debugPrint('Supabase init failed: $e\n$st');
+  }
 
-  // Initialize the location background service setup
-  await LocationTrackingService.initializeBackgroundService();
+  try {
+    await LocationTrackingService.initializeBackgroundService();
+  } catch (e, st) {
+    debugPrint('Background location service init failed: $e\n$st');
+  }
 
-  // Check login state to determine initial screen
   final prefs = await SharedPreferences.getInstance();
   final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
 
   runApp(
-    // Wrap application in ProviderScope to enable Riverpod state management
     ProviderScope(
       child: MyApp(isLoggedIn: isLoggedIn),
     ),
@@ -77,17 +68,19 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Safaricom Track Driver Console',
+      title: 'OnTheBus Driver',
       debugShowCheckedModeBanner: false,
-      // Daylight-optimized contrast theme (bright backgrounds, bold styling)
+      // OnTheBus light theme (page #F8F9FF, white cards, ink text)
       theme: ThemeData(
         useMaterial3: true,
-        brightness: Brightness.dark,
+        brightness: Brightness.light,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF10B981), // Safaricom Green
-          brightness: Brightness.dark,
+          seedColor: const Color(0xFF10B981), // Action green
+          brightness: Brightness.light,
         ),
-        scaffoldBackgroundColor: const Color(0xFF0A0E1A), // Dark Navy
+        scaffoldBackgroundColor: const Color(0xFFF8F9FF),
+        cardColor: const Color(0xFFFFFFFF),
+        dividerColor: const Color(0xFFE2E8F0),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF10B981),
           foregroundColor: Colors.white,
@@ -126,8 +119,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   String _driverPhone = "";
   String _driverRole = "driver";
   String _vehiclePlate = "KBC 123X";
-  String _schoolName = "Safaricom Track Console";
+  String _schoolName = "OnTheBus Driver";
   StreamSubscription? _telemetrySub;
+  StreamSubscription<Position>? _foregroundGpsSub;
 
   // Route and Trip selection states
   String? _selectedRouteId;
@@ -166,6 +160,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   @override
   void dispose() {
     _telemetrySub?.cancel();
+    _foregroundGpsSub?.cancel();
     _countdownTimer?.cancel();
     _tenantController.dispose();
     _vehicleController.dispose();
@@ -174,15 +169,86 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     super.dispose();
   }
 
-  // Get the base API URL mapping localhost correctly for Android emulator and iOS simulator
-  String _getApiBaseUrl() {
-    try {
-      if (Platform.isAndroid) {
-        return 'http://10.0.2.2:3000';
-      }
-    } catch (_) {}
-    return 'http://localhost:3000';
+  ArrivedStop? _arrivedStopFor(TelemetryCoords? telemetry) {
+    if (telemetry == null || _stopsList.isEmpty) return null;
+    return findArrivedStop(
+      latitude: telemetry.latitude,
+      longitude: telemetry.longitude,
+      stops: _stopsList,
+    );
   }
+
+  void _applyTelemetry({
+    required double latitude,
+    required double longitude,
+    double speed = 0,
+    double bearing = 0,
+    String? timestamp,
+  }) {
+    if (!mounted) return;
+    ref.read(telemetryCoordsProvider.notifier).state = TelemetryCoords(
+      latitude: latitude,
+      longitude: longitude,
+      speed: speed,
+      bearing: bearing,
+      timestamp: timestamp ?? DateTime.now().toIso8601String(),
+    );
+  }
+
+  Future<void> _seedForegroundGps() async {
+    try {
+      final last = await Geolocator.getLastKnownPosition();
+      if (last != null) {
+        _applyTelemetry(
+          latitude: last.latitude,
+          longitude: last.longitude,
+          speed: last.speed,
+          bearing: last.heading,
+        );
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 8),
+        ),
+      );
+      _applyTelemetry(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        speed: position.speed,
+        bearing: position.heading,
+      );
+    } catch (e) {
+      debugPrint('Foreground GPS seed failed: $e');
+    }
+  }
+
+  void _startForegroundGpsStream() {
+    _foregroundGpsSub?.cancel();
+    _foregroundGpsSub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      ),
+    ).listen((position) {
+      _applyTelemetry(
+        latitude: position.latitude,
+        longitude: position.longitude,
+        speed: position.speed,
+        bearing: position.heading,
+      );
+    }, onError: (Object e) {
+      debugPrint('Foreground GPS stream error: $e');
+    });
+  }
+
+  void _stopForegroundGpsStream() {
+    _foregroundGpsSub?.cancel();
+    _foregroundGpsSub = null;
+  }
+
+  String _getApiBaseUrl() => ApiConfig.baseUrl;
 
   /// Load authenticated driver details from SharedPreferences
   Future<void> _loadSessionDetails() async {
@@ -195,7 +261,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       _tenantController.text = prefs.getString('tenant_id') ?? '8c9ad841-f762-4217-a021-9876251b5bcf';
       _vehicleController.text = prefs.getString('vehicle_id') ?? 'e5015e10-c09a-4c22-901d-5573752e379c';
       _vehiclePlate = prefs.getString('vehicle_plate') ?? 'KBC 123X';
-      _schoolName = prefs.getString('school_name') ?? 'Safaricom Track Console';
+      _schoolName = prefs.getString('school_name') ?? 'OnTheBus Driver';
     });
 
     // Fetch today's scheduled routes and trips
@@ -629,24 +695,29 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
     if (mounted) {
       ref.read(tripActiveProvider.notifier).state = isTripStarted;
+      if (isTripStarted) {
+        await _seedForegroundGps();
+        _startForegroundGpsStream();
+      }
     }
   }
 
   /// Register background event listener to receive coordinate streams
   void _listenToBackgroundTelemetry() {
     final service = FlutterBackgroundService();
-    
+
     _telemetrySub = service.on('telemetryUpdate').listen((event) {
-      if (event != null && mounted) {
-        final coords = TelemetryCoords(
-          latitude: event['latitude'] as double,
-          longitude: event['longitude'] as double,
-          speed: event['speed'] as double,
-          bearing: event['bearing'] as double,
-          timestamp: event['timestamp'] as String,
-        );
-        ref.read(telemetryCoordsProvider.notifier).state = coords;
-      }
+      if (event == null || !mounted) return;
+      final lat = coordToDouble(event['latitude']);
+      final lng = coordToDouble(event['longitude']);
+      if (lat == null || lng == null) return;
+      _applyTelemetry(
+        latitude: lat,
+        longitude: lng,
+        speed: coordToDouble(event['speed']) ?? 0,
+        bearing: coordToDouble(event['bearing']) ?? 0,
+        timestamp: event['timestamp']?.toString(),
+      );
     });
   }
 
@@ -695,6 +766,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       'apiBaseUrl': _getApiBaseUrl(),
     });
 
+    // Seed UI map marker immediately; keep a foreground stream as a fallback
+    // when background isolate events are delayed or drop numeric type casts.
+    await _seedForegroundGps();
+    _startForegroundGpsStream();
+
     ref.read(tripActiveProvider.notifier).state = true;
     setState(() {
       _currentTab = 1; // Switch to active trip tracking tab
@@ -705,11 +781,12 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   Future<void> _endTrip() async {
     final service = FlutterBackgroundService();
     service.invoke('stopService');
-    
+    _stopForegroundGpsStream();
+
     // Save trip started state in SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('is_trip_started', false);
-    
+
     if (mounted) {
       ref.read(tripActiveProvider.notifier).state = false;
       ref.read(emergencyActiveProvider.notifier).state = false;
@@ -834,10 +911,13 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   }
 
   void _showStudentDetailsPopup(dynamic student) {
+    final telemetry = ref.read(telemetryCoordsProvider);
+    final arrived = _arrivedStopFor(telemetry);
+
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: const Color(0xFF151C2C),
+      backgroundColor: const Color(0xFFFFFFFF),
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
@@ -849,6 +929,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             final String className = student['class_name'] ?? 'N/A';
             final String status = student['status'] ?? 'Absent';
             final bool isBoarded = status == "Present";
+            final canAct = studentAllowedAtStop(
+              student: Map<String, dynamic>.from(student as Map),
+              arrivedStopId: arrived?.id,
+              isBoardAction: !isBoarded,
+            );
 
             final pickupStopId = student['pickup_stop_id'];
             final dropoffStopId = student['dropoff_stop_id'];
@@ -894,12 +979,12 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           IconButton(
-                            icon: const Icon(Icons.close, color: Colors.white),
+                            icon: const Icon(Icons.close, color: Color(0xFF0B1C30)),
                             onPressed: () => Navigator.pop(context),
                           ),
                           const Text(
                             'Student Details',
-                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                           ),
                           const SizedBox(width: 48),
                         ],
@@ -910,7 +995,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                           children: [
                             CircleAvatar(
                               radius: 40,
-                              backgroundColor: isBoarded ? const Color(0xFF10B981) : const Color(0xFF334155),
+                              backgroundColor: isBoarded ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
                               child: Text(
                                 _getInitials(studentName),
                                 style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
@@ -919,7 +1004,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                             const SizedBox(height: 12),
                             Text(
                               studentName,
-                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                             ),
                             const SizedBox(height: 4),
                             Text(
@@ -930,9 +1015,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
-                                color: isBoarded ? Colors.green.withAlpha(26) : Colors.white.withAlpha(13),
+                                color: isBoarded ? Colors.green.withAlpha(26) : const Color(0xFFF1F5F9),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: isBoarded ? Colors.green : Colors.white24),
+                                border: Border.all(color: isBoarded ? Colors.green : const Color(0xFFE2E8F0)),
                               ),
                               child: Text(
                                 isBoarded ? 'ONBOARD • 07:12 AM' : 'PENDING',
@@ -949,33 +1034,33 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                       const SizedBox(height: 24),
                       Container(
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0F172A),
+                          color: const Color(0xFFF1F5F9),
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFF223049)),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
                         ),
                         child: Column(
                           children: [
                             ListTile(
                               leading: const Icon(Icons.home, color: Color(0xFF10B981)),
                               title: const Text('Pickup Point', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-                              subtitle: Text(pickupName, style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold)),
+                              subtitle: Text(pickupName, style: const TextStyle(fontSize: 14, color: Color(0xFF0B1C30), fontWeight: FontWeight.bold)),
                               trailing: const Icon(Icons.chevron_right, color: Color(0xFF64748B)),
                               onTap: () {},
                             ),
-                            const Divider(height: 1, color: Color(0xFF223049)),
+                            const Divider(height: 1, color: Color(0xFFE2E8F0)),
                             ListTile(
                               leading: const Icon(Icons.logout, color: Colors.orange),
                               title: const Text('Dropoff Point', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-                              subtitle: Text(dropoffName, style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold)),
+                              subtitle: Text(dropoffName, style: const TextStyle(fontSize: 14, color: Color(0xFF0B1C30), fontWeight: FontWeight.bold)),
                               trailing: const Icon(Icons.chevron_right, color: Color(0xFF64748B)),
                               onTap: () {},
                             ),
-                            const Divider(height: 1, color: Color(0xFF223049)),
+                            const Divider(height: 1, color: Color(0xFFE2E8F0)),
                             if (guardiansList.isEmpty)
                               const ListTile(
                                 leading: Icon(Icons.phone, color: Color(0xFF64748B)),
                                 title: Text('Parent / Guardian', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-                                subtitle: Text('No parent / guardian registered', style: TextStyle(fontSize: 14, color: Colors.white)),
+                                subtitle: Text('No parent / guardian registered', style: TextStyle(fontSize: 14, color: Color(0xFF0B1C30))),
                               )
                             else
                               ...guardiansList.map((guardian) {
@@ -986,7 +1071,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                                     ListTile(
                                       leading: const Icon(Icons.phone, color: Color(0xFF10B981)),
                                       title: Text('Parent / Guardian ($gName)', style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-                                      subtitle: Text(gPhone, style: const TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold)),
+                                      subtitle: Text(gPhone, style: const TextStyle(fontSize: 14, color: Color(0xFF0B1C30), fontWeight: FontWeight.bold)),
                                       trailing: IconButton(
                                         icon: const Icon(Icons.phone_in_talk, color: Color(0xFF10B981)),
                                         onPressed: () {
@@ -994,14 +1079,14 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                                         },
                                       ),
                                     ),
-                                    const Divider(height: 1, color: Color(0xFF223049)),
+                                    const Divider(height: 1, color: Color(0xFFE2E8F0)),
                                   ],
                                 );
                               }),
                             ListTile(
                               leading: const Icon(Icons.note_alt, color: Color(0xFF10B981)),
                               title: const Text('Notes', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-                              subtitle: const Text('No notes', style: TextStyle(fontSize: 14, color: Colors.white)),
+                              subtitle: const Text('No notes', style: TextStyle(fontSize: 14, color: Color(0xFF0B1C30))),
                               trailing: const Icon(Icons.chevron_right, color: Color(0xFF64748B)),
                               onTap: () {},
                             ),
@@ -1009,22 +1094,51 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                         ),
                       ),
                       const SizedBox(height: 24),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: canAct
+                              ? const Color(0xFF10B981).withAlpha(26)
+                              : Colors.orange.withAlpha(26),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: canAct ? const Color(0xFF10B981) : Colors.orange,
+                          ),
+                        ),
+                        child: Text(
+                          canAct
+                              ? 'Unlocked at ${arrived?.name ?? "this stop"}.'
+                              : arrived == null
+                                  ? 'Arrive at this student\'s stop geofence to board or drop off.'
+                                  : 'At ${arrived.name}. This student is assigned to a different stop.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: canAct ? const Color(0xFF006B32) : Colors.orange.shade900,
+                          ),
+                        ),
+                      ),
                       const Text(
                         'Trip Actions',
                         style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF94A3B8), letterSpacing: 0.5),
                       ),
                       const SizedBox(height: 8),
                       ElevatedButton.icon(
-                        onPressed: () async {
-                          final newStatus = isBoarded ? "Absent" : "Present";
-                          await _updateStudentStatus(student, newStatus);
-                          setPopupState(() {});
-                        },
+                        onPressed: canAct
+                            ? () async {
+                                final newStatus = isBoarded ? "Absent" : "Present";
+                                await _updateStudentStatus(student, newStatus);
+                                setPopupState(() {});
+                              }
+                            : null,
                         icon: Icon(isBoarded ? Icons.logout : Icons.login),
                         label: Text(isBoarded ? 'DROP OFF STUDENT' : 'BOARD STUDENT'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: isBoarded ? const Color(0xFF047857) : const Color(0xFF10B981),
                           foregroundColor: Colors.white,
+                          disabledBackgroundColor: const Color(0xFFE2E8F0),
                           minimumSize: const Size(double.infinity, 50),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         ),
@@ -1036,8 +1150,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                             child: OutlinedButton(
                               onPressed: () {},
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: const BorderSide(color: Color(0xFF223049)),
+                                foregroundColor: const Color(0xFF0B1C30),
+                                side: const BorderSide(color: Color(0xFFE2E8F0)),
                                 minimumSize: const Size(0, 50),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                               ),
@@ -1049,8 +1163,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                             child: OutlinedButton(
                               onPressed: () {},
                               style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: const BorderSide(color: Color(0xFF223049)),
+                                foregroundColor: const Color(0xFF0B1C30),
+                                side: const BorderSide(color: Color(0xFFE2E8F0)),
                                 minimumSize: const Size(0, 50),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                               ),
@@ -1348,9 +1462,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           Container(
             padding: const EdgeInsets.all(20.0),
             decoration: BoxDecoration(
-              color: const Color(0xFF151C2C),
+              color: const Color(0xFFFFFFFF),
               borderRadius: const BorderRadius.all(Radius.circular(16)),
-              border: Border.all(color: const Color(0xFF223049), width: 1.5),
+              border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
             ),
             child: Column(
               children: [
@@ -1381,7 +1495,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: Color(0xFF0B1C30),
                     height: 1.3
                   ),
                 ),
@@ -1404,6 +1518,16 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               ],
             ),
           ),
+          if (_selectedRouteId != null) ...[
+            const SizedBox(height: 16),
+            RouteMapWidget(
+              routeId: _selectedRouteId!,
+              liveLatitude: telemetry?.latitude,
+              liveLongitude: telemetry?.longitude,
+              vehiclePlate: _vehiclePlate,
+              arrivedStopId: _arrivedStopFor(telemetry)?.id,
+            ),
+          ],
         ] else if (_nextTrip != null) ...[
           // LIST OF SCHEDULED TRIPS (ACCORDION STYLE)
           const Text(
@@ -1445,9 +1569,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           Container(
             padding: const EdgeInsets.all(24.0),
             decoration: BoxDecoration(
-              color: const Color(0xFF151C2C),
+              color: const Color(0xFFFFFFFF),
               borderRadius: const BorderRadius.all(Radius.circular(16)),
-              border: Border.all(color: const Color(0xFF223049), width: 1.5),
+              border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
             ),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
@@ -1456,7 +1580,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 const SizedBox(height: 16),
                 const Text(
                   'No Trips Scheduled Today',
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                 ),
                 const SizedBox(height: 8),
                 const Text(
@@ -1501,7 +1625,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               const SizedBox(height: 16),
               const Text(
                 'No Active Trip',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -1536,10 +1660,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         Container(
           padding: const EdgeInsets.all(20.0),
           decoration: BoxDecoration(
-            color: const Color(0xFF151C2C),
+            color: const Color(0xFFFFFFFF),
             borderRadius: const BorderRadius.all(Radius.circular(16)),
             border: Border.all(
-              color: isSos ? Colors.red : const Color(0xFF223049), 
+              color: isSos ? Colors.red : const Color(0xFFE2E8F0), 
               width: isSos ? 2.0 : 1.5
             ),
           ),
@@ -1586,14 +1710,14 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 ),
               ),
               if (telemetry != null) ...[
-                const Divider(height: 24, color: Color(0xFF223049)),
+                const Divider(height: 24, color: Color(0xFFE2E8F0)),
                 Text(
                   'Lat: ${telemetry.latitude.toStringAsFixed(6)}',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                 ),
                 Text(
                   'Lng: ${telemetry.longitude.toStringAsFixed(6)}',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -1625,6 +1749,16 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             ],
           ),
         ),
+        if (_selectedRouteId != null) ...[
+          const SizedBox(height: 16),
+          RouteMapWidget(
+            routeId: _selectedRouteId!,
+            liveLatitude: telemetry?.latitude,
+            liveLongitude: telemetry?.longitude,
+            vehiclePlate: _vehiclePlate,
+            arrivedStopId: _arrivedStopFor(telemetry)?.id,
+          ),
+        ],
         const SizedBox(height: 20),
         Row(
           children: [
@@ -1703,7 +1837,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               const SizedBox(height: 16),
               const Text(
                 'No Route Selected',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -1726,9 +1860,19 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       );
     }
 
+    final telemetry = ref.watch(telemetryCoordsProvider);
+    final arrived = _arrivedStopFor(telemetry);
+
     final filteredStudents = _studentsList.where((student) {
       final name = (student['name'] ?? '').toString().toLowerCase();
-      return name.contains(_studentsSearchQuery.toLowerCase());
+      if (!name.contains(_studentsSearchQuery.toLowerCase())) return false;
+      if (arrived == null) return false;
+      final isBoarded = (student['status'] ?? 'Absent') == 'Present';
+      return studentAllowedAtStop(
+        student: Map<String, dynamic>.from(student as Map),
+        arrivedStopId: arrived.id,
+        isBoardAction: !isBoarded,
+      );
     }).toList();
 
     return Column(
@@ -1737,13 +1881,13 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         Container(
           height: 48,
           decoration: BoxDecoration(
-            color: const Color(0xFF151C2C),
+            color: const Color(0xFFFFFFFF),
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFF223049), width: 1.5),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
           ),
           child: TextField(
             controller: _studentsSearchController,
-            style: const TextStyle(color: Colors.white),
+            style: const TextStyle(color: Color(0xFF0B1C30)),
             decoration: InputDecoration(
               hintText: 'Search students...',
               hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 14),
@@ -1769,7 +1913,30 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             },
           ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: arrived != null
+                ? const Color(0xFF10B981).withAlpha(26)
+                : Colors.orange.withAlpha(26),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: arrived != null ? const Color(0xFF10B981) : Colors.orange,
+            ),
+          ),
+          child: Text(
+            arrived != null
+                ? 'At ${arrived.name} — showing only students for this stop.'
+                : 'Drive into a stop geofence to unlock board / drop-off for that stop.',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: arrived != null ? const Color(0xFF006B32) : Colors.orange.shade900,
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
 
         Row(
           children: [
@@ -1777,7 +1944,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             const SizedBox(width: 8),
             const Text(
               'STUDENT MANIFEST',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
             ),
             const Spacer(),
             Text(
@@ -1789,12 +1956,17 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         const SizedBox(height: 16),
 
         if (filteredStudents.isEmpty) ...[
-          const Center(
+          Center(
             child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 40.0),
+              padding: const EdgeInsets.symmetric(vertical: 40.0),
               child: Text(
-                'No matching students found.',
-                style: TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
+                arrived == null
+                    ? 'No stop unlocked yet.'
+                    : (_studentsSearchQuery.isNotEmpty
+                        ? 'No matching students at this stop.'
+                        : 'No students to board or drop at ${arrived.name}.'),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
               ),
             ),
           ),
@@ -1817,9 +1989,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF151C2C),
+                    color: const Color(0xFFFFFFFF),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF223049)),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
                   child: Row(
                     children: [
@@ -1828,13 +2000,13 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
-                          color: isBoarded ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
+                          color: isBoarded ? const Color(0xFF10B981) : const Color(0xFF0B1C30),
                         ),
                       ),
                       const SizedBox(width: 12),
                       CircleAvatar(
                         radius: 20,
-                        backgroundColor: isBoarded ? const Color(0xFF10B981) : const Color(0xFF334155),
+                        backgroundColor: isBoarded ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
                         child: Text(
                           _getInitials(studentName),
                           style: const TextStyle(
@@ -1854,7 +2026,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.white,
+                                color: Color(0xFF0B1C30),
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -1908,6 +2080,20 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                             const SizedBox(height: 4),
                             GestureDetector(
                               onTap: () {
+                                final allowed = studentAllowedAtStop(
+                                  student: Map<String, dynamic>.from(student as Map),
+                                  arrivedStopId: arrived?.id,
+                                  isBoardAction: true,
+                                );
+                                if (!allowed) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Arrive at this student\'s pickup stop to board.'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                  return;
+                                }
                                 _updateStudentStatus(student, "Present");
                               },
                               child: Container(
@@ -1959,7 +2145,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               const SizedBox(height: 16),
               const Text(
                 'No Route Selected',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
               ),
               const SizedBox(height: 8),
               const Text(
@@ -2019,9 +2205,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: const Color(0xFF151C2C),
+            color: const Color(0xFFFFFFFF),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFF223049), width: 1.5),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
           ),
           child: ListView.builder(
             shrinkWrap: true,
@@ -2043,7 +2229,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
               final isLast = index == sortedStops.length - 1;
 
-              Color circleColor = const Color(0xFF1E293B);
+              Color circleColor = const Color(0xFF94A3B8);
               if (index == 0) {
                 circleColor = const Color(0xFF047857);
               } else if (isLast) {
@@ -2062,7 +2248,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                           decoration: BoxDecoration(
                             color: circleColor,
                             shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xFF223049), width: 1.5),
+                            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
                           ),
                           alignment: Alignment.center,
                           child: Text(
@@ -2074,7 +2260,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                           Expanded(
                             child: Container(
                               width: 2,
-                              color: const Color(0xFF223049),
+                              color: const Color(0xFFE2E8F0),
                             ),
                           ),
                       ],
@@ -2089,7 +2275,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                           children: [
                             Text(
                               stopName,
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                             ),
                             const SizedBox(height: 4),
                             Text(
@@ -2161,7 +2347,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       ),
       bottomNavigationBar: Theme(
         data: Theme.of(context).copyWith(
-          canvasColor: const Color(0xFF151C2C),
+          canvasColor: const Color(0xFFFFFFFF),
         ),
         child: BottomNavigationBar(
           currentIndex: _currentTab,
@@ -2172,7 +2358,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           },
           selectedItemColor: const Color(0xFF10B981),
           unselectedItemColor: const Color(0xFF64748B),
-          backgroundColor: const Color(0xFF151C2C),
+          backgroundColor: const Color(0xFFFFFFFF),
+          elevation: 8,
           type: BottomNavigationBarType.fixed,
           items: const [
             BottomNavigationBarItem(
@@ -2194,25 +2381,30 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           ],
         ),
       ),
-      floatingActionButton: (isTripActive && _selectedRouteId != null)
-          ? FloatingActionButton.extended(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => StudentSelectionScreen(
-                      routeId: _selectedRouteId!,
-                      tenantId: _tenantController.text.trim(),
-                      tripId: _selectedTripId ?? '',
-                    ),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.people),
-              label: const Text('Board Students'),
-              backgroundColor: const Color(0xFF10B981),
-              foregroundColor: Colors.white,
-            )
-          : null,
+      floatingActionButton: () {
+        if (!isTripActive || _selectedRouteId == null) return null;
+        final arrivedFab = _arrivedStopFor(telemetry);
+        return FloatingActionButton.extended(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (context) => StudentSelectionScreen(
+                  routeId: _selectedRouteId!,
+                  tenantId: _tenantController.text.trim(),
+                  tripId: _selectedTripId ?? '',
+                  stops: _stopsList,
+                ),
+              ),
+            );
+          },
+          icon: const Icon(Icons.people),
+          label: Text(
+            arrivedFab != null ? 'Board · ${arrivedFab.name}' : 'Board Students',
+          ),
+          backgroundColor: const Color(0xFF10B981),
+          foregroundColor: Colors.white,
+        );
+      }(),
     );
   }
 
@@ -2226,7 +2418,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF151C2C),
+        color: const Color(0xFFFFFFFF),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: const Color(0xFF10B981), width: 2.0),
         boxShadow: [
@@ -2242,7 +2434,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               Expanded(
                 child: Text(
                   route['name'] ?? 'Route',
-                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                 ),
               ),
               Container(
@@ -2265,7 +2457,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               const SizedBox(width: 6),
               Text(
                 'Depart $departureTime',
-                style: const TextStyle(fontSize: 14, color: Color(0xFF34D399), fontWeight: FontWeight.w600),
+                style: const TextStyle(fontSize: 14, color: Color(0xFF006B32), fontWeight: FontWeight.w600),
               ),
               const SizedBox(width: 16),
               const Icon(Icons.calendar_month, color: Color(0xFF10B981), size: 16),
@@ -2287,15 +2479,15 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF223049)),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
                   child: Column(
                     children: [
                       Text(
                         '${trip['students_count'] ?? 0}',
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                       ),
                       const SizedBox(height: 4),
                       const Text(
@@ -2311,15 +2503,15 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF223049)),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
                   child: Column(
                     children: [
                       Text(
                         '${trip['stops_count'] ?? 0}',
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                       ),
                       const SizedBox(height: 4),
                       const Text(
@@ -2335,15 +2527,15 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF0F172A),
+                    color: const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF223049)),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
                   child: Column(
                     children: [
                       Text(
                         '${trip['estimated_duration'] ?? 0}m',
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                       ),
                       const SizedBox(height: 4),
                       const Text(
@@ -2364,7 +2556,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 style: const TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
-                  color: Colors.amber,
+                  color: Color(0xFFB45309),
                 ),
               ),
             ),
@@ -2379,6 +2571,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                       routeId: route['id'],
                       tenantId: _tenantController.text.trim(),
                       tripId: schedule['id'],
+                      stops: _stopsList,
                     ),
                   ),
                 );
@@ -2386,9 +2579,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               icon: const Icon(Icons.people_outline, size: 24),
               label: const Text('BOARD STUDENTS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0F172A),
-                foregroundColor: Colors.white,
-                side: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                backgroundColor: const Color(0xFFF1F5F9),
+                foregroundColor: const Color(0xFF0B1C30),
+                side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
                 minimumSize: const Size(double.infinity, 54),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
@@ -2430,9 +2623,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFF151C2C),
+          color: const Color(0xFFFFFFFF),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xFF223049)),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
         ),
         child: Row(
           children: [
@@ -2451,7 +2644,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 children: [
                   Text(
                     route['name'] ?? 'Route',
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white),
+                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -2472,7 +2665,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
-                  color: isPickup ? const Color(0xFF34D399) : const Color(0xFFF59E0B)
+                  color: isPickup ? const Color(0xFF006B32) : const Color(0xFFF59E0B)
                 ),
               ),
             ),

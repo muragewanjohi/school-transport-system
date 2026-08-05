@@ -1,8 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:driver_app/services/driver_api_auth.dart';
+import 'package:driver_app/config/api_config.dart';
+import 'package:driver_app/theme/app_colors.dart';
+import 'package:driver_app/utils/geo_utils.dart';
 
 class Student {
   final String id;
@@ -12,6 +14,8 @@ class Student {
   final String className;
   String status; // "Present" (Boarded) | "Absent" (Off Bus / Not Boarded)
   final List<String> scheduleIds;
+  final String? pickupStopId;
+  final String? dropoffStopId;
 
   Student({
     required this.id,
@@ -21,6 +25,8 @@ class Student {
     required this.className,
     required this.status,
     required this.scheduleIds,
+    this.pickupStopId,
+    this.dropoffStopId,
   });
 
   factory Student.fromJson(Map<String, dynamic> json) {
@@ -37,20 +43,31 @@ class Student {
       className: json['class_name'] ?? 'N/A',
       status: json['status'] ?? 'Absent',
       scheduleIds: parsedScheduleIds,
+      pickupStopId: json['pickup_stop_id']?.toString(),
+      dropoffStopId: json['dropoff_stop_id']?.toString(),
     );
   }
+
+  Map<String, dynamic> toStopMap() => {
+        'pickup_stop_id': pickupStopId,
+        'dropoff_stop_id': dropoffStopId,
+      };
 }
 
 class StudentChecklistWidget extends StatefulWidget {
   final String routeId;
   final String tenantId;
   final String tripId;
+  final String? arrivedStopId;
+  final String? arrivedStopName;
 
   const StudentChecklistWidget({
     super.key,
     required this.routeId,
     required this.tenantId,
     required this.tripId,
+    this.arrivedStopId,
+    this.arrivedStopName,
   });
 
   @override
@@ -75,14 +92,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
     super.dispose();
   }
 
-  String _getApiBaseUrl() {
-    try {
-      if (Platform.isAndroid) {
-        return 'http://10.0.2.2:3000';
-      }
-    } catch (_) {}
-    return 'http://localhost:3000';
-  }
+  String _getApiBaseUrl() => ApiConfig.baseUrl;
 
   Future<void> _fetchStudents() async {
     setState(() => _isLoading = true);
@@ -97,16 +107,13 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
         final result = json.decode(response.body);
         if (result['success'] == true && result['data'] != null) {
           final List<dynamic> data = result['data'];
-          final allStudents = data.map((item) => Student.fromJson(item)).toList();
-          
-          // Filter students assigned to this route and active trip run on the client
+          final allStudents = data.map((item) => Student.fromJson(item as Map<String, dynamic>)).toList();
+
           final routeStudents = allStudents
               .where((s) => s.routeId == widget.routeId && s.scheduleIds.contains(widget.tripId))
               .toList();
 
-          setState(() {
-            _students = routeStudents;
-          });
+          setState(() => _students = routeStudents);
         }
       }
     } catch (e) {
@@ -118,12 +125,32 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
     }
   }
 
+  bool _canAct(Student student) {
+    final isBoarded = student.status == "Present";
+    return studentAllowedAtStop(
+      student: student.toStopMap(),
+      arrivedStopId: widget.arrivedStopId,
+      isBoardAction: !isBoarded,
+    );
+  }
+
   Future<void> _updateStudentStatus(Student student, String newStatus) async {
-    // Optimistic UI update
+    final allowed = studentAllowedAtStop(
+      student: student.toStopMap(),
+      arrivedStopId: widget.arrivedStopId,
+      isBoardAction: newStatus == "Present",
+    );
+    if (!allowed) {
+      _showErrorSnackBar(
+        widget.arrivedStopId == null
+            ? 'Arrive at a stop geofence before boarding or dropping off.'
+            : 'This student is not assigned to ${widget.arrivedStopName ?? "this stop"}.',
+      );
+      return;
+    }
+
     final oldStatus = student.status;
-    setState(() {
-      student.status = newStatus;
-    });
+    setState(() => student.status = newStatus);
 
     try {
       final baseUrl = _getApiBaseUrl();
@@ -137,13 +164,11 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
 
       final result = json.decode(response.body);
       if (response.statusCode != 200 || result['success'] != true) {
-        // Rollback state if network failed
-        setState(() {
-          student.status = oldStatus;
-        });
-        _showErrorSnackBar("Failed to sync status update with database.");
+        setState(() => student.status = oldStatus);
+        _showErrorSnackBar(
+          (result['error'] as String?) ?? 'Failed to sync status update with database.',
+        );
       } else {
-        // Status synced successfully, show snackbar feedback
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -158,9 +183,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
         );
       }
     } catch (e) {
-      setState(() {
-        student.status = oldStatus;
-      });
+      setState(() => student.status = oldStatus);
       _showErrorSnackBar("Network error: Failed to update status.");
     }
   }
@@ -176,16 +199,28 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
 
   @override
   Widget build(BuildContext context) {
+    final atStop = widget.arrivedStopId != null;
+
     final filtered = _students.where((student) {
-      return student.name.toLowerCase().contains(_searchQuery.toLowerCase());
+      if (!student.name.toLowerCase().contains(_searchQuery.toLowerCase())) {
+        return false;
+      }
+      if (!atStop) return false;
+      final isBoarded = student.status == "Present";
+      // At this stop: pending pickups OR onboard drop-offs for this stop.
+      return studentAllowedAtStop(
+        student: student.toStopMap(),
+        arrivedStopId: widget.arrivedStopId,
+        isBoardAction: !isBoarded,
+      );
     }).toList();
 
     return Container(
       padding: const EdgeInsets.all(16.0),
       decoration: BoxDecoration(
-        color: const Color(0xFF151C2C), // Dark Navy
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFF223049), width: 1.5),
+        border: Border.all(color: AppColors.border, width: 1.5),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -195,29 +230,47 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
             children: [
               const Text(
                 'Student Roster Manifest',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.ink),
               ),
               IconButton(
-                icon: const Icon(Icons.refresh, size: 20, color: Color(0xFF10B981)),
+                icon: const Icon(Icons.refresh, size: 20, color: AppColors.actionGreen),
                 onPressed: _fetchStudents,
                 tooltip: 'Refresh student list',
               ),
             ],
           ),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: atStop ? AppColors.actionGreen.withAlpha(26) : Colors.orange.withAlpha(26),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: atStop ? AppColors.actionGreen : Colors.orange),
+            ),
+            child: Text(
+              atStop
+                  ? 'At ${widget.arrivedStopName ?? "stop"} — only students for this stop can board or drop off.'
+                  : 'Drive into a stop geofence to unlock boarding and drop-off for that stop.',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: atStop ? AppColors.primaryGreen : Colors.orange.shade900,
+              ),
+            ),
+          ),
           const SizedBox(height: 12),
 
-          // Search Field
           TextField(
             controller: _searchController,
             onChanged: (val) => setState(() => _searchQuery = val),
-            style: const TextStyle(color: Colors.white),
+            style: const TextStyle(color: AppColors.ink),
             decoration: InputDecoration(
               hintText: 'Search student by name...',
-              hintStyle: const TextStyle(color: Color(0xFF64748B)),
-              prefixIcon: const Icon(Icons.search, size: 20, color: Color(0xFF64748B)),
+              hintStyle: const TextStyle(color: AppColors.muted),
+              prefixIcon: const Icon(Icons.search, size: 20, color: AppColors.muted),
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
-                      icon: const Icon(Icons.clear, size: 18, color: Color(0xFF64748B)),
+                      icon: const Icon(Icons.clear, size: 18, color: AppColors.muted),
                       onPressed: () {
                         _searchController.clear();
                         setState(() => _searchQuery = "");
@@ -225,25 +278,24 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                     )
                   : null,
               filled: true,
-              fillColor: const Color(0xFF0F172A),
+              fillColor: AppColors.surfaceAlt,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                borderSide: const BorderSide(color: AppColors.border, width: 1.5),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
+                borderSide: const BorderSide(color: AppColors.border, width: 1.5),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+                borderSide: const BorderSide(color: AppColors.actionGreen, width: 1.5),
               ),
               contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
             ),
           ),
           const SizedBox(height: 16),
 
-          // List Grid
           if (_isLoading && _students.isEmpty)
             const Center(
               child: Padding(
@@ -251,13 +303,27 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                 child: CircularProgressIndicator(),
               ),
             )
+          else if (!atStop)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 32.0),
+                child: Text(
+                  'No stop unlocked yet. Keep driving until the bus enters a stop zone.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.muted, fontSize: 13),
+                ),
+              ),
+            )
           else if (filtered.isEmpty)
             Center(
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 32.0),
                 child: Text(
-                  _searchQuery.isNotEmpty ? 'No matches found.' : 'No students registered on this route.',
-                  style: const TextStyle(color: Color(0xFF64748B), fontSize: 13),
+                  _searchQuery.isNotEmpty
+                      ? 'No matches at this stop.'
+                      : 'No students to board or drop at ${widget.arrivedStopName ?? "this stop"}.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: AppColors.muted, fontSize: 13),
                 ),
               ),
             )
@@ -266,15 +332,15 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: filtered.length,
-              separatorBuilder: (context, index) => const Divider(height: 16, color: Color(0xFF223049)),
+              separatorBuilder: (context, index) => const Divider(height: 16, color: AppColors.border),
               itemBuilder: (context, index) {
                 final student = filtered[index];
                 final isBoarded = student.status == "Present";
+                final canAct = _canAct(student);
 
                 return Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Student details
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -284,7 +350,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                             style: const TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.bold,
-                              color: Colors.white,
+                              color: AppColors.ink,
                             ),
                           ),
                           const SizedBox(height: 2),
@@ -292,17 +358,16 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                             children: [
                               Text(
                                 '${student.grade} • ${student.className}',
-                                style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                                style: const TextStyle(fontSize: 12, color: AppColors.mutedLight),
                               ),
                               const SizedBox(width: 8),
-                              // Status badge
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: isBoarded ? Colors.green.withAlpha(26) : Colors.white.withAlpha(13),
+                                  color: isBoarded ? Colors.green.withAlpha(26) : AppColors.surfaceAlt,
                                   borderRadius: BorderRadius.circular(4),
                                   border: Border.all(
-                                    color: isBoarded ? Colors.green : Colors.white24,
+                                    color: isBoarded ? Colors.green : AppColors.border,
                                   ),
                                 ),
                                 child: Text(
@@ -310,7 +375,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                                   style: TextStyle(
                                     fontSize: 9,
                                     fontWeight: FontWeight.bold,
-                                    color: isBoarded ? Colors.green : const Color(0xFF94A3B8),
+                                    color: isBoarded ? Colors.green : AppColors.mutedLight,
                                   ),
                                 ),
                               ),
@@ -319,16 +384,15 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                         ],
                       ),
                     ),
-
-                    // Manual pick/drop action controls
                     Row(
                       children: [
                         if (!isBoarded)
                           ElevatedButton(
-                            onPressed: () => _updateStudentStatus(student, "Present"),
+                            onPressed: canAct ? () => _updateStudentStatus(student, "Present") : null,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF10B981),
+                              backgroundColor: AppColors.actionGreen,
                               foregroundColor: Colors.white,
+                              disabledBackgroundColor: AppColors.border,
                               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                               minimumSize: Size.zero,
                               shape: RoundedRectangleBorder(
@@ -339,10 +403,11 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                           )
                         else
                           ElevatedButton(
-                            onPressed: () => _updateStudentStatus(student, "Absent"),
+                            onPressed: canAct ? () => _updateStudentStatus(student, "Absent") : null,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF334155), // Slate Button
+                              backgroundColor: AppColors.muted,
                               foregroundColor: Colors.white,
+                              disabledBackgroundColor: AppColors.border,
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                               minimumSize: Size.zero,
                               shape: RoundedRectangleBorder(

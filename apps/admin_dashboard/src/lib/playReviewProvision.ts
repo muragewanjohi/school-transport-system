@@ -28,6 +28,9 @@ const IDS = {
   stopGate: "b0000000-0000-4000-8000-000000000054",
   schedAm: "b0000000-0000-4000-8000-000000000061",
   schedPm: "b0000000-0000-4000-8000-000000000062",
+  schedMidMorning: "b0000000-0000-4000-8000-000000000063",
+  schedMidday: "b0000000-0000-4000-8000-000000000064",
+  schedMidAfternoon: "b0000000-0000-4000-8000-000000000065",
   student1: "b0000000-0000-4000-8000-000000000081",
   student2: "b0000000-0000-4000-8000-000000000082",
   student3: "b0000000-0000-4000-8000-000000000083",
@@ -351,6 +354,14 @@ export async function provisionPlayReviewStore(): Promise<
     );
     if (stopsError) throw new Error(stopsError.message);
 
+    // Day window 08:00–17:00 so Play reviewers can start a trip any daytime hour.
+    const dayWindowScheduleIds = [
+      IDS.schedAm,
+      IDS.schedMidMorning,
+      IDS.schedMidday,
+      IDS.schedMidAfternoon,
+      IDS.schedPm,
+    ];
     const { error: schedError } = await client.from("schedules").upsert(
       [
         {
@@ -359,11 +370,47 @@ export async function provisionPlayReviewStore(): Promise<
           campus_id: IDS.campus,
           route_id: IDS.route,
           vehicle_id: IDS.vehicle,
-          name: "Play Review AM",
-          departure_time: "06:45",
+          name: "Play Review Morning",
+          departure_time: "08:00",
           direction: "HOME_TO_SCHOOL",
           target_grades: ["Grade 1", "Grade 2", "Grade 3", "Grade 4"],
-          days_of_week: [1, 2, 3, 4, 5],
+          days_of_week: [1, 2, 3, 4, 5, 6, 7],
+        },
+        {
+          id: IDS.schedMidMorning,
+          tenant_id: IDS.tenant,
+          campus_id: IDS.campus,
+          route_id: IDS.route,
+          vehicle_id: IDS.vehicle,
+          name: "Play Review Mid-Morning",
+          departure_time: "10:00",
+          direction: "HOME_TO_SCHOOL",
+          target_grades: ["Grade 1", "Grade 2", "Grade 3", "Grade 4"],
+          days_of_week: [1, 2, 3, 4, 5, 6, 7],
+        },
+        {
+          id: IDS.schedMidday,
+          tenant_id: IDS.tenant,
+          campus_id: IDS.campus,
+          route_id: IDS.route,
+          vehicle_id: IDS.vehicle,
+          name: "Play Review Midday",
+          departure_time: "12:00",
+          direction: "HOME_TO_SCHOOL",
+          target_grades: ["Grade 1", "Grade 2", "Grade 3", "Grade 4"],
+          days_of_week: [1, 2, 3, 4, 5, 6, 7],
+        },
+        {
+          id: IDS.schedMidAfternoon,
+          tenant_id: IDS.tenant,
+          campus_id: IDS.campus,
+          route_id: IDS.route,
+          vehicle_id: IDS.vehicle,
+          name: "Play Review Mid-Afternoon",
+          departure_time: "14:00",
+          direction: "SCHOOL_TO_HOME",
+          target_grades: ["Grade 1", "Grade 2", "Grade 3", "Grade 4"],
+          days_of_week: [1, 2, 3, 4, 5, 6, 7],
         },
         {
           id: IDS.schedPm,
@@ -371,11 +418,11 @@ export async function provisionPlayReviewStore(): Promise<
           campus_id: IDS.campus,
           route_id: IDS.route,
           vehicle_id: IDS.vehicle,
-          name: "Play Review PM",
-          departure_time: "15:30",
+          name: "Play Review Afternoon",
+          departure_time: "17:00",
           direction: "SCHOOL_TO_HOME",
           target_grades: ["Grade 1", "Grade 2", "Grade 3", "Grade 4"],
-          days_of_week: [1, 2, 3, 4, 5],
+          days_of_week: [1, 2, 3, 4, 5, 6, 7],
         },
       ],
       { onConflict: "id" }
@@ -393,7 +440,7 @@ export async function provisionPlayReviewStore(): Promise<
           route_id: IDS.route,
           pickup_stop_id: IDS.stop1,
           dropoff_stop_id: IDS.stopGate,
-          schedule_ids: [IDS.schedAm],
+          schedule_ids: dayWindowScheduleIds,
           nfc_card_hash: "PLAY-NFC-0001",
           grade: "Grade 4",
           class_name: "4 Blue",
@@ -411,7 +458,7 @@ export async function provisionPlayReviewStore(): Promise<
           route_id: IDS.route,
           pickup_stop_id: IDS.stop1,
           dropoff_stop_id: IDS.stopGate,
-          schedule_ids: [IDS.schedPm],
+          schedule_ids: dayWindowScheduleIds,
           nfc_card_hash: "PLAY-NFC-0002",
           grade: "Grade 2",
           class_name: "2 Green",
@@ -429,7 +476,7 @@ export async function provisionPlayReviewStore(): Promise<
           route_id: IDS.route,
           pickup_stop_id: IDS.stop2,
           dropoff_stop_id: IDS.stopGate,
-          schedule_ids: [IDS.schedAm],
+          schedule_ids: dayWindowScheduleIds,
           nfc_card_hash: "PLAY-NFC-0003",
           grade: "Grade 3",
           class_name: "3 Blue",
@@ -447,7 +494,7 @@ export async function provisionPlayReviewStore(): Promise<
           route_id: IDS.route,
           pickup_stop_id: IDS.stop3,
           dropoff_stop_id: IDS.stopGate,
-          schedule_ids: [IDS.schedAm],
+          schedule_ids: dayWindowScheduleIds,
           nfc_card_hash: "PLAY-NFC-0004",
           grade: "Grade 5",
           class_name: "5 Green",
@@ -465,7 +512,7 @@ export async function provisionPlayReviewStore(): Promise<
           route_id: IDS.route,
           pickup_stop_id: IDS.stop2,
           dropoff_stop_id: IDS.stopGate,
-          schedule_ids: [IDS.schedPm],
+          schedule_ids: dayWindowScheduleIds,
           nfc_card_hash: "PLAY-NFC-0005",
           grade: "Grade 1",
           class_name: "1 Blue",
@@ -479,29 +526,8 @@ export async function provisionPlayReviewStore(): Promise<
     );
     if (studentsError) throw new Error(studentsError.message);
 
-    // One active trip for map/manifest demos (replace same-day conflict)
-    const today = new Date().toISOString().slice(0, 10);
-    await client
-      .from("trips")
-      .delete()
-      .eq("schedule_id", IDS.schedAm)
-      .eq("trip_date", today);
-
-    await client.from("trips").upsert(
-      {
-        id: IDS.trip,
-        tenant_id: IDS.tenant,
-        campus_id: IDS.campus,
-        schedule_id: IDS.schedAm,
-        route_id: IDS.route,
-        vehicle_id: IDS.vehicle,
-        driver_id: IDS.driver,
-        trip_date: today,
-        status: "in_progress",
-        started_at: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
-      },
-      { onConflict: "id" }
-    );
+    // Leave trips as scheduled (API auto-creates today's runs). Do not pre-start
+    // a trip so Play reviewers can tap Start Trip during the 08:00–17:00 window.
 
     try {
       await client.from("live_coordinates").insert(

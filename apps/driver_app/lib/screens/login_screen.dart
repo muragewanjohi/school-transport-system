@@ -1,9 +1,12 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:driver_app/main.dart';
+import 'package:driver_app/config/api_config.dart';
+import 'package:driver_app/theme/app_colors.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,16 +28,6 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  // Get the base API URL mapping localhost correctly for Android emulator and iOS simulator
-  String _getApiBaseUrl() {
-    try {
-      if (Platform.isAndroid) {
-        return 'http://10.0.2.2:3000';
-      }
-    } catch (_) {}
-    return 'http://localhost:3000';
-  }
-
   Future<void> _handleLogin() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -43,23 +36,33 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       final phone = _phoneController.text.trim();
       final otp = _otpController.text.trim();
-      final baseUrl = _getApiBaseUrl();
+      final baseUrl = ApiConfig.baseUrl;
 
-      final response = await http.post(
-        Uri.parse('$baseUrl/api/auth/driver-login'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'phone': phone,
-          'otp': otp,
-        }),
-      ).timeout(const Duration(seconds: 10));
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/api/auth/driver-login'),
+            headers: {'Content-Type': 'application/json'},
+            body: json.encode({
+              'phone': phone,
+              'otp': otp,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
 
-      final result = json.decode(response.body);
+      final contentType = response.headers['content-type'] ?? '';
+      if (!contentType.contains('application/json')) {
+        _showErrorSnackBar(
+          'Login failed (HTTP ${response.statusCode}). Unexpected response from $baseUrl.',
+        );
+        return;
+      }
+
+      final result = json.decode(response.body) as Map<String, dynamic>;
 
       if (response.statusCode == 200 && result['success'] == true) {
         final session = result['session'];
         final prefs = await SharedPreferences.getInstance();
-        
+
         await prefs.setString('driver_id', session['id'] ?? '');
         await prefs.setString('driver_name', session['name'] ?? '');
         await prefs.setString('driver_phone', session['phone'] ?? '');
@@ -72,14 +75,18 @@ class _LoginScreenState extends State<LoginScreen> {
 
         if (!mounted) return;
 
-        // Navigate to Driver Console Dashboard page and pop Login
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (context) => const MyHomePage()),
         );
       } else {
-        final errorMsg = result['error'] ?? 'Authentication failed. Please check phone and OTP.';
+        final errorMsg =
+            result['error'] ?? 'Authentication failed. Please check phone and OTP.';
         _showErrorSnackBar(errorMsg);
       }
+    } on TimeoutException {
+      _showErrorSnackBar(
+        'Login timed out reaching ${ApiConfig.baseUrl}. Check network or API host.',
+      );
     } on SocketException {
       _showErrorSnackBar('Network error: Unable to connect to host API server.');
     } on HttpException {
@@ -108,16 +115,44 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  InputDecoration _fieldDecoration({
+    required IconData icon,
+    required String hint,
+    String? counterText,
+  }) {
+    return InputDecoration(
+      prefixIcon: Icon(icon, color: AppColors.muted),
+      hintText: hint,
+      hintStyle: const TextStyle(color: AppColors.muted),
+      counterText: counterText,
+      filled: true,
+      fillColor: AppColors.surface,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.border, width: 1.5),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.border, width: 1.5),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: AppColors.actionGreen, width: 1.5),
+      ),
+      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A0E1A), // Dark Navy
+      backgroundColor: AppColors.pageBg,
       appBar: AppBar(
         title: const Text(
-          'Safaricom Track Login',
+          'OnTheBus Driver',
           style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
-        backgroundColor: const Color(0xFF0A0E1A),
+        backgroundColor: AppColors.actionGreen,
         foregroundColor: Colors.white,
         elevation: 0,
         centerTitle: true,
@@ -131,20 +166,19 @@ class _LoginScreenState extends State<LoginScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                // Branding Header Logo
-                Icon(
-                  Icons.shield_outlined,
-                  size: 80,
-                  color: Theme.of(context).colorScheme.primary,
+                Image.asset(
+                  'assets/driver-logo.png',
+                  height: 96,
+                  fit: BoxFit.contain,
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Driver Console Portal',
+                  'OnTheBus Driver',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 26,
                     fontWeight: FontWeight.w900,
-                    color: Colors.white,
+                    color: AppColors.ink,
                     letterSpacing: -0.5,
                   ),
                 ),
@@ -154,18 +188,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 14,
-                    color: Color(0xFF94A3B8),
+                    color: AppColors.mutedLight,
                   ),
                 ),
                 const SizedBox(height: 36),
-
-                // Phone Input Field
                 const Text(
                   'MOBILE PHONE NUMBER',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF94A3B8),
+                    color: AppColors.mutedLight,
                     letterSpacing: 0.5,
                   ),
                 ),
@@ -175,29 +207,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   enabled: !_isLoading,
                   keyboardType: TextInputType.phone,
                   style: const TextStyle(
-                    fontSize: 18, 
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white
+                    color: AppColors.ink,
                   ),
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.phone_android, color: Color(0xFF64748B)),
-                    hintText: 'e.g. +254 712 345 678',
-                    hintStyle: const TextStyle(color: Color(0xFF64748B)),
-                    filled: true,
-                    fillColor: const Color(0xFF151C2C),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
+                  decoration: _fieldDecoration(
+                    icon: Icons.phone_android,
+                    hint: 'e.g. +254 712 345 678',
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -210,14 +226,12 @@ class _LoginScreenState extends State<LoginScreen> {
                   },
                 ),
                 const SizedBox(height: 20),
-
-                // OTP Input Field
                 const Text(
                   'OTP VERIFICATION CODE',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
-                    color: Color(0xFF94A3B8),
+                    color: AppColors.mutedLight,
                     letterSpacing: 0.5,
                   ),
                 ),
@@ -228,32 +242,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   keyboardType: TextInputType.number,
                   maxLength: 6,
                   style: const TextStyle(
-                    fontSize: 22, 
-                    fontWeight: FontWeight.bold, 
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
                     letterSpacing: 8,
-                    color: Colors.white
+                    color: AppColors.ink,
                   ),
                   textAlign: TextAlign.center,
-                  decoration: InputDecoration(
-                    prefixIcon: const Icon(Icons.lock_clock, color: Color(0xFF64748B)),
-                    hintText: '123456',
-                    hintStyle: const TextStyle(color: Color(0xFF64748B)),
+                  decoration: _fieldDecoration(
+                    icon: Icons.lock_clock,
+                    hint: '123456',
                     counterText: '',
-                    filled: true,
-                    fillColor: const Color(0xFF151C2C),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF223049), width: 1.5),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(color: Color(0xFF10B981), width: 1.5),
-                    ),
-                    contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 16),
                   ),
                   validator: (value) {
                     if (value == null || value.trim().isEmpty) {
@@ -266,12 +264,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   },
                 ),
                 const SizedBox(height: 36),
-
-                // Sign In Button
                 ElevatedButton(
                   onPressed: _isLoading ? null : _handleLogin,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    backgroundColor: AppColors.actionGreen,
                     foregroundColor: Colors.white,
                     minimumSize: const Size(double.infinity, 60),
                     elevation: 2,
@@ -298,23 +294,21 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                 ),
                 const SizedBox(height: 24),
-                
-                // Sandbox instruction note
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF151C2C),
+                    color: AppColors.surface,
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF223049), width: 1.5),
+                    border: Border.all(color: AppColors.border, width: 1.5),
                   ),
                   child: const Row(
                     children: [
-                      Icon(Icons.info_outline, size: 20, color: Color(0xFF10B981)),
+                      Icon(Icons.info_outline, size: 20, color: AppColors.actionGreen),
                       SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           'Developer Sandbox Note:\nUse "123456" as the OTP code to bypass SMS authentication.',
-                          style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8), height: 1.4),
+                          style: TextStyle(fontSize: 11, color: AppColors.mutedLight, height: 1.4),
                         ),
                       ),
                     ],

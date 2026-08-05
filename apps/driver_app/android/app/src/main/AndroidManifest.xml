@@ -4,6 +4,9 @@
     <uses-permission android:name="android.permission.NFC" />
     <uses-feature android:name="android.hardware.nfc" android:required="false" />
 
+    <!-- Network (API + map tiles) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- High-Precision Location Permissions -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
@@ -15,7 +18,7 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
-        android:label="OnTheBus Driver"
+        android:label="OTB Driver"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
 
