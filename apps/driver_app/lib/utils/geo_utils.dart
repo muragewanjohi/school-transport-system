@@ -115,3 +115,67 @@ bool studentAllowedAtStop({
   }
   return dropoff != null && dropoff == arrivedStopId;
 }
+
+List<dynamic> sortedStopsBySequence(List<dynamic> stops) {
+  final sorted = List<dynamic>.from(stops);
+  sorted.sort((a, b) {
+    final sa = (a is Map ? a['sequence_no'] : null) as num? ?? 0;
+    final sb = (b is Map ? b['sequence_no'] : null) as num? ?? 0;
+    return sa.compareTo(sb);
+  });
+  return sorted;
+}
+
+/// Next stop to drive toward:
+/// - If currently inside a stop geofence → the following stop in sequence
+/// - Otherwise → nearest stop by distance (or first stop if no GPS)
+Map<String, dynamic>? nextNavigationStop({
+  required List<dynamic> stops,
+  double? latitude,
+  double? longitude,
+}) {
+  final sorted = sortedStopsBySequence(stops);
+  if (sorted.isEmpty) return null;
+
+  if (latitude != null && longitude != null) {
+    final arrived = findArrivedStop(
+      latitude: latitude,
+      longitude: longitude,
+      stops: sorted,
+    );
+    if (arrived != null) {
+      final idx = sorted.indexWhere((s) => s is Map && s['id']?.toString() == arrived.id);
+      if (idx >= 0 && idx < sorted.length - 1) {
+        final next = sorted[idx + 1];
+        if (next is Map<String, dynamic>) return next;
+        if (next is Map) return Map<String, dynamic>.from(next);
+      }
+      // At last stop — no further navigation target.
+      return null;
+    }
+
+    Map<String, dynamic>? nearest;
+    double? nearestDist;
+    for (final stop in sorted) {
+      if (stop is! Map) continue;
+      final point = stopLatLng(stop);
+      if (point == null) continue;
+      final d = haversineDistanceMeters(
+        latitude,
+        longitude,
+        point.latitude,
+        point.longitude,
+      );
+      if (nearestDist == null || d < nearestDist) {
+        nearestDist = d;
+        nearest = Map<String, dynamic>.from(stop);
+      }
+    }
+    return nearest;
+  }
+
+  final first = sorted.first;
+  if (first is Map<String, dynamic>) return first;
+  if (first is Map) return Map<String, dynamic>.from(first);
+  return null;
+}

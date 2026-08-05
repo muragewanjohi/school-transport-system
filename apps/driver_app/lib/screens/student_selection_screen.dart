@@ -10,6 +10,8 @@ class StudentSelectionScreen extends ConsumerWidget {
   final String tenantId;
   final String tripId;
   final List<dynamic> stops;
+  /// `PICKUP` or `DROPOFF`
+  final String runType;
 
   const StudentSelectionScreen({
     super.key,
@@ -17,7 +19,12 @@ class StudentSelectionScreen extends ConsumerWidget {
     required this.tenantId,
     required this.tripId,
     this.stops = const [],
+    this.runType = 'PICKUP',
   });
+
+  bool get _isPickup => runType == 'PICKUP';
+
+  String get _actionLabel => _isPickup ? 'Pickup' : 'Dropoff';
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -34,7 +41,7 @@ class StudentSelectionScreen extends ConsumerWidget {
       backgroundColor: AppColors.pageBg,
       appBar: AppBar(
         title: Text(
-          arrived != null ? 'Board · ${arrived.name}' : 'Boarding Manifest',
+          arrived != null ? '$_actionLabel · ${arrived.name}' : '$_actionLabel Manifest',
           style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white),
         ),
         backgroundColor: AppColors.actionGreen,
@@ -54,6 +61,7 @@ class StudentSelectionScreen extends ConsumerWidget {
             tripId: tripId,
             arrivedStopId: arrived?.id,
             arrivedStopName: arrived?.name,
+            runType: runType,
           ),
         ),
       ),

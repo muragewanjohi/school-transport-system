@@ -15,6 +15,7 @@ import 'package:driver_app/config/api_config.dart';
 import 'package:driver_app/widgets/route_map_widget.dart';
 import 'package:driver_app/utils/geo_utils.dart';
 import 'package:driver_app/providers/trip_providers.dart';
+import 'package:driver_app/services/stop_navigation_service.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
@@ -175,6 +176,129 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       latitude: telemetry.latitude,
       longitude: telemetry.longitude,
       stops: _stopsList,
+    );
+  }
+
+  bool get _isPickupRun => _selectedRunType == 'PICKUP';
+
+  String get _attendanceActionLabel => _isPickupRun ? 'Pickup' : 'Dropoff';
+
+  String _attendanceFabLabel(ArrivedStop? arrived) {
+    if (arrived != null) {
+      return '$_attendanceActionLabel · ${arrived.name}';
+    }
+    return '$_attendanceActionLabel Students';
+  }
+
+  Map<String, dynamic>? _nextNavStop(TelemetryCoords? telemetry) {
+    return nextNavigationStop(
+      stops: _stopsList,
+      latitude: telemetry?.latitude,
+      longitude: telemetry?.longitude,
+    );
+  }
+
+  Future<void> _navigateToStop(Map<String, dynamic>? stop) async {
+    if (stop == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No next stop available for navigation.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final ok = await StopNavigationService.navigateToStop(stop);
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not open Google Maps navigation for ${stop['name'] ?? 'stop'}.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Widget _buildNextStopNavCard(TelemetryCoords? telemetry) {
+    final nextStop = _nextNavStop(telemetry);
+    final arrived = _arrivedStopFor(telemetry);
+    final stopName = (nextStop?['name'] ?? 'No further stops').toString();
+    final subtitle = arrived != null
+        ? 'At ${arrived.name}. Navigate to the next stop when ready.'
+        : (nextStop != null
+            ? 'Turn-by-turn directions in Google Maps'
+            : 'You are at the last stop on this route');
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFFFF),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.navigation, color: Color(0xFF10B981), size: 22),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      nextStop != null ? 'NEXT STOP' : 'ROUTE COMPLETE',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF64748B),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      stopName,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0B1C30),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (nextStop != null) ...[
+            const SizedBox(height: 12),
+            ElevatedButton.icon(
+              onPressed: () => _navigateToStop(nextStop),
+              icon: const Icon(Icons.directions),
+              label: const Text(
+                'Navigate',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0B1C30),
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 48),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -797,31 +921,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     }
   }
 
-  /// Trigger or clear Emergency SOS Status
-  void _toggleSOS() {
-    final isSos = ref.read(emergencyActiveProvider);
-    final service = FlutterBackgroundService();
-    
-    // Toggle state
-    ref.read(emergencyActiveProvider.notifier).state = !isSos;
-    
-    // Notify background isolate to append emergency flag to Supabase logs
-    service.invoke('toggleSOS', {'isEmergency': !isSos});
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          !isSos 
-            ? 'EMERGENCY SOS INITIATED: Telemetry flagged. Dispatching alerts.'
-            : 'SOS Cleared. Operations returning to normal.',
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        backgroundColor: !isSos ? Colors.red : Colors.green,
-        duration: const Duration(seconds: 4),
-      ),
-    );
-  }
-
   /// Sign out driver and clear credentials
   Future<void> _handleSignOut() async {
     if (ref.read(tripActiveProvider)) {
@@ -1134,7 +1233,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                               }
                             : null,
                         icon: Icon(isBoarded ? Icons.logout : Icons.login),
-                        label: Text(isBoarded ? 'DROP OFF STUDENT' : 'BOARD STUDENT'),
+                        label: Text(
+                          isBoarded
+                              ? 'DROP OFF STUDENT'
+                              : (_isPickupRun ? 'PICKUP STUDENT' : 'DROPOFF STUDENT'),
+                        ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: isBoarded ? const Color(0xFF047857) : const Color(0xFF10B981),
                           foregroundColor: Colors.white,
@@ -1527,6 +1630,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               vehiclePlate: _vehiclePlate,
               arrivedStopId: _arrivedStopFor(telemetry)?.id,
             ),
+            const SizedBox(height: 12),
+            _buildNextStopNavCard(telemetry),
           ],
         ] else if (_nextTrip != null) ...[
           // LIST OF SCHEDULED TRIPS (ACCORDION STYLE)
@@ -1758,67 +1863,26 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             vehiclePlate: _vehiclePlate,
             arrivedStopId: _arrivedStopFor(telemetry)?.id,
           ),
+          const SizedBox(height: 12),
+          _buildNextStopNavCard(telemetry),
         ],
         const SizedBox(height: 20),
-        Row(
-          children: [
-            Expanded(
-              flex: 2,
-              child: ElevatedButton.icon(
-                onPressed: () async {
-                  if (_activeTrip != null) {
-                    await _handleEndTrip(_activeTrip['id']);
-                  } else {
-                    await _endTrip();
-                  }
-                },
-                icon: const Icon(Icons.stop, size: 28),
-                label: const Text('END', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.red,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 64),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              flex: 3,
-              child: GestureDetector(
-                onLongPress: _toggleSOS,
-                child: Container(
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: isSos ? Colors.orange : Colors.red.shade900,
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: const [
-                      BoxShadow(
-                        color: Colors.black12,
-                        blurRadius: 4,
-                        offset: Offset(0, 2),
-                      ),
-                    ],
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.emergency, color: Colors.white, size: 28),
-                      const SizedBox(width: 8),
-                      Text(
-                        isSos ? 'CLEAR SOS' : 'HOLD FOR SOS',
-                        style: const TextStyle(
-                          color: Colors.white, 
-                          fontSize: 18, 
-                          fontWeight: FontWeight.bold
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
+        ElevatedButton.icon(
+          onPressed: () async {
+            if (_activeTrip != null) {
+              await _handleEndTrip(_activeTrip['id']);
+            } else {
+              await _endTrip();
+            }
+          },
+          icon: const Icon(Icons.stop, size: 28),
+          label: const Text('END', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.red,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 64),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          ),
         ),
         const SizedBox(height: 24),
       ],
@@ -1927,8 +1991,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           ),
           child: Text(
             arrived != null
-                ? 'At ${arrived.name} — showing only students for this stop.'
-                : 'Drive into a stop geofence to unlock board / drop-off for that stop.',
+                ? 'At ${arrived.name} — showing only students for this ${_isPickupRun ? "pickup" : "dropoff"} stop.'
+                : 'Drive into a stop geofence to unlock ${_isPickupRun ? "pickup" : "dropoff"} for that stop.',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
@@ -1942,9 +2006,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           children: [
             const Icon(Icons.people, color: Color(0xFF10B981), size: 20),
             const SizedBox(width: 8),
-            const Text(
-              'STUDENT MANIFEST',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
+            Text(
+              _isPickupRun ? 'PICKUP MANIFEST' : 'DROPOFF MANIFEST',
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
             ),
             const Spacer(),
             Text(
@@ -2102,9 +2166,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                                   color: const Color(0xFF10B981),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
-                                child: const Text(
-                                  'BOARD',
-                                  style: TextStyle(
+                                child: Text(
+                                  _isPickupRun ? 'PICKUP' : 'DROPOFF',
+                                  style: const TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
@@ -2279,8 +2343,28 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '$kidsCount kids registered here',
+                              '$kidsCount kids registered here · ${_isPickupRun ? "Pickup" : "Dropoff"}',
                               style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                            ),
+                            const SizedBox(height: 8),
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: TextButton.icon(
+                                onPressed: () => _navigateToStop(
+                                  Map<String, dynamic>.from(stop as Map),
+                                ),
+                                icon: const Icon(Icons.directions, size: 18),
+                                label: const Text(
+                                  'Navigate',
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                ),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: const Color(0xFF0B1C30),
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -2393,14 +2477,13 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                   tenantId: _tenantController.text.trim(),
                   tripId: _selectedTripId ?? '',
                   stops: _stopsList,
+                  runType: _selectedRunType,
                 ),
               ),
             );
           },
-          icon: const Icon(Icons.people),
-          label: Text(
-            arrivedFab != null ? 'Board · ${arrivedFab.name}' : 'Board Students',
-          ),
+          icon: Icon(_isPickupRun ? Icons.login : Icons.logout),
+          label: Text(_attendanceFabLabel(arrivedFab)),
           backgroundColor: const Color(0xFF10B981),
           foregroundColor: Colors.white,
         );
@@ -2562,32 +2645,34 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             ),
           ],
           const SizedBox(height: 20),
-          if (!isPickup) ...[
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (context) => StudentSelectionScreen(
-                      routeId: route['id'],
-                      tenantId: _tenantController.text.trim(),
-                      tripId: schedule['id'],
-                      stops: _stopsList,
-                    ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (context) => StudentSelectionScreen(
+                    routeId: route['id'],
+                    tenantId: _tenantController.text.trim(),
+                    tripId: schedule['id'],
+                    stops: _stopsList,
+                    runType: isPickup ? 'PICKUP' : 'DROPOFF',
                   ),
-                );
-              },
-              icon: const Icon(Icons.people_outline, size: 24),
-              label: const Text('BOARD STUDENTS', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFF1F5F9),
-                foregroundColor: const Color(0xFF0B1C30),
-                side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
-                minimumSize: const Size(double.infinity, 54),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
+                ),
+              );
+            },
+            icon: Icon(isPickup ? Icons.login : Icons.logout, size: 24),
+            label: Text(
+              isPickup ? 'PICKUP STUDENTS' : 'DROPOFF STUDENTS',
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
-            const SizedBox(height: 10),
-          ],
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF1F5F9),
+              foregroundColor: const Color(0xFF0B1C30),
+              side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+              minimumSize: const Size(double.infinity, 54),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(height: 10),
           ElevatedButton.icon(
             onPressed: () => _handleStartTrip(trip['id'], route['id'], schedule['id']),
             icon: const Icon(Icons.play_arrow, size: 24),

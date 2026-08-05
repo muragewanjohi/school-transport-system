@@ -60,6 +60,8 @@ class StudentChecklistWidget extends StatefulWidget {
   final String tripId;
   final String? arrivedStopId;
   final String? arrivedStopName;
+  /// `PICKUP` or `DROPOFF`
+  final String runType;
 
   const StudentChecklistWidget({
     super.key,
@@ -68,6 +70,7 @@ class StudentChecklistWidget extends StatefulWidget {
     required this.tripId,
     this.arrivedStopId,
     this.arrivedStopName,
+    this.runType = 'PICKUP',
   });
 
   @override
@@ -197,6 +200,10 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
     );
   }
 
+  bool get _isPickupRun => widget.runType == 'PICKUP';
+
+  String get _runActionLabel => _isPickupRun ? 'pickup' : 'dropoff';
+
   @override
   Widget build(BuildContext context) {
     final atStop = widget.arrivedStopId != null;
@@ -249,8 +256,8 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
             ),
             child: Text(
               atStop
-                  ? 'At ${widget.arrivedStopName ?? "stop"} — only students for this stop can board or drop off.'
-                  : 'Drive into a stop geofence to unlock boarding and drop-off for that stop.',
+                  ? 'At ${widget.arrivedStopName ?? "stop"} — only students for this stop can $_runActionLabel.'
+                  : 'Drive into a stop geofence to unlock $_runActionLabel for that stop.',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -321,7 +328,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                 child: Text(
                   _searchQuery.isNotEmpty
                       ? 'No matches at this stop.'
-                      : 'No students to board or drop at ${widget.arrivedStopName ?? "this stop"}.',
+                      : 'No students to $_runActionLabel at ${widget.arrivedStopName ?? "this stop"}.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(color: AppColors.muted, fontSize: 13),
                 ),
