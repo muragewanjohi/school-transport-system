@@ -94,8 +94,8 @@ const STEPS = [
     shortTitle: "A confident start",
     description:
       "The driver confirms the vehicle, route, and student manifest before beginning the journey.",
-    image: "/stitch/journey/journey-driver-start.png",
-    imageAlt: "School bus driver starting a trip from a mounted phone",
+    image: "/stitch/journey/journey-driver-start-v2.png",
+    imageAlt: "School bus driver in a green jacket starting a trip from a mounted phone",
     icon: Play,
   },
   {
@@ -121,8 +121,8 @@ const STEPS = [
     shortTitle: "Every child accounted for",
     description:
       "Digital check-in gives drivers and conductors an accurate manifest without slowing boarding.",
-    image: "/stitch/journey/journey-student-boarding.png",
-    imageAlt: "Students boarding a school bus while a conductor checks attendance",
+    image: "/stitch/journey/journey-student-boarding-v2.png",
+    imageAlt: "Students boarding a school bus while a conductor in green uniform checks attendance",
     icon: Users,
   },
   {
@@ -139,8 +139,8 @@ const STEPS = [
     shortTitle: "Closed out safely",
     description:
       "The journey ends with a verified arrival, a complete digital record, and everyone informed.",
-    image: "/stitch/journey/journey-trip-complete.png",
-    imageAlt: "School bus safely parked at campus after completing its route",
+    image: "/stitch/journey/journey-trip-complete-v2.png",
+    imageAlt: "Drivers in green uniforms with school bus safely parked after completing its route",
     icon: CheckCircle2,
   },
 ] as const;
@@ -256,7 +256,7 @@ export default function LandingPage() {
             <div className="landing-hero-copy">
               <div className="lp-trust-pill">
                 <Verified size={14} aria-hidden />
-                Trusted by 50+ Schools
+                Trusted by Schools
               </div>
 
               <h1 className="hero-title">
@@ -274,7 +274,7 @@ export default function LandingPage() {
                   Request Demo <ArrowRight size={18} />
                 </Link>
                 <a href="#how-it-works" className="lp-btn lp-btn-outline-green lp-btn-lg">
-                  <Play size={18} /> Watch Overview
+                  <Navigation size={18} /> See How It Works
                 </a>
               </div>
 
