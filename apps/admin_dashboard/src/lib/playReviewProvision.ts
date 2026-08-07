@@ -354,7 +354,7 @@ export async function provisionPlayReviewStore(): Promise<
     );
     if (stopsError) throw new Error(stopsError.message);
 
-    // Day window 08:00–17:00 so Play reviewers can start a trip any daytime hour.
+    // Day window 08:00–17:00 Mon–Sat so Play reviewers can start a trip any daytime hour.
     const dayWindowScheduleIds = [
       IDS.schedAm,
       IDS.schedMidMorning,
@@ -374,7 +374,7 @@ export async function provisionPlayReviewStore(): Promise<
           departure_time: "08:00",
           direction: "HOME_TO_SCHOOL",
           target_grades: ["Grade 1", "Grade 2", "Grade 3", "Grade 4"],
-          days_of_week: [1, 2, 3, 4, 5, 6, 7],
+          days_of_week: [1, 2, 3, 4, 5, 6],
         },
         {
           id: IDS.schedMidMorning,
@@ -386,7 +386,7 @@ export async function provisionPlayReviewStore(): Promise<
           departure_time: "10:00",
           direction: "HOME_TO_SCHOOL",
           target_grades: ["Grade 1", "Grade 2", "Grade 3", "Grade 4"],
-          days_of_week: [1, 2, 3, 4, 5, 6, 7],
+          days_of_week: [1, 2, 3, 4, 5, 6],
         },
         {
           id: IDS.schedMidday,
@@ -398,7 +398,7 @@ export async function provisionPlayReviewStore(): Promise<
           departure_time: "12:00",
           direction: "HOME_TO_SCHOOL",
           target_grades: ["Grade 1", "Grade 2", "Grade 3", "Grade 4"],
-          days_of_week: [1, 2, 3, 4, 5, 6, 7],
+          days_of_week: [1, 2, 3, 4, 5, 6],
         },
         {
           id: IDS.schedMidAfternoon,
@@ -410,7 +410,7 @@ export async function provisionPlayReviewStore(): Promise<
           departure_time: "14:00",
           direction: "SCHOOL_TO_HOME",
           target_grades: ["Grade 1", "Grade 2", "Grade 3", "Grade 4"],
-          days_of_week: [1, 2, 3, 4, 5, 6, 7],
+          days_of_week: [1, 2, 3, 4, 5, 6],
         },
         {
           id: IDS.schedPm,
@@ -422,7 +422,7 @@ export async function provisionPlayReviewStore(): Promise<
           departure_time: "17:00",
           direction: "SCHOOL_TO_HOME",
           target_grades: ["Grade 1", "Grade 2", "Grade 3", "Grade 4"],
-          days_of_week: [1, 2, 3, 4, 5, 6, 7],
+          days_of_week: [1, 2, 3, 4, 5, 6],
         },
       ],
       { onConflict: "id" }

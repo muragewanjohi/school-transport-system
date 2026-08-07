@@ -626,9 +626,9 @@ export default function LandingPage() {
             </div>
             <div className="lp-footer-col">
               <h4>Company</h4>
-              <a href="#contact">About Us</a>
-              <a href="#contact">Careers</a>
-              <a href="#contact">Contact</a>
+              <Link href="/about">About Us</Link>
+              <Link href="/careers">Careers</Link>
+              <Link href="/contact">Contact</Link>
             </div>
             <div className="lp-footer-col">
               <h4>Legal</h4>

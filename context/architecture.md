@@ -45,7 +45,7 @@ Root domain: **`onthebusapp.com`** (wildcard `*.onthebusapp.com` on Vercel).
 
 | Host | Audience | Primary routes |
 | :--- | :--- | :--- |
-| `onthebusapp.com`, `www.onthebusapp.com` | Public marketing + platform operators | `/`, `/login` (platform), `/schools` |
+| `onthebusapp.com`, `www.onthebusapp.com` | Public marketing + platform operators | `/`, `/about`, `/careers`, `/contact`, `/privacy`, `/terms`, `/delete-account`, `/login` (platform), `/schools` |
 | `{slug}.onthebusapp.com` | That school's admins | `/login`, `/dashboard`, fleet/students/routes/… |
 | Reserved slugs (not tenants) | — | `www`, `platform`, `admin`, `api`, `app`, `static`, `cdn`, `mail`, `smtp`, `ftp` |
 | Internal Demo School | `demo.onthebusapp.com` | Static sales sandbox (`domain = demo`, `is_demo = true`). Blocked for customer onboarding. |

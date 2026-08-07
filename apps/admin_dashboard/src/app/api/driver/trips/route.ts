@@ -107,9 +107,9 @@ export async function GET(request: Request) {
     }
 
     // Fetch schedules for the vehicle
-    const { data: schedules, error: schedulesError } = await client
+    const { data: allSchedules, error: schedulesError } = await client
       .from("schedules")
-      .select("id, tenant_id, route_id, name, departure_time, direction, target_grades")
+      .select("id, tenant_id, route_id, name, departure_time, direction, target_grades, days_of_week")
       .eq("vehicle_id", vehicleId);
 
     if (schedulesError) {
@@ -117,7 +117,18 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: schedulesError.message }, { status: 500 });
     }
 
-    if (!schedules || schedules.length === 0) {
+    const now = new Date();
+    const todayStr = now.toISOString().split("T")[0];
+    const jsDay = now.getDay(); // Sun=0 … Sat=6
+    const dbDay = jsDay === 0 ? 7 : jsDay; // Mon=1 … Sat=6, Sun=7
+
+    const schedules = (allSchedules ?? []).filter((schedule) => {
+      const days = schedule.days_of_week as number[] | null;
+      if (!days || days.length === 0) return true;
+      return days.includes(dbDay);
+    });
+
+    if (schedules.length === 0) {
       return NextResponse.json({
         success: true,
         source: "supabase",
@@ -126,9 +137,7 @@ export async function GET(request: Request) {
       });
     }
 
-    const todayStr = new Date().toISOString().split("T")[0];
-
-    // Ensure a trip exists for today for each schedule
+    // Ensure a trip exists for today for each schedule that runs today
     for (const schedule of schedules) {
       const { data: existingTrip } = await client
         .from("trips")

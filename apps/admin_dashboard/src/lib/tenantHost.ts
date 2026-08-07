@@ -136,6 +136,36 @@ export function isPlatformConsolePath(pathname: string): boolean {
   return pathname === "/schools" || pathname.startsWith("/schools/");
 }
 
+/** Public marketing / legal / company pages (no auth gate; apex landing tokens) */
+export const MARKETING_PUBLIC_PATHS = [
+  "/privacy",
+  "/terms",
+  "/delete-account",
+  "/about",
+  "/careers",
+  "/contact",
+] as const;
+
+export function isMarketingPublicPath(pathname: string): boolean {
+  return (
+    pathname === "/" ||
+    MARKETING_PUBLIC_PATHS.some(
+      (path) => pathname === path || pathname.startsWith(`${path}/`)
+    ) ||
+    pathname.startsWith("/request-demo") ||
+    pathname.startsWith("/demo/")
+  );
+}
+
+/** Paths reachable without a signed-in session (includes auth entry points) */
+export function isUnauthenticatedAllowedPath(pathname: string): boolean {
+  return (
+    isMarketingPublicPath(pathname) ||
+    pathname === "/login" ||
+    pathname === "/reset-password"
+  );
+}
+
 export function isValidTenantSlug(slug: string): boolean {
   return isTenantSlugSyntaxValid(slug) && !isOnboardingBlockedSlug(slug);
 }

@@ -3,7 +3,15 @@
 import React, { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { parseHost, getApexPublicUrl, getTenantPublicUrl, isSchoolConsolePath, isPlatformConsolePath } from "@/lib/tenantHost";
+import {
+  parseHost,
+  getApexPublicUrl,
+  getTenantPublicUrl,
+  isSchoolConsolePath,
+  isPlatformConsolePath,
+  isMarketingPublicPath,
+  isUnauthenticatedAllowedPath,
+} from "@/lib/tenantHost";
 
 interface AuthProfile {
   id: string;
@@ -239,12 +247,10 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
             }
 
             // Apex / www is platform-only for console routes: send school admins to their subdomain.
-            // Allow marketing pages (/ , /request-demo, /demo/*) without redirect or error.
+            // Allow marketing + legal pages without redirect or error.
             const onMarketingPublic =
               typeof window !== "undefined" &&
-              (window.location.pathname === "/" ||
-                window.location.pathname.startsWith("/request-demo") ||
-                window.location.pathname.startsWith("/demo/"));
+              isMarketingPublicPath(window.location.pathname);
 
             if (
               (parsed.kind === "apex" || parsed.kind === "local") &&
@@ -297,11 +303,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (loading) return;
 
-    const publicRoutes = ["/", "/login", "/reset-password", "/request-demo", "/demo/explore"];
-    const isPublicPage =
-      publicRoutes.includes(pathname) ||
-      pathname.startsWith("/request-demo") ||
-      pathname.startsWith("/demo/");
+    const isPublicPage = isUnauthenticatedAllowedPath(pathname);
     const isLoginPage = pathname === "/login";
     const host = typeof window !== "undefined" ? window.location.host : "";
     const parsed = parseHost(host);
@@ -358,10 +360,7 @@ export default function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   // Render a full-screen glassmorphic loading spinner while verifying session
-  const marketingPublic =
-    pathname === "/" ||
-    pathname.startsWith("/request-demo") ||
-    pathname.startsWith("/demo/");
+  const marketingPublic = isMarketingPublicPath(pathname);
 
   // Marketing pages must SSR and hydrate identically — never swap in the auth shell.
   if (loading && !marketingPublic) {
