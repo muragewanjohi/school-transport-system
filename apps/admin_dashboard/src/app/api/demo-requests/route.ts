@@ -9,8 +9,15 @@ import {
   extendDemoOtpExpiry,
   provisionDemoStore,
   purgeDemoTenant,
+  resetDemoAccessCredentials,
   type DemoProvisionResult,
 } from "@/lib/demoProvision";
+import {
+  notifyDemoReady,
+  notifyRequesterCompleted,
+  notifyRequesterReceived,
+  notifySales,
+} from "@/lib/demoRequestEmails";
 
 const demoRequestSchema = z.object({
   full_name: z.string().min(2, "Name is required").max(120),
@@ -36,6 +43,7 @@ const demoRequestStatusSchema = z.enum(["pending", "confirmed", "completed", "de
 const updateDemoRequestSchema = z.object({
   id: z.string().uuid(),
   status: demoRequestStatusSchema.optional(),
+  action: z.enum(["resend_access_email"]).optional(),
   demo_expires_at: z.string().datetime().optional(),
   fields: z
     .object({
@@ -80,215 +88,20 @@ function allowRequest(ip: string): boolean {
   return true;
 }
 
-async function sendResendEmail(params: {
-  to: string;
-  subject: string;
-  text: string;
-  html?: string;
-}): Promise<boolean> {
-  const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) {
-    console.info("[demo-requests] Email skipped — no RESEND_API_KEY:", {
-      to: params.to,
-      subject: params.subject,
-    });
-    return false;
-  }
-
-  try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${resendKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        from:
-          process.env.DEMO_REQUESTS_FROM_EMAIL || "OnTheBus <onboarding@resend.dev>",
-        to: [params.to],
-        subject: params.subject,
-        text: params.text,
-        ...(params.html ? { html: params.html } : {}),
-      }),
-    });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      console.warn("[demo-requests] Resend rejected email:", res.status, detail);
-      return false;
-    }
-    return true;
-  } catch (err) {
-    console.warn("[demo-requests] Email failed:", err);
-    return false;
-  }
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-async function notifyRequesterReceived(payload: {
-  full_name: string;
-  school_name: string;
-  email: string;
-  preferred_time: string;
-}): Promise<boolean> {
-  const firstName = payload.full_name.trim().split(/\s+/)[0] || payload.full_name;
-  const subject = "We've received your demo request";
-  const text = [
-    `Hi ${firstName},`,
-    ``,
-    `Thanks for requesting an OnTheBus demo for ${payload.school_name}.`,
-    ``,
-    `We've received your request and our team will review it shortly.`,
-    `Preferred timing: ${payload.preferred_time}.`,
-    ``,
-    `Once approved, we'll email you your demo school URL and login details.`,
-    `This usually takes up to one business day.`,
-    ``,
-    `Questions in the meantime? Reply to this email or write to sales@onthebus.app.`,
-    ``,
-    `— The OnTheBus team`,
-  ].join("\n");
-
-  const html = `
-    <p>Hi ${escapeHtml(firstName)},</p>
-    <p>Thanks for requesting an OnTheBus demo for <strong>${escapeHtml(payload.school_name)}</strong>.</p>
-    <p>We've received your request and our team will review it shortly.<br />
-    Preferred timing: <strong>${escapeHtml(payload.preferred_time)}</strong>.</p>
-    <p>Once approved, we'll email you your demo school URL and login details.
-    This usually takes up to one business day.</p>
-    <p>Questions in the meantime? Reply to this email or write to
-    <a href="mailto:sales@onthebus.app">sales@onthebus.app</a>.</p>
-    <p>— The OnTheBus team</p>
-  `.trim();
-
-  return sendResendEmail({ to: payload.email, subject, text, html });
-}
-
-async function notifySales(payload: {
-  full_name: string;
-  role: string;
-  school_name: string;
-  country: string;
-  city: string;
-  phone: string;
-  email?: string;
-  fleet_size: string;
-  preferred_time: string;
-  notes?: string;
-}): Promise<void> {
-  const to = process.env.DEMO_REQUESTS_NOTIFY_EMAIL || "sales@onthebus.app";
-  const body = [
-    `New OnTheBus demo request`,
-    ``,
-    `Name: ${payload.full_name}`,
-    `Role: ${payload.role}`,
-    `School: ${payload.school_name}`,
-    `Country: ${payload.country}`,
-    `City: ${payload.city}`,
-    `Phone/WhatsApp: ${payload.phone}`,
-    `Email: ${payload.email || "—"}`,
-    `Fleet size: ${payload.fleet_size}`,
-    `Preferred time: ${payload.preferred_time}`,
-    `Notes: ${payload.notes || "—"}`,
-    ``,
-    `Status: pending — confirm in /schools?tab=demos to provision the demo store.`,
-  ].join("\n");
-
-  await sendResendEmail({
-    to,
-    subject: `Demo request: ${payload.school_name} (${payload.city})`,
-    text: body,
-  });
-}
-
-async function notifyDemoReady(
-  params: DemoProvisionResult & { fullName: string; email: string; schoolName: string }
-): Promise<boolean> {
-  const firstName = params.fullName.trim().split(/\s+/)[0] || params.fullName;
-  const expiresLabel = new Date(params.expiresAt).toUTCString();
-  const subject = "Your OnTheBus demo school is ready";
-  const text = [
-    `Hi ${firstName},`,
-    ``,
-    `Your demo school for ${params.schoolName} is ready.`,
-    ``,
-    `School URL: ${params.schoolUrl}`,
-    `Expires: ${expiresLabel}`,
-    ``,
-    `Dashboard admin login`,
-    `Email: ${params.adminEmail}`,
-    `Password: ${params.adminPassword}`,
-    ``,
-    `Flutter parent & driver apps`,
-    `Phone: ${params.phone}`,
-    `OTP: ${params.otp}`,
-    `(Use the same phone + OTP for both apps until the demo expires.)`,
-    ``,
-    `If you did not request this, you can ignore this email.`,
-    ``,
-    `— The OnTheBus team`,
-  ].join("\n");
-
-  const html = `
-    <p>Hi ${escapeHtml(firstName)},</p>
-    <p>Your demo school for <strong>${escapeHtml(params.schoolName)}</strong> is ready.</p>
-    <p><strong>School URL:</strong> <a href="${escapeHtml(params.schoolUrl)}">${escapeHtml(params.schoolUrl)}</a><br />
-    <strong>Expires:</strong> ${escapeHtml(expiresLabel)}</p>
-    <p><strong>Dashboard admin login</strong><br />
-    Email: <code>${escapeHtml(params.adminEmail)}</code><br />
-    Password: <code>${escapeHtml(params.adminPassword)}</code></p>
-    <p><strong>Flutter parent &amp; driver apps</strong><br />
-    Phone: <code>${escapeHtml(params.phone)}</code><br />
-    OTP: <code>${escapeHtml(params.otp)}</code><br />
-    Use the same phone + OTP for both apps until the demo expires.</p>
-    <p>If you did not request this, you can ignore this email.</p>
-    <p>— The OnTheBus team</p>
-  `.trim();
-
-  return sendResendEmail({ to: params.email, subject, text, html });
-}
-
-async function notifyRequesterCompleted(params: {
-  fullName: string;
-  email: string;
-  schoolName: string;
-}): Promise<boolean> {
-  const firstName = params.fullName.trim().split(/\s+/)[0] || params.fullName;
-  const subject = "Thanks for completing your OnTheBus demo";
-  const text = [
-    `Hi ${firstName},`,
-    ``,
-    `Thanks for walking through OnTheBus with us for ${params.schoolName}.`,
-    ``,
-    `Your temporary demo school has been closed.`,
-    `If you're ready to set up your school, or have questions about pricing and rollout,`,
-    `reply to this email or contact sales@onthebus.app — we're happy to help.`,
-    ``,
-    `— The OnTheBus team`,
-  ].join("\n");
-
-  const html = `
-    <p>Hi ${escapeHtml(firstName)},</p>
-    <p>Thanks for walking through OnTheBus with us for <strong>${escapeHtml(params.schoolName)}</strong>.</p>
-    <p>Your temporary demo school has been closed.</p>
-    <p>If you're ready to set up your school, or have questions about pricing and rollout,
-    reply to this email or contact
-    <a href="mailto:sales@onthebus.app">sales@onthebus.app</a> — we're happy to help.</p>
-    <p>— The OnTheBus team</p>
-  `.trim();
-
-  return sendResendEmail({ to: params.email, subject, text, html });
-}
-
 const DEMO_REQUEST_SELECT =
   "id, full_name, role, school_name, country, city, phone, email, fleet_size, preferred_time, notes, status, reviewed_at, created_at, provisioned_tenant_id";
 
+function credentialsPayload(provision: DemoProvisionResult) {
+  return {
+    school_url: provision.schoolUrl,
+    admin_email: provision.adminEmail,
+    admin_password: provision.adminPassword,
+    phone: provision.phone,
+    otp: provision.otp,
+    expires_at: provision.expiresAt,
+    slug: provision.slug,
+  };
+}
 export async function GET(request: Request) {
   try {
     const caller = await getCallerProfile(request);
@@ -429,9 +242,9 @@ export async function PATCH(request: Request) {
       );
     }
 
-    if (!parsed.data.status && !parsed.data.demo_expires_at && !parsed.data.fields) {
+    if (!parsed.data.status && !parsed.data.demo_expires_at && !parsed.data.fields && !parsed.data.action) {
       return NextResponse.json(
-        { success: false, error: "Provide status, demo_expires_at, and/or fields" },
+        { success: false, error: "Provide status, action, demo_expires_at, and/or fields" },
         { status: 400 }
       );
     }
@@ -454,6 +267,56 @@ export async function PATCH(request: Request) {
         { success: false, error: existingError?.message || "Demo request not found" },
         { status: 404 }
       );
+    }
+
+    // Resend access details to the requester (confirmed + provisioned only)
+    if (parsed.data.action === "resend_access_email") {
+      if (existing.status !== "confirmed" || !existing.provisioned_tenant_id) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Access email can only be resent for a confirmed, provisioned demo store",
+          },
+          { status: 400 }
+        );
+      }
+      if (!existing.email) {
+        return NextResponse.json(
+          { success: false, error: "Demo request is missing requester email" },
+          { status: 400 }
+        );
+      }
+
+      const reset = await resetDemoAccessCredentials(adminClient, existing.provisioned_tenant_id);
+      if ("error" in reset) {
+        return NextResponse.json({ success: false, error: reset.error }, { status: 500 });
+      }
+
+      const provisionEmailSent = await notifyDemoReady({
+        ...reset,
+        fullName: existing.full_name,
+        email: existing.email,
+        schoolName: existing.school_name,
+      });
+
+      const { data: refreshed } = await adminClient
+        .from("demo_requests")
+        .select(DEMO_REQUEST_SELECT)
+        .eq("id", existing.id)
+        .single();
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...refreshed,
+          demo_slug: reset.slug,
+          demo_expires_at: reset.expiresAt,
+          demo_school_url: reset.schoolUrl,
+        },
+        provision_email_sent: provisionEmailSent,
+        demo_school_url: reset.schoolUrl,
+        credentials: credentialsPayload(reset),
+      });
     }
 
     // Field edits (pending requests only)
@@ -622,17 +485,7 @@ export async function PATCH(request: Request) {
       provision_email_sent: provisionEmailSent,
       demo_school_url: provision?.schoolUrl ?? null,
       completion_email_sent: completionEmailSent,
-      credentials: provision
-        ? {
-            school_url: provision.schoolUrl,
-            admin_email: provision.adminEmail,
-            admin_password: provision.adminPassword,
-            phone: provision.phone,
-            otp: provision.otp,
-            expires_at: provision.expiresAt,
-            slug: provision.slug,
-          }
-        : null,
+      credentials: provision ? credentialsPayload(provision) : null,
     });
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";

@@ -9,6 +9,8 @@ export async function sendResendEmail(params: {
   text: string;
   html?: string;
   replyTo?: string;
+  /** Override From; defaults to PUBLIC_CONTACT_FROM_EMAIL → DEMO_REQUESTS_FROM_EMAIL → Resend test sender */
+  from?: string;
 }): Promise<boolean> {
   const resendKey = process.env.RESEND_API_KEY;
   if (!resendKey) {
@@ -28,6 +30,7 @@ export async function sendResendEmail(params: {
       },
       body: JSON.stringify({
         from:
+          params.from ||
           process.env.PUBLIC_CONTACT_FROM_EMAIL ||
           process.env.DEMO_REQUESTS_FROM_EMAIL ||
           "OnTheBus <onboarding@resend.dev>",

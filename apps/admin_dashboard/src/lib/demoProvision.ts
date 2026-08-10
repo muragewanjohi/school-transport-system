@@ -745,3 +745,76 @@ export async function extendDemoOtpExpiry(
     .eq("tenant_id", tenantId)
     .not("otp_code", "is", null);
 }
+
+/**
+ * Reset the demo school-admin password and reload Flutter OTP/phone for a resend email.
+ * Original admin passwords are never stored after provision.
+ */
+export async function resetDemoAccessCredentials(
+  adminClient: SupabaseClient,
+  tenantId: string
+): Promise<DemoProvisionResult | DemoProvisionError> {
+  const { data: tenant } = await adminClient
+    .from("tenants")
+    .select("id, domain, is_demo, demo_expires_at")
+    .eq("id", tenantId)
+    .maybeSingle();
+
+  if (!tenant) return { error: "Demo store not found" };
+  if (!tenant.is_demo) return { error: "Refusing to reset credentials for a non-demo tenant" };
+  if (!tenant.domain) return { error: "Demo store has no subdomain" };
+
+  const { data: adminProfile } = await adminClient
+    .from("profiles")
+    .select("id, email")
+    .eq("tenant_id", tenantId)
+    .eq("role", "school_admin")
+    .limit(1)
+    .maybeSingle();
+
+  if (!adminProfile?.id || !adminProfile.email) {
+    return { error: "Demo admin profile not found" };
+  }
+
+  const { data: otpProfile } = await adminClient
+    .from("profiles")
+    .select("phone, otp_code")
+    .eq("tenant_id", tenantId)
+    .eq("role", "driver")
+    .not("otp_code", "is", null)
+    .limit(1)
+    .maybeSingle();
+
+  if (!otpProfile?.otp_code || !otpProfile.phone) {
+    return { error: "Demo Flutter OTP credentials not found" };
+  }
+
+  const adminPassword = generatePassword();
+  const { error: pwdError } = await adminClient.auth.admin.updateUserById(adminProfile.id, {
+    password: adminPassword,
+  });
+  if (pwdError) {
+    return { error: pwdError.message || "Failed to reset demo admin password" };
+  }
+
+  const expiresAt =
+    tenant.demo_expires_at ||
+    new Date(Date.now() + DEMO_DEFAULT_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const schoolUrl =
+    process.env.NODE_ENV !== "production" &&
+    process.env.NEXT_PUBLIC_SITE_URL?.includes("localhost")
+      ? getTenantPublicUrl(tenant.domain, "/login")
+      : `https://${tenant.domain}.${ROOT_DOMAIN}/login`;
+
+  return {
+    tenantId,
+    slug: tenant.domain,
+    schoolUrl,
+    adminEmail: adminProfile.email,
+    adminPassword,
+    phone: otpProfile.phone,
+    otp: otpProfile.otp_code,
+    expiresAt,
+  };
+}

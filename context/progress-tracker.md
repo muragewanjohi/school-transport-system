@@ -173,6 +173,8 @@ Before moving an item to **Completed**, confirm:
 - Driver map + stop-gated boarding (2026-08-05): Home/Trip map uses Google Maps SDK + Directions (via `/api/maps/directions`); live bus marker seeded from foreground GPS; boarding/drop-off filtered to the current stop geofence (client + driver API PUT enforcement).
 - Unified Google Maps (2026-08-05): Driver + Parent use `google_maps_flutter`; Admin already on Maps JS; shared Directions/Places proxies at `/api/maps/directions` and `/api/maps/places`.
 - Driver navigation + direction labels (2026-08-05): Navigate opens Google Maps turn-by-turn to the next stop; attendance FAB/buttons labeled Pickup or Dropoff from schedule `direction`.
+- Driver two-step OTP login (2026-08-10): redesigned Driver/Conductor authentication as separate phone and six-digit verification screens; added resend countdown, support path, real `/api/auth/driver-request-otp` SMS flow, and reusable demo/Play Review OTP handling. BDD scenarios in [bdd.md](bdd.md) pass via `apps/driver_app/test/login_screen_test.dart` (4 widget tests) and `driver-request-otp/route.test.ts` (2 API tests); `flutter analyze`, `flutter test`, dashboard `npm test` (22 tests), and dashboard production build pass.
+- Demo confirm access email (2026-08-10): Confirm emails the lead’s work email with store URL / admin password / Flutter phone+OTP via shared `demoRequestEmails` + `resendEmail`; confirmed stores can **Resend access email** (resets admin password, reuses OTP). BDD in [bdd.md](bdd.md). Requires `RESEND_API_KEY` and a **verified** `DEMO_REQUESTS_FROM_EMAIL` domain on Resend (sandbox `resend.dev` can only mail the Resend account owner — not arbitrary leads). Same vars must be set on Vercel.
 
 ## In Progress
 
@@ -190,7 +192,7 @@ Before moving an item to **Completed**, confirm:
 - Attendance logs and alerts history consoles.
 - Bootstrapping the Parent mobile application (`apps/parent_app`) Flutter workspace.
 - Optional: Calendly/Cal.com embed on `/request-demo`; canned GPS replay loop for demo trips.
-- Optional: `RESEND_API_KEY` + `DEMO_REQUESTS_NOTIFY_EMAIL` for demo lead email delivery.
+- Ensure `RESEND_API_KEY` + verified-domain `DEMO_REQUESTS_FROM_EMAIL` (not `resend.dev`) on Vercel and `.env.local` so demo confirm/complete emails reach requesters.
 
 ## Open Questions
 

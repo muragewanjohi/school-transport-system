@@ -11,6 +11,9 @@ class AppColors {
   static const Color ink = Color(0xFF0B1C30);
   static const Color muted = Color(0xFF64748B);
   static const Color mutedLight = Color(0xFF94A3B8);
+  static const Color softGreen = Color(0xFFEAF8EF);
+  static const Color paleGreen = Color(0xFFF2FBF5);
+  static const Color accentYellow = Color(0xFFFFC107);
 
   /// Brand / AppBar green (prefer for chrome).
   static const Color primaryGreen = Color(0xFF006B32);

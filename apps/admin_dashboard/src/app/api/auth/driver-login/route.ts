@@ -20,6 +20,23 @@ const mockDriverSession = {
   route_id: "782cd841-f762-4217-a021-9876251b5bca",
 };
 
+function phoneVariants(phone: string): string[] {
+  const compact = phone.replace(/[\s()-]+/g, "");
+  const normalized = compact.startsWith("0")
+    ? `+254${compact.slice(1)}`
+    : compact.startsWith("+")
+      ? compact
+      : `+${compact}`;
+  const local = normalized.startsWith("+254") ? normalized.slice(4) : "";
+  if (local.length !== 9) return [normalized];
+  return [
+    normalized,
+    `+254 ${local.slice(0, 3)} ${local.slice(3, 6)} ${local.slice(6)}`,
+    `0${local}`,
+    local,
+  ];
+}
+
 function withAccessToken(session: {
   id: string;
   tenant_id: string;
@@ -58,9 +75,22 @@ export async function POST(request: Request) {
     }
 
     const client = getServiceSupabaseClient() ?? getSupabaseClient();
+    const phoneFilter = phoneVariants(phone)
+      .map((candidate) => `phone.eq.${candidate}`)
+      .join(",");
+    const { data: matchingProfile } = await client
+      .from("profiles")
+      .select("phone")
+      .in("role", ["driver", "conductor"])
+      .or(phoneFilter)
+      .limit(1)
+      .maybeSingle();
 
     const { data, error } = await client
-      .rpc("verify_driver_login", { phone_num: phone, otp_val: otp });
+      .rpc("verify_driver_login", {
+        phone_num: matchingProfile?.phone ?? phone,
+        otp_val: otp,
+      });
 
     if (error || !data) {
       console.error("Auth query profile error via RPC:", error?.message);
