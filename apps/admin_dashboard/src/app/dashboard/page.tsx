@@ -1,23 +1,24 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
-import { 
-  Compass, 
-  Rss, 
-  AlertCircle, 
-  Plus, 
-  Play, 
-  Sparkles,
-  Search,
-  X,
+import React, { useState, useEffect, useRef, useMemo } from "react";
+import Link from "next/link";
+import {
+  AlertCircle,
+  Plus,
+  Play,
   Users,
-  Phone,
-  CreditCard,
-  MapPin,
-  User
+  Bus,
+  Clock,
+  Bell,
+  CheckCircle2,
+  Info,
+  Wrench,
+  Building2,
+  Route as RouteIcon,
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
+import { ThemeToggle } from "@/components/ThemeProvider";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 
 declare global {
@@ -26,17 +27,6 @@ declare global {
     initGoogleMapsDashboard?: () => void;
   }
 }
-
-const PREDEFINED_LOCATIONS = [
-  { id: "loc-1", name: "Kileleshwa stop (Githunguri Road)", coordinates: [36.7889, -1.2789] },
-  { id: "loc-2", name: "Westlands stop (Mwanzi Road)", coordinates: [36.8085, -1.2645] },
-  { id: "loc-3", name: "Kilimani stop (Chania Avenue)", coordinates: [36.7915, -1.2941] },
-  { id: "loc-4", name: "Lavington stop (James Gichuru)", coordinates: [36.7725, -1.2852] },
-  { id: "loc-5", name: "Langata stop (Kenyatta Market)", coordinates: [36.8045, -1.3142] },
-  { id: "loc-6", name: "South C stop (Mugoya Estate)", coordinates: [36.8295, -1.3211] },
-  { id: "loc-7", name: "Karen stop (Hardy Shopping Center)", coordinates: [36.7495, -1.3392] },
-  { id: "loc-8", name: "CBD stop (GPO Bus Stop)", coordinates: [36.8192, -1.2845] },
-];
 
 interface TelemetryEvent {
   id: string;
@@ -77,29 +67,43 @@ interface DBStudent {
   } | null;
 }
 
+interface DBStop {
+  id: string;
+  name: string;
+  route_id: string;
+  sequence_no: number;
+  duration_from_prev_seconds?: number;
+  location?: {
+    coordinates: [number, number];
+  };
+}
+
+const LIGHT_MAP_STYLES: unknown[] = [];
+const DARK_MAP_STYLES = [
+  { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1626" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#304a7d" }] },
+];
+
 export default function DashboardPage() {
-  // Simulator State
-  const [busesActive, setBusesActive] = useState(4);
-  const [boardedCount, setBoardedCount] = useState(142);
+  const [busesActive, setBusesActive] = useState(3);
+  const [boardedCount, setBoardedCount] = useState(0);
   const [alertCount, setAlertCount] = useState(48);
   const [sosCount, setSosCount] = useState(0);
-  const [radarOffset, setRadarOffset] = useState({ x: 0, y: 0 });
   const [impersonating, setImpersonating] = useState(false);
+  const [opsOpen, setOpsOpen] = useState(false);
+  const [schoolName, setSchoolName] = useState("School Dashboard");
 
-  // Student manifest state & filters
   const [students, setStudents] = useState<DBStudent[]>([]);
-  const [stops, setStops] = useState<any[]>([]);
-  const [schedules, setSchedules] = useState<any[]>([]);
-  const [routes, setRoutes] = useState<any[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [gradeFilter, setGradeFilter] = useState("All");
-  const [classFilter, setClassFilter] = useState("All");
-
-  const findStopNameById = (stopId: string | null | undefined) => {
-    if (!stopId) return "Standby stop (Unassigned)";
-    const stop = stops.find(s => s.id === stopId);
-    return stop ? stop.name : "Unknown Stop";
-  };
+  const [stops, setStops] = useState<DBStop[]>([]);
+  const [routes, setRoutes] = useState<DBRoute[]>([]);
+  const [tripCounts, setTripCounts] = useState({
+    completed: 0,
+    ongoing: 0,
+    scheduled: 0,
+  });
 
   const [events, setEvents] = useState<TelemetryEvent[]>([
     {
@@ -107,72 +111,66 @@ export default function DashboardPage() {
       time: "07:28:12 AM",
       route: "Morning Route 2",
       type: "success",
-      message: "SMS Alert Dispatched via Africa's Talking -> +254 703 *** 122"
+      message: "SMS Alert Dispatched via Africa's Talking -> +254 703 *** 122",
     },
     {
       id: "2",
       time: "07:28:10 AM",
       route: "Morning Route 2",
       type: "info",
-      message: "Bus entered pickup geofence (Elsa's Home)"
+      message: "Bus entered pickup geofence (Elsa's Home)",
     },
     {
       id: "3",
       time: "07:26:01 AM",
       route: "Morning Route 4",
       type: "success",
-      message: "Student (James Omondi) Boarded via NFC Card Tap"
+      message: "Student (James Omondi) Boarded via NFC Card Tap",
     },
     {
       id: "4",
       time: "07:24:14 AM",
       route: "Morning Route 4",
-      type: "success",
-      message: "SMS Alert Dispatched via Africa's Talking -> +254 712 *** 789"
+      type: "error",
+      message: "Bus 7 exceeded speed limit",
     },
     {
       id: "5",
       time: "07:24:12 AM",
       route: "Morning Route 4",
       type: "info",
-      message: "Bus entered pickup geofence (James's Home)"
-    }
+      message: "Bus entered pickup geofence (James's Home)",
+    },
   ]);
 
-  // Google Maps DOM mounting reference and map/marker state
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markersRef = useRef<{ [key: string]: any }>({});
+  const opsRef = useRef<HTMLDivElement>(null);
+  const simulationStopIndexRef = useRef<number>(0);
 
   const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
-  // Fetch routes and initialize Google Maps on the client
   useEffect(() => {
     let isMounted = true;
 
     const initMap = () => {
       if (!mapContainerRef.current || !window.google || !window.google.maps) return;
 
+      const isDark = document.documentElement.dataset.theme === "dark";
       const map = new window.google.maps.Map(mapContainerRef.current, {
-        center: { lat: -1.2721, lng: 36.8045 }, // Nairobi center
+        center: { lat: -1.2721, lng: 36.8045 },
         zoom: 13,
         mapTypeId: "roadmap",
         zoomControl: true,
         streetViewControl: false,
         mapTypeControl: false,
         fullscreenControl: true,
-        styles: [
-          { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
-          { elementType: "labels.text.fill", stylers: [{ color: "#8ec3b9" }] },
-          { elementType: "labels.text.stroke", stylers: [{ color: "#1a3646" }] },
-          { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e1626" }] },
-          { featureType: "road", elementType: "geometry", stylers: [{ color: "#304a7d" }] },
-        ],
+        styles: isDark ? DARK_MAP_STYLES : LIGHT_MAP_STYLES,
       });
 
       mapRef.current = map;
 
-      // Fetch and draw student transit routes as Google Polylines
       fetch("/api/routes")
         .then((res) => res.json())
         .then((json) => {
@@ -202,10 +200,14 @@ export default function DashboardPage() {
         })
         .catch((err) => console.error("Error loading map routes:", err));
 
-      // Load configured school locations
       const savedSchools = localStorage.getItem("safaricom_school_locations");
       let schoolLocations = [
-        { id: "school-loc-1", name: "St. Mary's Academy (Upper School)", latitude: -1.2921, longitude: 36.8219 },
+        {
+          id: "school-loc-1",
+          name: "School Campus",
+          latitude: -1.2921,
+          longitude: 36.8219,
+        },
       ];
       if (savedSchools) {
         try {
@@ -218,7 +220,6 @@ export default function DashboardPage() {
         }
       }
 
-      // Render school markers on Google Map
       schoolLocations.forEach((loc) => {
         if (!isMounted || !mapRef.current) return;
 
@@ -246,11 +247,10 @@ export default function DashboardPage() {
         });
       });
 
-      // Initialize default active bus markers
       const defaultBuses = [
-        { id: "bus-4", name: "KBZ 445B (Morning Run)", color: "#10B981", lat: -1.2721, lng: 36.7981 },
-        { id: "bus-2", name: "KCD 542A (Morning Run)", color: "#6366F1", lat: -1.2699, lng: 36.8115 },
-        { id: "bus-1", name: "KBC 104D (Parked)", color: "#64748B", lat: -1.2612, lng: 36.8021 },
+        { id: "bus-4", name: "KBZ 445B (Morning Run)", lat: -1.2721, lng: 36.7981 },
+        { id: "bus-2", name: "KCD 542A (Morning Run)", lat: -1.2699, lng: 36.8115 },
+        { id: "bus-1", name: "KBC 104D (Parked)", lat: -1.2612, lng: 36.8021 },
       ];
 
       defaultBuses.forEach((bus) => {
@@ -299,7 +299,6 @@ export default function DashboardPage() {
     };
   }, [googleApiKey]);
 
-  // Subscribe to real-time database updates from Supabase
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
@@ -339,7 +338,6 @@ export default function DashboardPage() {
           setEvents((prev) => [newEvent, ...prev.slice(0, 15)]);
           setAlertCount((prev) => prev + 1);
 
-          // Update Google Maps bus marker position
           const key = record.vehicle_id || "bus-4";
           if (markersRef.current[key] && mapRef.current) {
             markersRef.current[key].setPosition({ lat, lng });
@@ -354,45 +352,53 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // Fetch student, stops and schedules records
   useEffect(() => {
-    const fetchStudents = async () => {
-      try {
-        const res = await fetch("/api/students");
-        const json = await res.json();
-        if (json.success) {
-          setStudents(json.data);
-        }
-      } catch (err) {
-        console.error("Failed to load students:", err);
-      }
-    };
-
     const fetchDashboardData = async () => {
       try {
-        // Fetch stops
-        const stopsRes = await fetch("/api/stops");
+        const [stopsRes, routesRes, studentsRes, configRes, tripsRes] = await Promise.all([
+          fetch("/api/stops"),
+          fetch("/api/routes"),
+          fetch("/api/students"),
+          fetch("/api/config"),
+          fetch("/api/trips"),
+        ]);
+
         const stopsJson = await stopsRes.json();
-        if (stopsJson.success) {
-          setStops(stopsJson.data);
-        }
+        if (stopsJson.success) setStops(stopsJson.data || []);
 
-        // Fetch schedules
-        const schedulesRes = await fetch("/api/schedules");
-        const schedulesJson = await schedulesRes.json();
-        if (schedulesJson.success) {
-          setSchedules(schedulesJson.data);
-        }
-
-        // Fetch routes
-        const routesRes = await fetch("/api/routes");
         const routesJson = await routesRes.json();
-        if (routesJson.success) {
-          setRoutes(routesJson.data);
+        if (routesJson.success) setRoutes(routesJson.data || []);
+
+        const studentsJson = await studentsRes.json();
+        if (studentsJson.success) {
+          const list = (studentsJson.data || []) as DBStudent[];
+          setStudents(list);
+          const present = list.filter((s) => s.status === "Present").length;
+          setBoardedCount(present);
         }
 
-        // Fetch students
-        await fetchStudents();
+        const configJson = await configRes.json();
+        if (configJson.success && configJson.data?.school_name) {
+          setSchoolName(configJson.data.school_name as string);
+        }
+
+        const tripsJson = await tripsRes.json();
+        if (tripsJson.success && Array.isArray(tripsJson.data)) {
+          const trips = tripsJson.data as Array<{ status?: string }>;
+          const completed = trips.filter((t) => t.status === "completed").length;
+          const ongoing = trips.filter(
+            (t) => t.status === "in_progress" || t.status === "active" || t.status === "ongoing"
+          ).length;
+          const scheduled = trips.filter(
+            (t) => t.status === "scheduled" || t.status === "pending"
+          ).length;
+          setTripCounts({
+            completed,
+            ongoing,
+            scheduled: scheduled || trips.length,
+          });
+          if (ongoing > 0) setBusesActive(ongoing);
+        }
       } catch (err) {
         console.error("Failed to load dashboard overview data:", err);
       }
@@ -400,116 +406,82 @@ export default function DashboardPage() {
     fetchDashboardData();
   }, []);
 
-  const handleToggleStatus = async (studentId: string) => {
-    const student = students.find(s => s.id === studentId);
-    if (!student) return;
-
-    const newStatus = student.status === "Present" ? "Absent" : "Present";
-    try {
-      const res = await fetch(`/api/students/${studentId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: newStatus })
-      });
-      const json = await res.json();
-      if (json.success) {
-        const studentsRes = await fetch("/api/students");
-        const studentsJson = await studentsRes.json();
-        if (studentsJson.success) {
-          setStudents(studentsJson.data);
-        }
+  useEffect(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (!opsRef.current?.contains(e.target as Node)) {
+        setOpsOpen(false);
       }
-    } catch (err) {
-      console.error("Failed to sync student status toggle:", err);
-    }
-  };
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, []);
 
-  // Simulation Tracker Ref
-  const simulationStopIndexRef = useRef<number>(0);
-
-  // Simulation Trigger Handlers
   const handleSimulateGPS = async () => {
     let lat = -1.2721;
     let lng = 36.8045;
     let stopName = "";
-    let nextStopName = "";
-    let etaMins = 0;
-    let etaStr = "";
     let smsEvents: TelemetryEvent[] = [];
-    
+
     const activeRouteId = stops.length > 0 ? stops[0].route_id : "route-4";
     let chosenRouteName = "Morning Route 4";
-    const matchedRoute = routes.find(r => r.id === activeRouteId);
+    const matchedRoute = routes.find((r) => r.id === activeRouteId);
     if (matchedRoute) {
       chosenRouteName = matchedRoute.name;
     }
 
     const routeStops = stops
-      .filter(s => s.route_id === activeRouteId)
+      .filter((s) => s.route_id === activeRouteId)
       .sort((a, b) => a.sequence_no - b.sequence_no);
 
     if (routeStops.length > 0) {
       const idx = simulationStopIndexRef.current % routeStops.length;
       simulationStopIndexRef.current += 1;
-      
+
       const targetStop = routeStops[idx];
-      lng = targetStop.location.coordinates[0];
-      lat = targetStop.location.coordinates[1];
+      lng = targetStop.location?.coordinates?.[0] ?? lng;
+      lat = targetStop.location?.coordinates?.[1] ?? lat;
       stopName = targetStop.name;
-      
+
       const nextStop = routeStops[idx + 1];
       if (nextStop) {
-        nextStopName = nextStop.name;
-        const durationSec = nextStop.duration_from_prev_seconds || 300;
-        etaMins = Math.round(durationSec / 60);
-        if (etaMins <= 0) etaMins = 5;
-
-        const now = new Date();
-        const etaTime = new Date(now.getTime() + durationSec * 1000);
-        etaStr = etaTime.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-
-        const nextStopStudents = students.filter(s => 
-          s.route_id === activeRouteId && 
-          (s.pickup_stop_id === nextStop.id || s.dropoff_stop_id === nextStop.id)
+        const nextStopStudents = students.filter(
+          (s) =>
+            s.route_id === activeRouteId &&
+            (s.pickup_stop_id === nextStop.id || s.dropoff_stop_id === nextStop.id)
         );
 
-        nextStopStudents.forEach(student => {
+        nextStopStudents.forEach((student) => {
           const parent = student.guardians && student.guardians[0];
           const parentPhone = parent ? parent.phone : "+254703000122";
-          
-          const smsEvent: TelemetryEvent = {
+
+          smsEvents.push({
             id: `sms-${student.id}-${Date.now()}-${Math.random()}`,
             time: new Date().toLocaleTimeString("en-US", { hour12: true }),
             route: chosenRouteName,
             type: "success",
-            message: `SMS alert sent to ${student.name}'s parent -> ${parentPhone}`
-          };
-          smsEvents.push(smsEvent);
+            message: `SMS alert sent to ${student.name}'s parent -> ${parentPhone}`,
+          });
         });
       }
     } else {
       lat = -1.2721 + (Math.random() * 0.02 - 0.01);
       lng = 36.8045 + (Math.random() * 0.02 - 0.01);
     }
-    
-    const randomX = Math.floor(Math.random() * 80) - 40;
-    const randomY = Math.floor(Math.random() * 80) - 40;
-    setRadarOffset({ x: randomX, y: randomY });
 
     const newTime = new Date().toLocaleTimeString("en-US", { hour12: true });
-    
+
     const geofenceEvent: TelemetryEvent = {
       id: `geo-${Date.now()}`,
       time: newTime,
       route: chosenRouteName,
       type: "info",
-      message: stopName 
+      message: stopName
         ? `Bus entered geofence: ${stopName}`
-        : `Telemetry ping: Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)}`
+        : `Telemetry ping: Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)}`,
     };
 
-    setEvents(prev => [...smsEvents, geofenceEvent, ...prev].slice(0, 15));
-    setAlertCount(prev => prev + smsEvents.length);
+    setEvents((prev) => [...smsEvents, geofenceEvent, ...prev].slice(0, 15));
+    setAlertCount((prev) => prev + smsEvents.length);
 
     if (markersRef.current["bus-4"] && mapRef.current) {
       markersRef.current["bus-4"].setPosition({ lat, lng });
@@ -527,227 +499,169 @@ export default function DashboardPage() {
             latitude: lat,
             longitude: lng,
             speed: Math.floor(Math.random() * 25) + 20,
-            bearing: Math.floor(Math.random() * 360)
-          })
+            bearing: Math.floor(Math.random() * 360),
+          }),
         });
       } catch (err) {
         console.error("Failed to post simulation telemetry payload:", err);
       }
     }
+    setOpsOpen(false);
   };
 
   const handleSimulateNFC = () => {
     const newTime = new Date().toLocaleTimeString("en-US", { hour12: true });
     const studentsList = ["Fatuma Ali", "Brian Koech", "Mary Mwangi", "James Omondi"];
     const chosenStudent = studentsList[Math.floor(Math.random() * studentsList.length)];
-    
-    if (boardedCount < 150) {
-      setBoardedCount(prev => prev + 1);
-    }
 
-    const newEvent: TelemetryEvent = {
-      id: Date.now().toString(),
-      time: newTime,
-      route: "Morning Route 4",
-      type: "success",
-      message: `Student (${chosenStudent}) Checked-In successfully via NFC tap`
-    };
+    setBoardedCount((prev) => prev + 1);
 
-    setEvents(prev => [newEvent, ...prev.slice(0, 15)]);
+    setEvents((prev) => [
+      {
+        id: Date.now().toString(),
+        time: newTime,
+        route: "Morning Route 4",
+        type: "success",
+        message: `Student (${chosenStudent}) Checked-In successfully via NFC tap`,
+      },
+      ...prev.slice(0, 15),
+    ]);
+    setOpsOpen(false);
   };
 
   const handleTriggerSOS = () => {
     const newTime = new Date().toLocaleTimeString("en-US", { hour12: true });
-    setSosCount(prev => prev + 1);
+    setSosCount((prev) => prev + 1);
 
-    const newEvent: TelemetryEvent = {
-      id: Date.now().toString(),
-      time: newTime,
-      route: "Morning Route 2",
-      type: "error",
-      message: "CRITICAL: Driver triggered SOS Alert coordinates streamed!"
-    };
-
-    setEvents(prev => [newEvent, ...prev.slice(0, 15)]);
+    setEvents((prev) => [
+      {
+        id: Date.now().toString(),
+        time: newTime,
+        route: "Morning Route 2",
+        type: "error",
+        message: "CRITICAL: Driver triggered SOS Alert coordinates streamed!",
+      },
+      ...prev.slice(0, 15),
+    ]);
 
     if (markersRef.current["bus-4"] && mapRef.current) {
       const sosLat = -1.2652;
       const sosLng = 36.8122;
-      
       markersRef.current["bus-4"].setPosition({ lat: sosLat, lng: sosLng });
       mapRef.current.panTo({ lat: sosLat, lng: sosLng });
       mapRef.current.setZoom(15);
     }
+    setOpsOpen(false);
   };
 
-  const uniqueGrades = Array.from(new Set(students.map(s => s.grade).filter(Boolean))).sort() as string[];
-  const uniqueClasses = Array.from(new Set(students.map(s => s.class_name).filter(Boolean))).sort() as string[];
+  const presentCount = useMemo(
+    () => students.filter((s) => s.status === "Present").length || boardedCount,
+    [students, boardedCount]
+  );
+  const absentCount = useMemo(
+    () => students.filter((s) => s.status === "Absent").length,
+    [students]
+  );
+  const pendingCount = Math.max(students.length - presentCount - absentCount, 0);
+  const totalStudents = students.length || presentCount + absentCount + pendingCount;
+  const presentPct = totalStudents ? Math.round((presentCount / totalStudents) * 100) : 0;
+  const absentPct = totalStudents ? Math.round((absentCount / totalStudents) * 100) : 0;
+  const pendingPct = Math.max(0, 100 - presentPct - absentPct);
 
-  const filteredStudents = students.filter(student => {
-    const query = searchQuery.toLowerCase();
-    const pickupName = findStopNameById(student.pickup_stop_id).toLowerCase();
-    const dropoffName = findStopNameById(student.dropoff_stop_id).toLowerCase();
-    const routeName = (student.route?.name || "").toLowerCase();
-    const grade = (student.grade || "").toLowerCase();
-    const className = (student.class_name || "").toLowerCase();
-    
-    if (gradeFilter !== "All" && student.grade !== gradeFilter) return false;
-    if (classFilter !== "All" && student.class_name !== classFilter) return false;
-    
-    const matchesGuardians = student.guardians?.some(g => 
-      g.name.toLowerCase().includes(query) || 
-      g.phone.includes(query)
-    );
-    
-    return (
-      student.name.toLowerCase().includes(query) ||
-      routeName.includes(query) ||
-      pickupName.includes(query) ||
-      dropoffName.includes(query) ||
-      (student.nfc_card_hash || "").toLowerCase().includes(query) ||
-      matchesGuardians ||
-      grade.includes(query) ||
-      className.includes(query)
-    );
-  });
+  const upcomingStops = useMemo(() => {
+    const sorted = [...stops].sort((a, b) => a.sequence_no - b.sequence_no).slice(0, 6);
+    const now = new Date();
+    return sorted.map((stop, idx) => {
+      const etaMins = Math.max(2, Math.round((stop.duration_from_prev_seconds || 300) / 60));
+      const eta = new Date(now.getTime() + (idx + 1) * etaMins * 60_000);
+      const routeName = routes.find((r) => r.id === stop.route_id)?.name || "Route";
+      return {
+        id: stop.id,
+        name: stop.name,
+        routeName,
+        time: eta.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        etaLabel: `${etaMins + idx * 2} min`,
+      };
+    });
+  }, [stops, routes]);
+
+  const donutStyle = {
+    background: `conic-gradient(
+      var(--accent-primary) 0% ${presentPct}%,
+      var(--state-error) ${presentPct}% ${presentPct + absentPct}%,
+      var(--state-warning) ${presentPct + absentPct}% 100%
+    )`,
+  };
+
+  const scheduledTrips =
+    tripCounts.scheduled || tripCounts.completed + tripCounts.ongoing || routes.length || 0;
+  const completedTrips = tripCounts.completed || Math.max(scheduledTrips - busesActive, 0);
+  const ongoingTrips = tripCounts.ongoing || busesActive;
 
   return (
     <div className="app-container">
       <Sidebar />
 
-      <style jsx global>{`
-        .student-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.85rem;
-        }
-        .student-table th {
-          text-align: left;
-          padding: 12px 16px;
-          border-bottom: 1px solid var(--border-default);
-          color: var(--text-muted);
-          font-weight: 600;
-          font-size: 0.75rem;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-        }
-        .student-table td {
-          padding: 12px 16px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.03);
-          vertical-align: middle;
-        }
-        .student-table tr:hover {
-          background: rgba(255, 255, 255, 0.01);
-        }
-        .student-avatar {
-          width: 40px;
-          height: 40px;
-          background: rgba(99, 102, 241, 0.1);
-          color: var(--accent-secondary);
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-weight: 600;
-          font-size: 1rem;
-        }
-        .switch-container {
-          display: flex;
-          align-items: center;
-          gap: 8px;
-          cursor: pointer;
-          user-select: none;
-          margin-top: 4px;
-        }
-        .switch-track {
-          width: 36px;
-          height: 20px;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.08);
-          border: 1px solid var(--border-default);
-          position: relative;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .switch-track.Present {
-          background: rgba(16, 185, 129, 0.2);
-          border-color: rgba(16, 185, 129, 0.5);
-          box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
-        }
-        .switch-track.Absent {
-          background: rgba(244, 63, 94, 0.1);
-          border-color: rgba(244, 63, 94, 0.4);
-        }
-        .switch-thumb {
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          background: #ffffff;
-          position: absolute;
-          top: 2px;
-          left: 2px;
-          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-          box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
-        }
-        .switch-track.Present .switch-thumb {
-          transform: translateX(16px);
-          background: var(--state-success);
-        }
-        .switch-track.Absent .switch-thumb {
-          transform: translateX(0);
-          background: var(--text-muted);
-        }
-        .switch-label {
-          font-size: 0.7rem;
-          font-weight: 600;
-          letter-spacing: 0.05em;
-          text-transform: uppercase;
-        }
-        .switch-label.Present {
-          color: var(--state-success);
-        }
-        .switch-label.Absent {
-          color: var(--state-error);
-        }
-      `}</style>
-
-      {/* Main Panel Content */}
       <main className="main-content">
-        {/* Top Header Section */}
         <header className="top-bar">
-          <div>
-            <span className="top-bar-title">St. Mary's Academy Command Center</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span className="school-chip">
+              <Building2 size={16} style={{ color: "var(--accent-primary)" }} />
+              {schoolName}
+            </span>
             {impersonating && (
-              <span style={{ 
-                marginLeft: "12px", 
-                background: "rgba(244,63,94,0.1)", 
-                color: "var(--state-error)", 
-                padding: "3px 8px", 
-                borderRadius: "4px", 
-                fontSize: "0.75rem",
-                fontWeight: 600,
-                border: "1px solid rgba(244,63,94,0.2)"
-              }}>
+              <span
+                style={{
+                  background: "rgba(244,63,94,0.1)",
+                  color: "var(--state-error)",
+                  padding: "3px 8px",
+                  borderRadius: "4px",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  border: "1px solid rgba(244,63,94,0.2)",
+                }}
+              >
                 Impersonation Mode (Read-Only)
               </span>
             )}
           </div>
-          <div className="user-profile">
-            <button 
-              onClick={() => setImpersonating(prev => !prev)}
-              style={{
-                background: "rgba(99,102,241,0.1)",
-                color: "var(--accent-secondary)",
-                border: "1px solid rgba(99,102,241,0.2)",
-                padding: "6px 12px",
-                borderRadius: "6px",
-                fontSize: "0.8rem",
-                cursor: "pointer",
-                marginRight: "16px"
-              }}
-            >
-              Toggle Support Mode
+
+          <div className="top-bar-actions">
+            <div className="ops-tools" ref={opsRef}>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={() => setOpsOpen((v) => !v)}
+                aria-label="Ops tools"
+                title="Ops tools"
+              >
+                <Wrench size={16} />
+              </button>
+              {opsOpen && (
+                <div className="ops-tools-menu">
+                  <button type="button" onClick={handleSimulateGPS}>
+                    <Play size={14} /> Simulate GPS Ping
+                  </button>
+                  <button type="button" onClick={handleSimulateNFC}>
+                    <Plus size={14} /> Simulate NFC Tap
+                  </button>
+                  <button type="button" onClick={handleTriggerSOS}>
+                    <AlertCircle size={14} /> Trigger SOS
+                  </button>
+                  <button type="button" onClick={() => setImpersonating((p) => !p)}>
+                    <Users size={14} /> Toggle Support Mode
+                  </button>
+                </div>
+              )}
+            </div>
+            <button type="button" className="icon-btn" aria-label="Notifications">
+              <Bell size={16} />
+              {(alertCount > 0 || sosCount > 0) && (
+                <span className="icon-btn-badge">{Math.min(sosCount || 3, 99)}</span>
+              )}
             </button>
-            <UserProfileBadge 
+            <ThemeToggle className="theme-toggle-compact" />
+            <UserProfileBadge
               nameOverride={impersonating ? "Platform Support Team" : undefined}
               roleOverride={impersonating ? "Super Administrator" : undefined}
               initialsOverride={impersonating ? "PS" : undefined}
@@ -755,352 +669,195 @@ export default function DashboardPage() {
           </div>
         </header>
 
-        {/* Dynamic Metric Counter Panels */}
-        <section className="dashboard-grid">
-          <div className="stat-card primary">
-            <div className="stat-label">Buses Active</div>
-            <div className="stat-value">{busesActive} / 5</div>
-            <div className="stat-desc">Morning trips in progress</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-label">Students Checked-in</div>
-            <div className="stat-value">{boardedCount} / 150</div>
-            <div className="stat-desc">Boarded via NFC badge taps</div>
-          </div>
-          <div className="stat-card">
-            <div className="stat-label">Proximity Alerts Sent</div>
-            <div className="stat-value">{alertCount}</div>
-            <div className="stat-desc">SMS dispatches via Africa's Talking</div>
-          </div>
-          <div className="stat-card error">
-            <div className="stat-label">Emergency Panic SOS</div>
-            <div className="stat-value">{sosCount}</div>
-            <div className="stat-desc" style={{ color: sosCount > 0 ? "var(--state-error)" : "var(--text-muted)" }}>
-              {sosCount > 0 ? "Urgent coordinates received" : "All routes normal & secure"}
+        <div className="dash-home">
+          <section className="dash-kpi-grid">
+            <div className="dash-kpi">
+              <div className="dash-kpi-icon green">
+                <Bus size={20} />
+              </div>
+              <div className="dash-kpi-label">Active Buses</div>
+              <div className="dash-kpi-value">{busesActive}</div>
+              <div className="dash-kpi-trend">Live fleet status</div>
             </div>
-          </div>
-        </section>
+            <div className="dash-kpi">
+              <div className="dash-kpi-icon blue">
+                <Users size={20} />
+              </div>
+              <div className="dash-kpi-label">Students on Board</div>
+              <div className="dash-kpi-value">{presentCount}</div>
+              <div className="dash-kpi-trend">Present check-ins</div>
+            </div>
+            <div className="dash-kpi">
+              <div className="dash-kpi-icon purple">
+                <RouteIcon size={20} />
+              </div>
+              <div className="dash-kpi-label">Today&apos;s Trips</div>
+              <div className="dash-kpi-value">{scheduledTrips}</div>
+              <div className="dash-kpi-trend">{ongoingTrips} ongoing</div>
+            </div>
+            <div className="dash-kpi">
+              <div className="dash-kpi-icon amber">
+                <Clock size={20} />
+              </div>
+              <div className="dash-kpi-label">Alerts / SOS</div>
+              <div className="dash-kpi-value">{sosCount > 0 ? sosCount : alertCount}</div>
+              <div className="dash-kpi-trend" style={{ color: sosCount > 0 ? "var(--state-error)" : undefined }}>
+                {sosCount > 0 ? "Urgent SOS active" : "Proximity & ops alerts"}
+              </div>
+            </div>
+          </section>
 
-        {/* Dashboard split viewport */}
-        <section className="dashboard-content-layout">
-          {/* Map Viewport & Controls */}
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                <Compass size={18} style={{ color: "var(--accent-primary)" }} />
-                Live Fleet telemetry (Nairobi Sector)
-              </span>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <button 
-                  onClick={handleSimulateGPS}
-                  style={{
-                    background: "rgba(16,185,129,0.1)",
-                    color: "var(--accent-primary)",
-                    border: "1px solid rgba(16,185,129,0.2)",
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    fontSize: "0.8rem",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px"
-                  }}
-                >
-                  <Play size={12} />
-                  Simulate GPS Ping
-                </button>
-                <button 
-                  onClick={handleSimulateNFC}
-                  style={{
-                    background: "rgba(99,102,241,0.1)",
-                    color: "var(--accent-secondary)",
-                    border: "1px solid rgba(99,102,241,0.2)",
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    fontSize: "0.8rem",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px"
-                  }}
-                >
-                  <Plus size={12} />
-                  Simulate NFC Tap
-                </button>
-                <button 
-                  onClick={handleTriggerSOS}
-                  style={{
-                    background: "rgba(244,63,94,0.1)",
-                    color: "var(--state-error)",
-                    border: "1px solid rgba(244,63,94,0.2)",
-                    padding: "6px 12px",
-                    borderRadius: "6px",
-                    fontSize: "0.8rem",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px"
-                  }}
-                >
-                  <AlertCircle size={12} />
-                  Trigger SOS
-                </button>
+          <section className="dash-mid-grid">
+            <div className="dash-card">
+              <div className="dash-card-header">
+                <span className="dash-card-title">Live Fleet Map</span>
+                <Link href="/fleet" className="dash-card-link">
+                  View all buses →
+                </Link>
+              </div>
+              <div ref={mapContainerRef} className="dash-map" />
+              <div className="dash-legend">
+                <span className="dash-legend-item">
+                  <span className="dash-dot moving" /> Moving: {Math.max(busesActive - 1, 0)}
+                </span>
+                <span className="dash-legend-item">
+                  <span className="dash-dot stopped" /> Stopped: 1
+                </span>
+                <span className="dash-legend-item">
+                  <span className="dash-dot idle" /> Idle: {Math.max(3 - busesActive, 0)}
+                </span>
+                <span className="dash-legend-item">
+                  <span className="dash-dot offline" /> Offline: 0
+                </span>
               </div>
             </div>
 
-            {/* Map Element */}
-            <div 
-              ref={mapContainerRef} 
-              className="map-placeholder"
-              style={{ height: "380px", position: "relative" }}
-            />
-            
-            <div style={{ marginTop: "16px", display: "flex", alignItems: "center", gap: "8px", color: "var(--text-muted)", fontSize: "0.8rem" }}>
-              <Sparkles size={14} style={{ color: "var(--accent-secondary)" }} />
-              <span>Click the simulation buttons above to trigger live coordinate streams and check-in manifest entries.</span>
-            </div>
-          </div>
-
-          {/* Live Telemetry Log Feed Panel */}
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                <Rss size={18} style={{ color: "var(--accent-secondary)" }} />
-                Real-Time Telemetry Feed
-              </span>
-            </div>
-
-            <div className="telemetry-list">
-              {events.map(event => (
-                <div className="telemetry-item" key={event.id}>
-                  <div className="telemetry-meta">
-                    <span className="telemetry-title">{event.message}</span>
-                    <span className="telemetry-subtitle">
-                      {event.time} • {event.route}
-                    </span>
+            <div className="dash-card">
+              <div className="dash-card-header">
+                <span className="dash-card-title">Upcoming Stops</span>
+                <Link href="/routes/stops" className="dash-card-link">
+                  View all
+                </Link>
+              </div>
+              <div className="dash-stop-list">
+                {upcomingStops.length === 0 ? (
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "24px 0" }}>
+                    No stops loaded yet. Add stops under Routes.
                   </div>
-                  <span className={`telemetry-badge ${event.type}`}>
-                    {event.type}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* Student Manifest Overview Panel */}
-        <section className="dashboard-content-layout" style={{ gridTemplateColumns: "1fr", marginTop: "24px" }}>
-          <div className="panel" style={{ display: "flex", flexDirection: "column" }}>
-            <div className="panel-header" style={{ border: "none", margin: 0, paddingBottom: "16px" }}>
-              <span className="panel-title" style={{ fontSize: "1.2rem", fontWeight: 600 }}>
-                <Users size={20} style={{ color: "var(--accent-primary)" }} />
-                Student Manifests Overview
-              </span>
-            </div>
-
-            {/* Filter controls */}
-            <div style={{
-              display: "flex",
-              gap: "12px",
-              marginBottom: "16px",
-              flexWrap: "wrap"
-            }}>
-              {/* Search Bar */}
-              <div style={{
-                display: "flex",
-                alignItems: "center",
-                background: "rgba(255, 255, 255, 0.02)",
-                border: "1px solid var(--border-default)",
-                borderRadius: "8px",
-                padding: "8px 14px",
-                gap: "8px",
-                flex: 2,
-                minWidth: "240px"
-              }}>
-                <Search size={16} style={{ color: "var(--text-muted)" }} />
-                <input
-                  type="text"
-                  placeholder="Search by student name, route, grade, class..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  style={{
-                    background: "transparent",
-                    border: "none",
-                    outline: "none",
-                    color: "var(--text-primary)",
-                    fontSize: "0.85rem",
-                    width: "100%"
-                  }}
-                />
-                {searchQuery && (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    style={{
-                      background: "transparent",
-                      border: "none",
-                      color: "var(--text-muted)",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center"
-                    }}
-                  >
-                    <X size={14} />
-                  </button>
+                ) : (
+                  upcomingStops.map((stop) => (
+                    <div className="dash-stop-item" key={stop.id}>
+                      <span className="dash-stop-time">{stop.time}</span>
+                      <div>
+                        <div className="dash-stop-name">{stop.name}</div>
+                        <div className="dash-stop-meta">{stop.routeName}</div>
+                      </div>
+                      <span className="dash-stop-eta">{stop.etaLabel}</span>
+                    </div>
+                  ))
                 )}
               </div>
+            </div>
+          </section>
 
-              {/* Grade Dropdown Selector */}
-              <div style={{ flex: 1, minWidth: "150px" }}>
-                <select
-                  value={gradeFilter}
-                  onChange={(e) => setGradeFilter(e.target.value)}
-                  style={{
-                    background: "rgba(6, 9, 19, 0.6)",
-                    border: "1px solid var(--border-default)",
-                    borderRadius: "8px",
-                    padding: "10px 12px",
-                    color: "var(--text-primary)",
-                    fontSize: "0.85rem",
-                    outline: "none",
-                    width: "100%",
-                    cursor: "pointer"
-                  }}
-                >
-                  <option value="All">All Grades</option>
-                  {uniqueGrades.map(g => (
-                    <option key={g} value={g}>{g}</option>
-                  ))}
-                </select>
+          <section className="dash-bottom-grid">
+            <div className="dash-card">
+              <div className="dash-card-header">
+                <span className="dash-card-title">Attendance Overview</span>
+                <Link href="/students" className="dash-card-link">
+                  View full report →
+                </Link>
               </div>
-
-              {/* Class Dropdown Selector */}
-              <div style={{ flex: 1, minWidth: "150px" }}>
-                <select
-                  value={classFilter}
-                  onChange={(e) => setClassFilter(e.target.value)}
-                  style={{
-                    background: "rgba(6, 9, 19, 0.6)",
-                    border: "1px solid var(--border-default)",
-                    borderRadius: "8px",
-                    padding: "10px 12px",
-                    color: "var(--text-primary)",
-                    fontSize: "0.85rem",
-                    outline: "none",
-                    width: "100%",
-                    cursor: "pointer"
-                  }}
-                >
-                  <option value="All">All Classes</option>
-                  {uniqueClasses.map(c => (
-                    <option key={c} value={c}>{c}</option>
-                  ))}
-                </select>
+              <div className="dash-attendance">
+                <div className="dash-donut" style={donutStyle}>
+                  <div className="dash-donut-hole">
+                    <span className="dash-donut-value">{totalStudents || presentCount}</span>
+                    <span className="dash-donut-label">Total Students</span>
+                  </div>
+                </div>
+                <div className="dash-legend-col">
+                  <div className="dash-legend-row">
+                    <span>
+                      <span className="dash-dot moving" /> Present
+                    </span>
+                    <strong>
+                      {presentCount} ({presentPct}%)
+                    </strong>
+                  </div>
+                  <div className="dash-legend-row">
+                    <span>
+                      <span className="dash-dot" style={{ background: "var(--state-error)" }} /> Absent
+                    </span>
+                    <strong>
+                      {absentCount} ({absentPct}%)
+                    </strong>
+                  </div>
+                  <div className="dash-legend-row">
+                    <span>
+                      <span className="dash-dot idle" /> Pending
+                    </span>
+                    <strong>
+                      {pendingCount} ({pendingPct}%)
+                    </strong>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* Student manifest list / table */}
-            {filteredStudents.length === 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "160px", color: "var(--text-muted)", border: "1px dashed var(--border-default)", borderRadius: "12px" }}>
-                <span>No student manifests found matching active filters.</span>
+            <div className="dash-card">
+              <div className="dash-card-header">
+                <span className="dash-card-title">Trip Summary (Today)</span>
+                <Link href="/routes/today-trips" className="dash-card-link">
+                  View all trips →
+                </Link>
               </div>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table className="student-table">
-                  <thead>
-                    <tr>
-                      <th>Student</th>
-                      <th>Attendance Status</th>
-                      <th>Transit Route</th>
-                      <th>Pickup & Drop-off Stops</th>
-                      <th>Parents & Guardians</th>
-                      <th>NFC Tag</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredStudents.map(student => {
-                      const initials = student.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
-                      const pickupName = findStopNameById(student.pickup_stop_id);
-                      const dropoffName = findStopNameById(student.dropoff_stop_id);
-
-                      return (
-                        <tr key={student.id}>
-                          <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-                              <div className="student-avatar">{initials}</div>
-                              <div>
-                                <span style={{ fontWeight: 600, color: "var(--text-primary)", display: "block" }}>{student.name}</span>
-                                {(student.grade || student.class_name) && (
-                                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", display: "block", marginTop: "2px" }}>
-                                    {student.grade || ""}{student.grade && student.class_name ? ` • ` : ""}{student.class_name || ""}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-
-                          <td>
-                            <div className="switch-container" onClick={() => handleToggleStatus(student.id)}>
-                              <div className={`switch-track ${student.status}`} title="Click to toggle status">
-                                <div className="switch-thumb" />
-                              </div>
-                              <span className={`switch-label ${student.status}`} style={{ minWidth: "50px" }}>
-                                {student.status}
-                              </span>
-                            </div>
-                          </td>
-
-                          <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-primary)" }}>
-                              <Compass size={14} style={{ color: "var(--accent-secondary)" }} />
-                              <span style={{ fontWeight: 500 }}>{student.route?.name || "Unassigned"}</span>
-                            </div>
-                          </td>
-
-                          <td>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem" }}>
-                                <MapPin size={12} style={{ color: "var(--state-success)" }} />
-                                <span style={{ color: "var(--text-primary)" }}>{pickupName}</span>
-                              </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem" }}>
-                                <MapPin size={12} style={{ color: "var(--state-warning)" }} />
-                                <span style={{ color: "var(--text-primary)" }}>{dropoffName}</span>
-                              </div>
-                            </div>
-                          </td>
-
-                          <td>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                              {student.guardians && student.guardians.map((g, idx) => (
-                                <div key={idx} style={{ display: "flex", alignItems: "baseline", gap: "6px", fontSize: "0.8rem" }}>
-                                  <span style={{ fontWeight: 500, color: "var(--text-primary)" }}>{g.name}</span>
-                                  <a href={`tel:${g.phone}`} style={{ color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "2px", fontSize: "0.75rem" }}>
-                                    <Phone size={8} /> {g.phone}
-                                  </a>
-                                </div>
-                              ))}
-                            </div>
-                          </td>
-
-                          <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                              <CreditCard size={14} style={{ color: student.nfc_card_hash ? "var(--state-success)" : "var(--text-muted)" }} />
-                              {student.nfc_card_hash ? (
-                                <code style={{ fontSize: "0.75rem", color: "var(--state-success)" }}>{student.nfc_card_hash}</code>
-                              ) : (
-                                <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>None</span>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+              <div className="dash-trip-rows">
+                <div className="dash-trip-row">
+                  <span>Completed Trips</span>
+                  <strong>{completedTrips}</strong>
+                </div>
+                <div className="dash-trip-row">
+                  <span>Ongoing Trips</span>
+                  <strong>{ongoingTrips}</strong>
+                </div>
+                <div className="dash-trip-row">
+                  <span>Scheduled Trips</span>
+                  <strong>{scheduledTrips}</strong>
+                </div>
               </div>
-            )}
-          </div>
-        </section>
+            </div>
+
+            <div className="dash-card">
+              <div className="dash-card-header">
+                <span className="dash-card-title">Recent Alerts</span>
+                <Link href="/dashboard" className="dash-card-link">
+                  View all
+                </Link>
+              </div>
+              <div className="dash-alert-list">
+                {events.slice(0, 6).map((event) => (
+                  <div className="dash-alert-item" key={event.id}>
+                    <div className={`dash-alert-icon ${event.type}`}>
+                      {event.type === "success" ? (
+                        <CheckCircle2 size={14} />
+                      ) : event.type === "error" ? (
+                        <AlertCircle size={14} />
+                      ) : (
+                        <Info size={14} />
+                      )}
+                    </div>
+                    <div className="dash-alert-body">
+                      <div className="dash-alert-msg">{event.message}</div>
+                      <div className="dash-alert-meta">
+                        {event.time} · {event.route}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+        </div>
       </main>
     </div>
   );

@@ -783,7 +783,7 @@ export default function DemoRequestDetailPage() {
         .form-label { font-size: 0.78rem; color: var(--text-muted); }
         .form-input {
           width: 100%;
-          background: var(--bg-base);
+          background: var(--input-bg);
           border: 1px solid var(--border-default);
           color: var(--text-primary);
           border-radius: 8px;
@@ -849,7 +849,7 @@ export default function DemoRequestDetailPage() {
         .btn-ghost:disabled { opacity: 0.55; cursor: not-allowed; }
         .btn-ghost.danger {
           border-color: rgba(244, 63, 94, 0.4);
-          color: #fda4af;
+          color: var(--state-error);
         }
         .btn-ghost.danger:hover {
           background: rgba(244, 63, 94, 0.1);
@@ -885,7 +885,7 @@ export default function DemoRequestDetailPage() {
           align-items: center;
           padding: 10px 12px;
           border-radius: 10px;
-          background: rgba(6, 9, 19, 0.55);
+          background: var(--bg-base);
           border: 1px solid var(--border-default);
         }
         .demo-cred-label {

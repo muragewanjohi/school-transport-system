@@ -15,6 +15,15 @@ typedef RequestOtpCallback = Future<void> Function(String phone);
 typedef VerifyOtpCallback =
     Future<Map<String, dynamic>> Function(String phone, String otp);
 
+class _NotRegisteredException implements Exception {
+  const _NotRegisteredException(this.message);
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({
     super.key,
@@ -81,6 +90,15 @@ class _LoginScreenState extends State<LoginScreen> {
     return fallback;
   }
 
+  bool _isNotRegistered(Map<String, dynamic> result, int statusCode) {
+    if (result['code'] == 'not_registered') return true;
+    if (statusCode != 404) return false;
+    final error = result['error'];
+    if (error is! String) return false;
+    final lower = error.toLowerCase();
+    return lower.contains('not registered') || lower.contains('profile not found');
+  }
+
   Future<void> _requestOtpFromApi(String phone) async {
     final response = await http
         .post(
@@ -99,9 +117,14 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final result = json.decode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200 || result['success'] != true) {
-      throw Exception(
-        _readError(result, 'Unable to send the verification code.'),
+      final message = _readError(
+        result,
+        'Unable to send the verification code.',
       );
+      if (_isNotRegistered(result, response.statusCode)) {
+        throw _NotRegisteredException(message);
+      }
+      throw Exception(message);
     }
   }
 
@@ -126,7 +149,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final result = json.decode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200 || result['success'] != true) {
-      throw Exception(_readError(result, 'The verification code is invalid.'));
+      final message = _readError(result, 'The verification code is invalid.');
+      if (_isNotRegistered(result, response.statusCode)) {
+        throw _NotRegisteredException(message);
+      }
+      throw Exception(message);
     }
     return Map<String, dynamic>.from(result['session'] as Map);
   }
@@ -153,6 +180,8 @@ class _LoginScreenState extends State<LoginScreen> {
       _showError('Unable to connect. Check your internet connection.');
     } on FormatException catch (error) {
       _showError(error.message);
+    } on _NotRegisteredException catch (error) {
+      _showGuidance(error.message);
     } catch (error) {
       _showError(error.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -207,6 +236,8 @@ class _LoginScreenState extends State<LoginScreen> {
       _showError('Unable to connect. Check your internet connection.');
     } on FormatException catch (error) {
       _showError(error.message);
+    } on _NotRegisteredException catch (error) {
+      _showGuidance(error.message);
     } catch (error) {
       _showError(error.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -242,6 +273,8 @@ class _LoginScreenState extends State<LoginScreen> {
           const SnackBar(content: Text('A new verification code was sent.')),
         );
       }
+    } on _NotRegisteredException catch (error) {
+      _showGuidance(error.message);
     } catch (error) {
       _showError(error.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -256,6 +289,18 @@ class _LoginScreenState extends State<LoginScreen> {
         content: Text(message),
         backgroundColor: Theme.of(context).colorScheme.error,
         behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _showGuidance(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppColors.primaryGreen,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
       ),
     );
   }
@@ -572,22 +617,27 @@ class _LoginHero extends StatelessWidget {
             const Positioned.fill(
               child: ColoredBox(color: AppColors.paleGreen),
             ),
-            Positioned(
-              right: -36,
-              top: 98,
-              child: Icon(
-                Icons.park_rounded,
-                size: 170,
-                color: AppColors.actionGreen.withValues(alpha: 0.16),
+            Positioned.fill(
+              child: Image.asset(
+                'assets/login-bus-hero.png',
+                fit: BoxFit.cover,
+                alignment: const Alignment(0, -0.15),
               ),
             ),
-            Positioned(
-              left: -30,
-              top: 130,
-              child: Icon(
-                Icons.location_city_rounded,
-                size: 145,
-                color: AppColors.primaryGreen.withValues(alpha: 0.08),
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Colors.white.withValues(alpha: 0.55),
+                      Colors.white.withValues(alpha: 0.08),
+                      AppColors.paleGreen.withValues(alpha: 0.35),
+                    ],
+                    stops: const [0, 0.42, 1],
+                  ),
+                ),
               ),
             ),
             Positioned(
@@ -597,30 +647,6 @@ class _LoginHero extends StatelessWidget {
                 width: 245,
                 height: 86,
                 fit: BoxFit.contain,
-              ),
-            ),
-            Positioned(
-              bottom: 22,
-              child: Image.asset(
-                'assets/bus-icon.png',
-                height: height * 0.54,
-                fit: BoxFit.contain,
-              ),
-            ),
-            Positioned(
-              right: 42,
-              bottom: 54,
-              child: Container(
-                padding: const EdgeInsets.all(5),
-                decoration: const BoxDecoration(
-                  color: AppColors.actionGreen,
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.location_on,
-                  color: Colors.white,
-                  size: 20,
-                ),
               ),
             ),
           ],

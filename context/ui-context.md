@@ -3,14 +3,14 @@
 ## Theme
 
 The visual design language is split to fit specific deployment environments:
-- **Marketing Landing (OnTheBus):** Light public site on `/`, aligned to the Stitch “Green Edition” screen — background `#F8F9FF`, primary `#006B32`, ink `#0B1C30`, soft surface `#E5EEFF`. Brand **OnTheBus**. Hero uses Stitch dashboard/phone assets under `public/stitch/`. Scoped under `.landing-page` so admin dark tokens stay unchanged.
-- **Admin Dashboard:** A dark, high-fidelity command console utilizing near-black backgrounds (`#0a0f1d`), deep slate surfaces, and vibrant Safaricom-green (`#10b981`) and electric indigo (`#6366f1`) accents to convey real-time fleet precision.
+- **Marketing Landing (OnTheBus):** Light public site on `/`, aligned to the Stitch “Green Edition” screen — background `#F8F9FF`, primary `#006B32`, ink `#0B1C30`, soft surface `#E5EEFF`. Brand **OnTheBus**. Hero uses Stitch dashboard/phone assets under `public/stitch/`. Scoped under `.landing-page` so admin console tokens stay unchanged.
+- **Admin Dashboard (school + platform):** Light-first console (soft gray page `#F4F6FA`, white cards/sidebar, green primary `#10b981`, indigo secondary `#6366f1`). School and platform surfaces (`/dashboard`, `/schools`, demos, billing, etc.) share the same shell tokens. Users can switch to a dark command-console palette via a theme toggle. Preference is stored on `<html data-theme="light"|"dark">` and persisted in `localStorage` key `onthebus-admin-theme` (default `light`). Toggle lives in the sidebar footer (and dashboard top bar).
 - **Driver Mobile App:** High-contrast, daylight-optimized light theme (bright backgrounds, solid borders, oversized chunky buttons) built for active, single-hand tap interactions on vehicle dashboard mounts.
 - **Parent Mobile App:** Friendly, clean light/dark auto-switching interface that emphasizes maps, child statuses, and clear, non-technical transaction logs.
 
 ### Driver mobile authentication
 
-Driver and conductor login uses a two-screen phone OTP flow: (1) Kenyan mobile number entry with a prominent **Send OTP** action and support path, then (2) six individual verification-code fields with back navigation, a 24-second resend countdown, and **Verify & Continue**. The visual treatment uses the OnTheBus bus/map branding, emerald actions, daylight white surfaces, and a security reassurance card. Paid and per-lead demo tenants receive a fresh 15-minute OTP by SMS. The permanent Play Review tenant alone keeps reusable OTP `123456`.
+Driver and conductor login uses a two-screen phone OTP flow: (1) Kenyan mobile number entry with a prominent **Send OTP** action and support path, then (2) six individual verification-code fields with back navigation, a 24-second resend countdown, and **Verify & Continue**. If the phone is not registered as a driver or conductor, the app shows guidance to contact the school (not a generic failure). The visual treatment uses the OnTheBus bus/map branding, emerald actions, daylight white surfaces, and a security reassurance card. Paid and per-lead demo tenants receive a fresh 15-minute OTP by SMS. The permanent Play Review tenant alone keeps reusable OTP `123456`.
 
 ## Marketing Landing Tokens
 
@@ -41,25 +41,27 @@ Permanent sandbox tenant slug `play-review` (blocked for onboarding; excluded fr
 Public apex-only marketing page using `.landing-page` tokens. Captures school leads (name, role, school, searchable country combobox with filter-at-top, city/area, WhatsApp/phone with country dial code, required work email, fleet size, preferred time). On success, the requester immediately gets a Resend confirmation email (“We've received your demo request”), sales is notified, and the visitor is told to wait for an emailed demo school URL and login details after approval. Contact Sales remains a secondary mailto/WhatsApp path.
 
 ### Demo request management (`/schools?tab=demos`)
-Platform-only tab using the existing dark console patterns. Shows pending request count, contact and school details, provisioned demo URL, expiry (default 14 days, editable), requested time/fleet size, submission time, and status actions (Confirm provisions the store; Complete purges it). **Edit** opens the full-page detail at `/schools/demos/[id]` (editable while pending) with school-form styling: lead card + access card, dark `form-input` fields, primary/ghost action buttons. After Confirm & provision, that page shows school URL, admin email/password, and Flutter phone, then emails those details with instructions to request a fresh 15-minute OTP in the app. Confirmed stores expose **Resend access email** (resets the admin password). The platform sidebar displays a badge while pending requests need review.
+Platform-only tab using the shared admin console shell (light default / dark toggle). Shows pending request count, contact and school details, provisioned demo URL, expiry (default 14 days, editable), requested time/fleet size, submission time, and status actions (Confirm provisions the store; Complete purges it). **Edit** opens the full-page detail at `/schools/demos/[id]` (editable while pending) with school-form styling: lead card + access card, theme-aware `form-input` fields, primary/ghost action buttons. After Confirm & provision, that page shows school URL, admin email/password, and Flutter phone, then emails those details with instructions to request a fresh 15-minute OTP in the app. Confirmed stores expose **Resend access email** (resets the admin password). The platform sidebar displays a badge while pending requests need review.
 
 ## Colors
 
-CSS custom properties are defined in the dashboard root styles. All components must use these variables:
+CSS custom properties are defined in the dashboard root styles (`apps/admin_dashboard/src/app/globals.css`). All console components must use these variables. Values below are the **light (default)** theme; dark overrides live under `[data-theme="dark"]`.
 
-| Role | CSS Variable | Value | Description |
-| :--- | :--- | :--- | :--- |
-| **Page background** | `--bg-base` | `#0a0f1d` | Deep space base background |
-| **Surface** | `--bg-surface` | `#121829` | Layered cards, panels, list containers |
-| **Surface Hover** | `--bg-surface-hover` | `#1b233d` | Hovered items, active highlights |
-| **Primary text** | `--text-primary` | `#f8fafc` | Title strings, headers, prominent values |
-| **Muted text** | `--text-muted` | `#64748b` | Subheadings, dates, descriptive text |
-| **Primary accent** | `--accent-primary` | `#10b981` | Action triggers, Safaricom green accents |
-| **Secondary accent**| `--accent-secondary` | `#6366f1` | Live route polyline streams, active statuses |
-| **Border** | `--border-default` | `#1e293b` | Panel divisions, card framing boundaries |
-| **Error state** | `--state-error` | `#f43f5e` | SOS triggers, missing checklist boarding alerts |
-| **Success state** | `--state-success` | `#10b981` | Completed trip checklists, green check-ins |
-| **Warning state** | `--state-warning` | `#eab308` | Slow velocities, network signal drops |
+| Role | CSS Variable | Light (default) | Dark | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Page background** | `--bg-base` | `#F4F6FA` | `#060913` | App canvas behind cards |
+| **Surface** | `--bg-surface` | `#ffffff` | `#0c1122` | Cards, sidebar, panels |
+| **Surface Hover** | `--bg-surface-hover` | `#E8F8F0` | `#151c36` | Hovered / active nav tint |
+| **Primary text** | `--text-primary` | `#0F172A` | `#f1f5f9` | Titles, prominent values |
+| **Muted text** | `--text-muted` | `#64748B` | `#64748b` | Subheadings, meta |
+| **Primary accent** | `--accent-primary` | `#10b981` | `#10b981` | Green actions / active nav |
+| **Secondary accent**| `--accent-secondary` | `#6366f1` | `#6366f1` | Secondary status accents |
+| **Border** | `--border-default` | `#E2E8F0` | `#1e293b` | Card / panel borders |
+| **Error state** | `--state-error` | `#f43f5e` | `#f43f5e` | SOS / errors |
+| **Success state** | `--state-success` | `#10b981` | `#10b981` | Success |
+| **Warning state** | `--state-warning` | `#eab308` | `#eab308` | Warnings |
+| **Nav active fg** | `--nav-active-fg` | `#ffffff` | `#ffffff` | Text on filled green nav pill |
+| **Row hover** | `--row-hover` | `rgba(15,23,42,0.03)` | `rgba(255,255,255,0.03)` | Table / list hover |
 
 ## Typography
 
@@ -83,7 +85,7 @@ CSS custom properties are defined in the dashboard root styles. All components m
 
 ## Layout Patterns
 
-- **Dashboard Layout:** Full-viewport split with a left-anchored sticky sidebar (`260px` width), top monitoring telemetry strip, and central dynamic dashboard grids showing route summaries and map viewports.
+- **Dashboard Layout:** Full-viewport split with a left-anchored sticky sidebar (`260px` width). Active nav uses a filled green pill. School home (`/dashboard`) uses a KPI row, live fleet map + upcoming stops, attendance overview, trip summary, and recent alerts. Platform and school CRUD pages share the same chrome; theme toggle is in the sidebar footer.
 - **Mobile Driver Interface:** Upper viewport dedicated to transit navigation vectors, bottom 55% containing oversized list elements displaying pickup check-ins.
 - **Mobile Parent Interface:** Bottom sheet overlay rendering child telemetry status cards that expands to show historical boarding logs.
 

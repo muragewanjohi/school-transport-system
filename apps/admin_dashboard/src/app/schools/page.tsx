@@ -1390,7 +1390,7 @@ function PlatformConsole() {
         }
         .form-input {
           width: 100%;
-          background: var(--bg-base);
+          background: var(--input-bg);
           border: 1px solid var(--border-default);
           color: var(--text-primary);
           border-radius: 8px;

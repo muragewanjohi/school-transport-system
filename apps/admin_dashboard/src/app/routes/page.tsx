@@ -2656,7 +2656,7 @@ function RoutesManagement() {
 export default function RoutesManagementPage() {
   return (
     <Suspense fallback={
-      <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", background: "#0c1122", color: "#64748b", fontFamily: "var(--font-sans)" }}>
+      <div style={{ display: "flex", height: "100vh", alignItems: "center", justifyContent: "center", background: "var(--bg-base)", color: "var(--text-muted)", fontFamily: "var(--font-sans)" }}>
         Loading Route Planning...
       </div>
     }>

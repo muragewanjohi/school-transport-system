@@ -110,7 +110,12 @@ export async function POST(request: Request) {
     }
     if (!profile) {
       return NextResponse.json(
-        { success: false, error: "This phone number is not registered for the Driver app." },
+        {
+          success: false,
+          code: "not_registered",
+          error:
+            "This number is not registered as a driver or conductor. Please contact your school to get access.",
+        },
         { status: 404 }
       );
     }

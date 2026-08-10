@@ -33,7 +33,8 @@ Feature: Demo driver OTP SMS delivery
   Scenario: Unknown phone › requests OTP › no SMS is sent
     Given the phone is not registered to a driver or conductor
     When an OTP is requested
-    Then the API returns not found
+    Then the API returns not found with guidance to contact the school
+    And the Driver app shows that guidance instead of a generic error
     And the SMS gateway is not called
 ```
 

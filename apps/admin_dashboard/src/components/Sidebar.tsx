@@ -3,6 +3,7 @@
 import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { useAuth } from "@/components/AuthProvider";
+import { ThemeToggle } from "@/components/ThemeProvider";
 import { usePathname, useSearchParams } from "next/navigation";
 import { 
   Navigation, 
@@ -354,29 +355,16 @@ function SidebarContent() {
           )}
         </ul>
       </nav>
-      <div style={{ padding: "16px", borderTop: "1px solid var(--border-default)", display: "flex", flexDirection: "column", gap: "12px" }}>
+      <div className="sidebar-footer">
+        <ThemeToggle />
         {profile && (
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", padding: "4px 8px" }}>
-            <div style={{
-              width: "36px",
-              height: "36px",
-              borderRadius: "50%",
-              background: "linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: 600,
-              fontSize: "0.9rem",
-              color: "white",
-              flexShrink: 0
-            }}>
+          <div className="sidebar-profile">
+            <div className="sidebar-profile-avatar">
               {profile.name.charAt(0).toUpperCase()}
             </div>
-            <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <span style={{ fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {profile.name}
-              </span>
-              <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            <div className="sidebar-profile-meta">
+              <span className="sidebar-profile-name">{profile.name}</span>
+              <span className="sidebar-profile-role">
                 {profile.role === "super_admin" ? "Platform Super Admin" : (profile.admin_role || "Administrator")}
               </span>
             </div>

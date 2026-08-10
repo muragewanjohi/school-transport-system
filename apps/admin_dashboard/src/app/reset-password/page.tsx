@@ -251,18 +251,14 @@ export default function ResetPasswordPage() {
           font-weight: 700;
           letter-spacing: 0.05em;
           text-transform: uppercase;
-          background: linear-gradient(to right, #ffffff, #94a3b8);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
+          color: var(--text-primary);
         }
 
         .login-header h1 {
           font-size: 1.5rem;
           font-weight: 700;
           letter-spacing: -0.025em;
-          background: linear-gradient(to right, #ffffff, #94a3b8);
-          -webkit-background-clip: text;
-          -webkit-text-fill-color: transparent;
+          color: var(--text-primary);
         }
 
         .subtitle {
@@ -327,7 +323,7 @@ export default function ResetPasswordPage() {
         .input-with-icon input {
           width: 100%;
           padding: 12px 12px 12px 38px;
-          background: rgba(12, 17, 34, 0.6);
+          background: var(--input-bg);
           border: 1px solid var(--border-default, #1e293b);
           border-radius: 8px;
           color: var(--text-primary, #f1f5f9);
@@ -339,7 +335,7 @@ export default function ResetPasswordPage() {
 
         .input-with-icon input:focus {
           border-color: var(--accent-primary, #10b981);
-          background: rgba(21, 28, 54, 0.8);
+          background: var(--bg-surface);
           box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.15);
         }
 
