@@ -5,6 +5,9 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:parent_app/services/supabase_service.dart';
 import 'package:parent_app/services/google_directions_service.dart';
 import 'package:parent_app/screens/relocate_screen.dart';
+import 'package:parent_app/utils/eta_utils.dart';
+import 'package:parent_app/widgets/eta_display.dart';
+import 'package:parent_app/services/parent_etas_service.dart';
 
 class MapScreen extends StatefulWidget {
   final String studentId;
@@ -52,17 +55,26 @@ class _MapScreenState extends State<MapScreen> {
   bool _isEmergency = false;
   StreamSubscription? _liveSubscription;
 
+  // Live ETA: Supabase Realtime when Auth session present; HTTP poll fallback
+  String? _targetStopId;
+  StopEta? _stopEta;
+  Timer? _etaPollTimer;
+  StreamSubscription? _etaRealtimeSub;
+
   @override
   void initState() {
     super.initState();
     _loadMarkerIcons();
     _fetchStudentAndRouteData();
     _subscribeToLiveTelemetry();
+    _startEtaPolling();
   }
 
   @override
   void dispose() {
     _liveSubscription?.cancel();
+    _etaPollTimer?.cancel();
+    _etaRealtimeSub?.cancel();
     _mapController?.dispose();
     super.dispose();
   }
@@ -99,11 +111,11 @@ class _MapScreenState extends State<MapScreen> {
   Future<void> _fetchStudentAndRouteData() async {
     setState(() => _isLoadingRoute = true);
     try {
-      // 1. Fetch student data for home pickup_location, status
+      // 1. Fetch student data for home pickup_location, status, relevant stop
       final studentResponse = await SupabaseService.client
           .from('students')
           .select(
-              'id, status, pickup_location, route:routes(id, name)')
+              'id, status, transit_status, pickup_location, pickup_stop_id, dropoff_stop_id, route:routes(id, name)')
           .eq('id', widget.studentId)
           .maybeSingle();
 
@@ -114,6 +126,9 @@ class _MapScreenState extends State<MapScreen> {
         if (studentResponse['transit_status'] != null) {
           _transitStatus = studentResponse['transit_status'];
         }
+
+        _targetStopId = (studentResponse['pickup_stop_id'] as String?) ??
+            (studentResponse['dropoff_stop_id'] as String?);
 
         // Home WKT Point parsing
         if (studentResponse['pickup_location'] != null) {
@@ -217,6 +232,34 @@ class _MapScreenState extends State<MapScreen> {
     });
   }
 
+  Future<void> _refreshEta() async {
+    final eta = await ParentEtasService.fetchStudentEta(widget.studentId);
+    if (!mounted || eta == null) return;
+    setState(() => _stopEta = eta);
+  }
+
+  void _startEtaPolling() {
+    _refreshEta();
+    _etaPollTimer?.cancel();
+    _etaPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      _refreshEta();
+    });
+
+    // Prefer Realtime when a Supabase Auth parent JWT is present
+    _etaRealtimeSub?.cancel();
+    if (SupabaseService.client.auth.currentSession != null) {
+      _etaRealtimeSub = SupabaseService.streamTripStopEtas(widget.routeId).listen(
+        (rows) {
+          if (!mounted || rows.isEmpty) return;
+          final eta = pickStopEta(rows, _targetStopId) ??
+              StopEta.fromRow(rows.first);
+          setState(() => _stopEta = eta);
+        },
+        onError: (Object e) => print('ETA realtime error: $e'),
+      );
+    }
+  }
+
   // Dynamic metric calculations
   int get _distanceMeters {
     if (_pickupStageLocation == null) return 150;
@@ -233,8 +276,12 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   String get _busArrivalTime {
-    return '7:15 AM';
+    return formatArrivalClock(_stopEta?.predictedArrival);
   }
+
+  int? get _etaMinutes => _stopEta?.minutesUntil();
+
+  int get _delaySeconds => _stopEta?.delaySeconds ?? 0;
 
   String get _daysActive {
     return 'Mon, Tue, Wed, Thu, Fri';
@@ -321,7 +368,11 @@ class _MapScreenState extends State<MapScreen> {
           position: busPosition,
           infoWindow: InfoWindow(
             title: _licensePlate,
-            snippet: _isEmergency ? 'SOS active' : '8 mins away',
+            snippet: _isEmergency
+                ? 'SOS active'
+                : (_etaMinutes != null
+                    ? '${formatEtaMinutes(_etaMinutes)} away'
+                    : 'Tracking...'),
           ),
           icon: _busIcon ??
               BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange),
@@ -451,27 +502,11 @@ class _MapScreenState extends State<MapScreen> {
                                   ),
                                 ],
                               ),
-                              const Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    'ETA',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF64748B),
-                                    ),
-                                  ),
-                                  SizedBox(height: 2),
-                                  Text(
-                                    '8 mins',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Color(0xFF16A34A),
-                                    ),
-                                  ),
-                                ],
+                              EtaDisplay(
+                                etaMinutes: _etaMinutes,
+                                delaySeconds: _delaySeconds,
+                                label: 'ETA',
+                                etaFontSize: 16,
                               ),
                             ],
                           ),
@@ -716,27 +751,42 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
             const SizedBox(width: 14),
-            const Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Estimated ETA to School',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF64748B),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Estimated ETA to School',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF64748B),
+                    ),
                   ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  '8 mins',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF10B981),
+                  const SizedBox(height: 2),
+                  Text(
+                    formatEtaMinutes(_etaMinutes),
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: _delaySeconds >= 300
+                          ? const Color(0xFFD97706)
+                          : const Color(0xFF10B981),
+                    ),
                   ),
-                ),
-              ],
+                  if (formatDelayBadge(_delaySeconds) != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      formatDelayBadge(_delaySeconds)!,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFB45309),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             ),
           ],
         ),

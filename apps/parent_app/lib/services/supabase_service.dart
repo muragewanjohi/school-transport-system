@@ -66,6 +66,31 @@ class SupabaseService {
     }
   }
 
+  /// One-shot fetch of live per-stop ETAs for a route (from `trip_stop_etas`).
+  static Future<List<Map<String, dynamic>>> fetchTripStopEtas(String routeId) async {
+    try {
+      final rows = await client
+          .from('trip_stop_etas')
+          .select('stop_id, predicted_arrival, delay_seconds, updated_at, trip_id')
+          .eq('route_id', routeId)
+          .order('updated_at', ascending: false);
+      return List<Map<String, dynamic>>.from(rows as List);
+    } catch (e) {
+      print('Error fetching trip stop ETAs: $e');
+      return [];
+    }
+  }
+
+  /// Realtime stream of live per-stop ETAs for a route.
+  static Stream<List<Map<String, dynamic>>> streamTripStopEtas(String routeId) {
+    return client
+        .from('trip_stop_etas')
+        .stream(primaryKey: ['id'])
+        .eq('route_id', routeId)
+        .order('updated_at', ascending: false)
+        .map((rows) => List<Map<String, dynamic>>.from(rows));
+  }
+
   /// Upload avatar photo to Supabase Storage bucket 'avatars' and update database table
   static Future<String?> uploadAvatar({
     required String id,

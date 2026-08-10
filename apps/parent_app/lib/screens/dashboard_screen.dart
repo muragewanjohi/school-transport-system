@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -9,6 +10,9 @@ import 'package:parent_app/screens/map_screen.dart';
 import 'package:parent_app/screens/relocate_screen.dart';
 import 'package:parent_app/screens/attendance_form_screen.dart';
 import 'package:parent_app/screens/notifications_screen.dart';
+import 'package:parent_app/utils/eta_utils.dart';
+import 'package:parent_app/widgets/eta_display.dart';
+import 'package:parent_app/services/parent_etas_service.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class DashboardScreen extends StatefulWidget {
@@ -39,6 +43,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Attendance Form State
   String _selectedReason = 'Sick';
   final TextEditingController _notesController = TextEditingController();
+
+  // Live ETA for the selected child (polled via /api/parent/etas)
+  StopEta? _selectedStopEta;
+  Timer? _etaPollTimer;
 
   Future<void> _showPhotoPickerModal(String id, String targetTable, String name, String? currentAvatarUrl) async {
     showModalBottomSheet(
@@ -265,8 +273,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   @override
   void dispose() {
+    _etaPollTimer?.cancel();
     _notesController.dispose();
     super.dispose();
+  }
+
+  Future<void> _refreshSelectedStudentEta() async {
+    if (_students.isEmpty || _selectedStudentIndex >= _students.length) {
+      if (mounted) setState(() => _selectedStopEta = null);
+      return;
+    }
+    final student = Map<String, dynamic>.from(_students[_selectedStudentIndex] as Map);
+    final studentId = student['id']?.toString() ?? '';
+    final eta = await ParentEtasService.fetchStudentEta(studentId);
+    if (!mounted) return;
+    setState(() => _selectedStopEta = eta);
+  }
+
+  void _startEtaPolling() {
+    _refreshSelectedStudentEta();
+    _etaPollTimer?.cancel();
+    _etaPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      _refreshSelectedStudentEta();
+    });
   }
 
   String _getGreeting() {
@@ -355,6 +384,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             }
           });
           await prefs.setString('children_json', json.encode(response));
+          _startEtaPolling();
         } catch (e) {
           // Fallback query if relationships aren't deeply configured in cache
           final List<dynamic> fallback = await SupabaseService.client
@@ -367,6 +397,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               _selectedStudentIndex = 0;
             }
           });
+          _startEtaPolling();
         }
       }
     } catch (e) {
@@ -508,6 +539,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         setState(() {
                           _selectedStudentIndex = index;
                         });
+                        _refreshSelectedStudentEta();
                         Navigator.of(context).pop();
                       },
                       leading: CircleAvatar(
@@ -538,6 +570,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _handleLogout() async {
+    try {
+      await SupabaseService.client.auth.signOut();
+    } catch (_) {}
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
     if (!mounted) return;
@@ -824,6 +859,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           setState(() {
                             _selectedStudentIndex = index;
                           });
+                          _refreshSelectedStudentEta();
                         },
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
@@ -1061,37 +1097,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   // ETA & Next Stop Metrics Sub-Cards
                   Row(
                     children: [
-                      // ETA Card
+                      // ETA Card (live from trip_stop_etas)
                       Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF8FAFC),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: const Color(0xFFF1F5F9)),
-                          ),
-                          child: const Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'ETA to School',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
-                              SizedBox(height: 6),
-                              Text(
-                                '8 mins',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF16A34A),
-                                ),
-                              ),
-                            ],
-                          ),
+                        child: EtaMetricCard(
+                          title: 'ETA to School',
+                          etaMinutes: _selectedStopEta?.minutesUntil(),
+                          delaySeconds: _selectedStopEta?.delaySeconds ?? 0,
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -1922,6 +1933,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         setState(() {
                           _selectedStudentIndex = index;
                         });
+                        _refreshSelectedStudentEta();
                       },
                       child: Container(
                         margin: const EdgeInsets.only(right: 12),

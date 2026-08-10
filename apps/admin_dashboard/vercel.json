@@ -3,6 +3,10 @@
     {
       "path": "/api/platform/purge",
       "schedule": "0 2 * * *"
+    },
+    {
+      "path": "/api/trips/predeparture-check",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

@@ -159,6 +159,51 @@ Do **not** store the sole campus coordinates only on `tenants`. Create `campuses
 - **Conductor Token Scope:** Conductors can read assigned routes and student checklist manifests, read active vehicle attributes inside their tenant, and check-in students.
 - **Parent Resource Rules:** RLS policies restrict parents to reading telemetry and subscribing to realtime coordinates *only* for the specific `route_id` mapped to their own registered children.
 
+## Parent Mobile Session & Live ETA API
+
+Parent OTP login (`POST /api/auth/parent-login`) returns:
+
+1. **HMAC API token** `par.<payload>.<sig>` (`PARENT_SESSION_SECRET`) for Next.js routes such as `GET /api/parent/etas`.
+2. **Supabase Auth session** (`supabase_access_token` / `supabase_refresh_token`) from `ensureParentAuthSession`: creates/updates `auth.users` with **`id = profiles.id`**, synthetic email `parent+{id}@users.onthebusapp.internal`, and `app_metadata` + `user_metadata` `{ role: parent, tenant_id }`. Flutter calls `auth.setSession(refresh_token)` so Realtime RLS sees `auth.uid()` and `jwt_role() = parent`.
+
+Live ETA:
+
+- Primary resilient path: poll `GET /api/parent/etas?student_id=` with Bearer `par.*` (service role, ownership-checked).
+- When a Supabase Auth session is present, the map also streams `trip_stop_etas` / `live_coordinates` under parent RLS.
+- Parents may `SELECT` stops on their children's routes (`Parents can read stops on child's route`).
+- JWT helpers prefer `app_metadata` then `user_metadata` for `role` / `tenant_id`.
+
+## Delay Detection & Live ETA
+
+Automatic detection of trips running behind schedule, evaluated in the database on telemetry ingestion (no cron, no extra services).
+
+### Schedule baseline
+
+- Every stop has a **travel leg** (`stops.duration_from_prev_seconds`, `distance_from_prev_meters`) and a **dwell budget** (`stops.dwell_seconds`, default 120s) for boarding time at that stop.
+- Scheduled arrival at stop *k* = trip departure + Σ(leg durations 1..k) + Σ(dwell budgets 1..k−1). Departure comes from `schedules.departure_time` (or `trips.custom_departure_time` when an admin announced a manual delay), interpreted in `Africa/Nairobi`.
+
+### Evaluation (trigger `on_live_coordinate_delay_check` → `evaluate_trip_delay()`)
+
+1. Runs `AFTER INSERT` on `live_coordinates`, throttled to at most one evaluation per trip per 30 seconds (`trip_delay_state.last_evaluated_at`). The active trip is resolved by `vehicle_id + route_id + trip_date + status = 'in_progress'`.
+2. Route progress = highest stop sequence in `stop_arrivals_log` for the route today. Remaining time on the current leg is estimated geometrically: `leg_duration × clamp(distance(bus, next_stop) / leg_distance, 0..1.5)`.
+3. Predicted arrival for every remaining stop = predicted next-stop arrival + subsequent legs + intermediate dwell budgets; rows are upserted into **`trip_stop_etas`** (`UNIQUE (trip_id, stop_id)`, in the `supabase_realtime` publication) which mobile clients stream for live ETA display. The table holds only trip/stop IDs and timestamps — no PII.
+4. **Delay** = predicted − scheduled arrival at the next stop (lateness beyond the planned dwell budget; dwelling 10 min at a 5-min-budget stop accrues 5 min of delay, and distributed lateness accumulates identically).
+
+### Notification policy
+
+- Notify affected parents when predicted delay ≥ **5 minutes**; re-notify only when the delay grows **≥ 10 minutes beyond the last notified value** (state in `trip_delay_state.last_notified_delay_seconds`). Dedup is per **trip**, independent of the per-day `sent_proximity_alerts` proximity dedup.
+- Affected parents = parents whose child's direction-relevant stop (pickup for `HOME_TO_SCHOOL`, dropoff for `SCHOOL_TO_HOME`) is **still ahead** of the bus. Stops already served are not notified.
+- Delivery reuses the existing pipeline: `notifications` insert (`notification_type = 'delay'`) → `send-push`; plus `alerts_queue` insert (`message_type = 'delay'`, templated via `tenant_configs.sms_template_delay` with `{parent_name} {student_name} {stop_name} {delay_mins} {new_eta} {vehicle_plate}`) when `sms_notifications_enabled` — demo-tenant SMS dry-run applies unchanged.
+- Both telemetry triggers (`check_geofence_triggers`, `evaluate_trip_delay`) swallow their own errors with a `WARNING` so auxiliary processing can never fail GPS ingestion (invariant below).
+
+### Pre-departure delays (never started)
+
+Trips that never start transmitting are caught by Vercel Cron → `GET /api/trips/predeparture-check` every 5 minutes (`CRON_SECRET` bearer, same as platform purge). For today's `status = scheduled` rows with `started_at` null, if `now ≥ expected_departure + grace` (default 10 minutes, `PREDEPARTURE_GRACE_MINUTES`) the job sets `status_override = 'Delayed'` and a fixed description. Expected departure = `custom_departure_time` or `schedules.departure_time` in `Africa/Nairobi`. Dedup: skip when `status_override` already matches `/delay/i`. Parent notifications reuse `on_trip_status_update` (demo SMS dry-run unchanged).
+
+### Out of scope (v1)
+
+- Traffic-aware delay math (Google Distance Matrix); v1 uses stored leg durations + geometric progress.
+
 ## Student & Parent Data Protection Model
 
 - **Telemetry Log Lifecycle (Short TTL):** High-resolution coordinate tracking logs are pruned automatically after 7 days via database cleanup routines. Long-term analytics store only aggregated route summaries (e.g. route completion durations, total boarding taps), eliminating persistent history of student movements.
@@ -172,3 +217,4 @@ Do **not** store the sole campus coordinates only on `tenants`. Create `campuses
 2. **Foreground Blocking Prevention:** The Driver app runs GPS location polling and network transmissions inside background processes or isolate pools to prevent UI lag.
 3. **Fail-Safe Messaging Overhead Controls:** Proximity checks use a tracking table (`sent_proximity_alerts`) to verify if an SMS alert was already transmitted for a given student during the current trip, ensuring exactly one SMS per pickup to control gateway billing.
 4. **No Permanent PII Leaks in Logs:** Standard error-logging outputs and analytics hooks must sanitize user-identifiable strings (e.g., student names, exact home coordinates, parent phone numbers) before writing to flat-file or cloud logs.
+5. **Telemetry Ingestion Never Fails on Auxiliary Processing:** Triggers attached to `live_coordinates` (geofence checks, delay evaluation) must catch and log their own errors — a bug in alerting/ETA logic must never abort a GPS insert.

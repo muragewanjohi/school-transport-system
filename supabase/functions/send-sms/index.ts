@@ -107,6 +107,8 @@ Deno.serve(async (req) => {
         message = `Safaricom Track: ${studentName} has safely boarded the school bus at ${nowTime}.`;
       } else if (message_type === "dropoff") {
         message = `Safaricom Track: ${studentName} has been dropped off at school/home at ${nowTime}.`;
+      } else if (message_type === "delay") {
+        message = `Safaricom Track: The school bus for ${studentName} is running late. Please check the app for the updated arrival time.`;
       } else {
         throw new Error(`Invalid message type: ${message_type}`);
       }

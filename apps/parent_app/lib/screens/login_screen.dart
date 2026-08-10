@@ -5,6 +5,8 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:parent_app/screens/dashboard_screen.dart';
 import 'package:parent_app/config/api_config.dart';
+import 'package:parent_app/services/parent_api_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -115,6 +117,17 @@ class _LoginScreenState extends State<LoginScreen> {
         await prefs.setString('tenant_id', session['tenant_id'] ?? '');
         await prefs.setString('children_json', json.encode(session['children'] ?? []));
         await prefs.setBool('is_logged_in', true);
+        await ParentApiAuth.persistToken(session['access_token']?.toString());
+
+        // Establish Supabase Auth session for Realtime RLS (live_coordinates / trip_stop_etas)
+        final refresh = session['supabase_refresh_token']?.toString();
+        if (refresh != null && refresh.isNotEmpty) {
+          try {
+            await Supabase.instance.client.auth.setSession(refresh);
+          } catch (e) {
+            print('Supabase setSession failed: $e');
+          }
+        }
 
         if (!mounted) return;
 

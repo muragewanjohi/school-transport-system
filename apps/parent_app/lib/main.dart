@@ -15,9 +15,11 @@ void main() async {
     publishableKey: SupabaseService.anonKey,
   );
 
-  // Check login state to determine initial screen
+  // Check login state: SharedPreferences and/or restored Supabase Auth session
   final prefs = await SharedPreferences.getInstance();
-  final isLoggedIn = prefs.getBool('is_logged_in') ?? false;
+  final prefsLoggedIn = prefs.getBool('is_logged_in') ?? false;
+  final hasSupabaseSession = Supabase.instance.client.auth.currentSession != null;
+  final isLoggedIn = prefsLoggedIn || hasSupabaseSession;
 
   runApp(
     ProviderScope(

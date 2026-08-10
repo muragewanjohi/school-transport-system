@@ -177,6 +177,10 @@ Before moving an item to **Completed**, confirm:
 - Demo authentication OTP SMS (2026-08-10): demo-school drivers/conductors now receive login OTPs through Africa’s Talking; operational trip/proximity SMS remains dry-run. Unknown phones remain blocked, with Azima sandbox delivery verified manually.
 - Dynamic demo OTP hardening (2026-08-10): per-lead demo drivers/conductors now receive a fresh random six-digit OTP with a 15-minute expiry; successful verification consumes the code and the API no longer returns it. The permanent Play Review account remains `123456`. Demo access emails/UI now instruct users to request a fresh code. Dashboard production build passes; automated OTP tests were removed per user request.
 - Demo confirm access email (2026-08-10): Confirm emails the lead’s work email with store URL / admin password / Flutter phone and instructions to request a fresh OTP via shared `demoRequestEmails` + `resendEmail`; confirmed stores can **Resend access email** (resets admin password). Requires `RESEND_API_KEY` and a **verified** `DEMO_REQUESTS_FROM_EMAIL` domain on Resend (sandbox `resend.dev` can only mail the Resend account owner — not arbitrary leads). Same vars must be set on Vercel.
+- Automatic trip delay detection & live ETA (2026-08-10): repaired `check_geofence_triggers`; added `stops.dwell_seconds`, `trip_delay_state`, `trip_stop_etas` (Realtime), `evaluate_trip_delay()` (5 min threshold / +10 min escalate, push always + SMS when enabled); parent map/dashboard replace hardcoded ETAs with live values + delay badge. BDD in [bdd.md](bdd.md) Status `passing` — SQL scenarios verified on linked Supabase (on-time / first delay / no re-notify / escalation / demo SMS dry-run); Flutter `test/eta_utils_test.dart` + `test/eta_display_test.dart` (11 passing). Migrations applied via MCP (`fix_geofence_trigger`, `delay_detection`).
+- Parent session + live ETA API (2026-08-10): signed `par.*` token from `/api/auth/parent-login`; `GET /api/parent/etas?student_id=` (Bearer, ownership-checked, service role); parent app stores token and polls every 20s on map/dashboard. BDD in [bdd.md](bdd.md) Status `passing` — Vitest `parentSession.test.ts` + `parent/etas/route.test.ts` (8 passing); Flutter ETA display tests (11 passing). Set `PARENT_SESSION_SECRET` on Vercel (falls back to `DRIVER_SESSION_SECRET` / service role locally).
+- Pre-departure delay cron (2026-08-10): `GET /api/trips/predeparture-check` every 5 min via Vercel Cron; marks today's never-started `scheduled` trips as `status_override=Delayed` after departure + 10 min grace (honors `custom_departure_time`); notifications via existing `on_trip_status_update`. BDD Status `passing` — Vitest `predepartureCheck.test.ts` + `predeparture-check/route.test.ts` (9 passing). Requires `CRON_SECRET` on Vercel (Hobby plans may not allow `*/5` crons — Pro or hourly schedule if needed).
+- Parent Supabase Auth JWT (2026-08-10): parent-login ensures `auth.users` with `id = profiles.id` + `app_metadata`/`user_metadata` `{role:parent, tenant_id}`; returns `supabase_*` tokens; Flutter `setSession` / `signOut`; jwt helpers prefer `app_metadata`; parent SELECT on `stops`. Migration `parent_auth_jwt_rls` applied. BDD Status `passing` — Vitest `parentAuthSession.test.ts` (2) + existing parent session tests. Keep `par.*` ETA poll as fallback; Realtime used when Auth session present.
 
 ## In Progress
 
@@ -198,7 +202,7 @@ Before moving an item to **Completed**, confirm:
 
 ## Open Questions
 
-- *None.* (School onboarding decisions resolved 2026-07-30. Demo conversion path resolved 2026-08-03: hybrid form + seeded demo school.)
+*(none for delay / parent auth — pre-departure cron and parent Supabase Auth JWT are shipped)*
 
 ## Architecture Decisions
 
@@ -208,6 +212,10 @@ Before moving an item to **Completed**, confirm:
 - **Workspaces Monorepo:** Consolidated driver/parent mobile folders, Next.js web folders, and Supabase migrations.
 - **Pure Serverless Transition (Vercel + Supabase):** Swapped persistent servers for Next.js route handlers, Supabase Realtime Channels, and Deno edge workers.
 - **PostGIS Trigger Evaluation:** Computing geofences dynamically at the database layer via SQL triggers. When new vehicle coordinates are written, PostGIS calculates boundary intersections directly on the metal, avoiding network overhead, and triggering Supabase Edge Functions for SMS dispatch.
+- **Automatic Delay Detection:** On each telemetry insert (throttled 30s/trip), `evaluate_trip_delay()` compares predicted stop arrivals (geometric leg progress + `stops.dwell_seconds`) against the schedule baseline and notifies affected parents at ≥5 min delay with +10 min escalation bands. Live ETAs persist in `trip_stop_etas`.
+- **Parent signed session + ETA API:** Parent OTP login issues `par.*` HMAC tokens for Next.js ETA API and a Supabase Auth session (`auth.users.id = profiles.id`, claims in `app_metadata`) for Realtime RLS on telemetry/ETAs/stops.
+
+- **Pre-departure cron:** Vercel Cron hits `/api/trips/predeparture-check` every 5 minutes; overdue never-started trips get `status_override=Delayed` once, reusing trip-status notifications.
 - **Queue-Based Notification Engine:** Used an `alerts_queue` table combined with Supabase database webhooks to decouple spatial compute from external network API execution.
 - **Platform vs Tenant Admin:** `profiles.role = super_admin` is platform-only with `tenant_id = null`. School operators use `role = school_admin` with a required `tenant_id`; their `admin_role` (including `"Super Admin"`) is tenant-scoped only.
 - **Soft-Delete Tenants:** Schools are suspended/soft-deleted (`deleted_at`), never hard-deleted through the product UI. Automated retention purge (Vercel Cron → `/api/platform/purge`) soft-deletes schools suspended beyond `suspended_purge_days` and permanently purges soft-deleted schools beyond `deleted_purge_days` (both platform-configurable; 0 disables).
