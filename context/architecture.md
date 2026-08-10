@@ -206,6 +206,8 @@ Trips that never start transmitting are caught by Vercel Cron → `GET /api/trip
 
 ## Student & Parent Data Protection Model
 
+School-facing summary of controls (suitable for IT / procurement review): **[architecture-security.md](architecture-security.md)**.
+
 - **Telemetry Log Lifecycle (Short TTL):** High-resolution coordinate tracking logs are pruned automatically after 7 days via database cleanup routines. Long-term analytics store only aggregated route summaries (e.g. route completion durations, total boarding taps), eliminating persistent history of student movements.
 - **Dynamic PII Masking:** Parent phone numbers and student names are masked in support dashboards and system-level error trackers (e.g. `J*** Doe`, `+254 712 *** 345`). Only authenticated school admins with direct administrative custody see raw identifiers.
 - **Anonymized NFC Badge Tokens:** Physical NFC badges do not store names or student details. They store only an encrypted UUID token. The driver app verifies this UUID against the backend database; if a badge is lost, no personal data can be extracted from it.

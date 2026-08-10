@@ -38,6 +38,7 @@ Do not modify the following unless explicitly instructed:
 Update the relevant context file whenever implementation changes:
 
 - System architecture or boundaries in [architecture.md](file:///c:/Dev/School-Transpot/context/architecture.md).
+- School-facing security / data-protection narrative in [architecture-security.md](architecture-security.md).
 - Storage schema changes or model updates in [architecture.md](file:///c:/Dev/School-Transpot/context/architecture.md).
 - Code standards or API conventions in [code-standards.md](file:///c:/Dev/School-Transpot/context/code-standards.md).
 - Active module BDD scenarios in [bdd.md](file:///c:/Dev/School-Transpot/context/bdd.md) (**overwrite** when starting a new module).
