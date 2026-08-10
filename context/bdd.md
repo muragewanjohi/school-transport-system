@@ -4,47 +4,49 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Demo confirm access email |
+| **Name** | Demo driver OTP SMS delivery |
 | **Stack** | `next` |
-| **Owner path(s)** | `apps/admin_dashboard/src/app/api/demo-requests/route.ts`, `apps/admin_dashboard/src/lib/demoRequestEmails.ts` |
+| **Owner path(s)** | `apps/admin_dashboard/src/app/api/auth/driver-request-otp/route.ts` |
 | **Started** | 2026-08-10 |
-| **Status** | `passing` |
+| **Status** | `manual verification only` |
 
 ## Goal
 
-When a platform admin confirms a demo request, the lead’s work email receives demo store access details (URL, admin password, Flutter phone + OTP). Confirmed stores can resend access details (admin password is reset; OTP reused).
-
-## Actors
-
-- Platform `super_admin`
-- Demo lead (requester)
+Registered demo-school drivers and conductors receive a fresh expiring login OTP through Africa’s Talking, while the permanent Play Review account remains stable and unknown phone numbers remain blocked.
 
 ## Scenarios
 
 ```gherkin
-Feature: Demo confirm access email
+Feature: Demo driver OTP SMS delivery
 
-  Scenario: Pending request › confirmed › requester receives access email
-    Given a pending demo request with a work email
-    When a platform admin confirms and provisions the demo store
-    Then Resend emails the lead’s work email (not the synthetic admin address)
-    And the message includes school URL, admin password, Flutter phone, and OTP
+  Scenario: Demo driver › requests OTP › fresh expiring code is sent by SMS
+    Given an available registered driver belongs to a demo school
+    When the driver requests a verification code
+    Then a new random six-digit OTP is stored with a 15-minute expiry
+    And the new OTP is sent through the configured SMS gateway
 
-  Scenario: Confirmed store › resend access email › requester receives new password
-    Given a confirmed demo request with a provisioned tenant
-    When a platform admin chooses Resend access email
-    Then the demo admin password is reset
-    And Resend emails the lead’s work email with the new password and existing OTP
+  Scenario: Play Review driver › requests OTP › permanent review code is retained
+    Given the driver belongs to the permanent play-review tenant
+    When the driver requests a verification code
+    Then OTP 123456 is sent without being replaced or expired
+
+  Scenario: Unknown phone › requests OTP › no SMS is sent
+    Given the phone is not registered to a driver or conductor
+    When an OTP is requested
+    Then the API returns not found
+    And the SMS gateway is not called
 ```
 
 ## Automation map
 
 | Scenario title | Test / verification | Status |
 | :--- | :--- | :--- |
-| Confirm emails requester | `apps/admin_dashboard/src/app/api/demo-requests/route.test.ts` | `passing` |
-| Resend emails requester | `apps/admin_dashboard/src/app/api/demo-requests/route.test.ts` | `passing` |
+| Demo dynamic OTP is stored and sent | Local Azima sandbox request + Africa’s Talking Outbox | `verified manually` |
+| Play Review OTP remains permanent | Code review + existing Play Review credentials | `verified manually` |
+| Unknown phone sends nothing | API guard code review | `verified manually` |
 
 ## Notes
 
-- Hosts that run Confirm need `RESEND_API_KEY` and a verified `DEMO_REQUESTS_FROM_EMAIL` (local `.env.local` and Vercel).
-- Admin passwords are never stored after provision; resend always resets the password.
+- Operational trip/proximity messages remain dry-run for demo tenants.
+- OTP and phone values must not be written to application logs.
+- OTP-related test files were removed at the user’s request because repository secret scanning flagged their synthetic credentials. Verification is currently manual plus production compilation.

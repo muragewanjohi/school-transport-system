@@ -123,16 +123,17 @@ export async function POST(request: Request) {
 
     const { data: tenant } = await client
       .from("tenants")
-      .select("is_demo")
+      .select("is_demo, domain")
       .eq("id", profile.tenant_id)
       .maybeSingle();
 
     const isDemo = tenant?.is_demo === true;
-    const otp = isDemo && profile.otp_code
-      ? profile.otp_code
+    const isPlayReview = tenant?.domain === "play-review";
+    const otp = isPlayReview
+      ? profile.otp_code || "123456"
       : Math.floor(100000 + Math.random() * 900000).toString();
 
-    if (!isDemo) {
+    if (!isPlayReview) {
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
       const { error: updateError } = await client
         .from("profiles")
@@ -145,15 +146,14 @@ export async function POST(request: Request) {
           { status: 500 }
         );
       }
-
-      await sendOtpSms(phone, otp);
     }
+
+    await sendOtpSms(phone, otp);
 
     return NextResponse.json({
       success: true,
-      source: isDemo ? "demo" : "sms",
+      source: isPlayReview ? "play_review_sms" : isDemo ? "demo_sms" : "sms",
       message: "OTP sent successfully",
-      ...(isDemo ? { sandbox_otp: otp } : {}),
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : "Internal Server Error";

@@ -78,17 +78,45 @@ export async function POST(request: Request) {
     const phoneFilter = phoneVariants(phone)
       .map((candidate) => `phone.eq.${candidate}`)
       .join(",");
-    const { data: matchingProfile } = await client
+    const { data: matchingProfile, error: profileError } = await client
       .from("profiles")
-      .select("phone")
+      .select("id, phone, tenant_id, otp_code, otp_expires_at")
       .in("role", ["driver", "conductor"])
       .or(phoneFilter)
       .limit(1)
       .maybeSingle();
 
+    if (profileError || !matchingProfile) {
+      return NextResponse.json(
+        { success: false, error: "Profile not found with this phone number" },
+        { status: 401 }
+      );
+    }
+    if (matchingProfile.otp_code !== otp) {
+      return NextResponse.json(
+        { success: false, error: "Invalid OTP verification code" },
+        { status: 401 }
+      );
+    }
+    if (
+      matchingProfile.otp_expires_at &&
+      new Date(matchingProfile.otp_expires_at).getTime() < Date.now()
+    ) {
+      return NextResponse.json(
+        { success: false, error: "OTP verification code has expired" },
+        { status: 401 }
+      );
+    }
+
+    const { data: tenant } = await client
+      .from("tenants")
+      .select("domain")
+      .eq("id", matchingProfile.tenant_id)
+      .maybeSingle();
+
     const { data, error } = await client
       .rpc("verify_driver_login", {
-        phone_num: matchingProfile?.phone ?? phone,
+        phone_num: matchingProfile.phone,
         otp_val: otp,
       });
 
@@ -100,6 +128,13 @@ export async function POST(request: Request) {
     if (!data.success) {
       const status = data.error.includes("Unavailable") ? 403 : 401;
       return NextResponse.json({ success: false, error: data.error }, { status });
+    }
+
+    if (tenant?.domain !== "play-review") {
+      await client
+        .from("profiles")
+        .update({ otp_code: null, otp_expires_at: null })
+        .eq("id", matchingProfile.id);
     }
 
     return NextResponse.json({

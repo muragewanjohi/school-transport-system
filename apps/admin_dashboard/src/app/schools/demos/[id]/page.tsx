@@ -564,13 +564,6 @@ export default function DemoRequestDetailPage() {
                           onCopy={() => void copyText("Phone", credentials.phone)}
                         />
                         <CredRow
-                          label="Flutter OTP"
-                          value={credentials.otp}
-                          mono
-                          secret
-                          onCopy={() => void copyText("OTP", credentials.otp)}
-                        />
-                        <CredRow
                           label="Expires"
                           value={formatDateTime(credentials.expires_at)}
                         />
@@ -597,7 +590,7 @@ export default function DemoRequestDetailPage() {
                       <Mail size={14} /> Emails go to {request.email || "requester"}
                     </span>
                     <span>
-                      <Phone size={14} /> Same phone + OTP for parent & driver apps
+                      <Phone size={14} /> Same phone; request a fresh OTP in each app
                     </span>
                   </div>
                 </section>

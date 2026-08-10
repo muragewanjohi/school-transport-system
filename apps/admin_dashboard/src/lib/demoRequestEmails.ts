@@ -105,8 +105,7 @@ export async function notifyDemoReady(
     ``,
     `Flutter parent & driver apps`,
     `Phone: ${params.phone}`,
-    `OTP: ${params.otp}`,
-    `(Use the same phone + OTP for both apps until the demo expires.)`,
+    `Request a fresh OTP from the app. Each code expires after 15 minutes.`,
     ``,
     `If you did not request this, you can ignore this email.`,
     ``,
@@ -123,8 +122,7 @@ export async function notifyDemoReady(
     Password: <code>${escapeHtml(params.adminPassword)}</code></p>
     <p><strong>Flutter parent &amp; driver apps</strong><br />
     Phone: <code>${escapeHtml(params.phone)}</code><br />
-    OTP: <code>${escapeHtml(params.otp)}</code><br />
-    Use the same phone + OTP for both apps until the demo expires.</p>
+    Request a fresh OTP from the app. Each code expires after 15 minutes.</p>
     <p>If you did not request this, you can ignore this email.</p>
     <p>— The OnTheBus team</p>
   `.trim();
