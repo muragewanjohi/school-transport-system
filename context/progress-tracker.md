@@ -190,6 +190,7 @@ Before moving an item to **Completed**, confirm:
 
 ## Next Up
 
+- Founder manual readiness before school visits: run [pre-school-readiness.md](pre-school-readiness.md) (env gates, sales/demo, onboard, admin CRUD, operational day, security, Go/No-Go).
 - Add `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SITE_URL` to `.env.local` and Vercel (required for school invite emails).
 - Supabase Auth URL config (hosted): Site URL = `https://onthebusapp.com`; Redirect URLs include `https://*.onthebusapp.com/**`. Invite `redirectTo` must never be localhost — fixed via `getTenantInviteRedirectUrl`.
 - Sign out/in as `muragedev@gmail.com` and verify `/schools`.

@@ -776,17 +776,31 @@ export async function resetDemoAccessCredentials(
     return { error: "Demo admin profile not found" };
   }
 
-  const { data: otpProfile } = await adminClient
+  // Driver phone is enough — login clears otp_code after verify, so requiring a
+  // leftover code broke Resend after the first Flutter login. Mint a fresh OTP
+  // for sessionStorage; the email tells leads to request OTP in-app (SMS).
+  const { data: driverProfile } = await adminClient
     .from("profiles")
-    .select("phone, otp_code")
+    .select("id, phone")
     .eq("tenant_id", tenantId)
     .eq("role", "driver")
-    .not("otp_code", "is", null)
     .limit(1)
     .maybeSingle();
 
-  if (!otpProfile?.otp_code || !otpProfile.phone) {
-    return { error: "Demo Flutter OTP credentials not found" };
+  if (!driverProfile?.phone) {
+    return { error: "Demo Flutter driver phone not found" };
+  }
+
+  const otp = generateOtp();
+  const otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+  const { error: otpError } = await adminClient
+    .from("profiles")
+    .update({ otp_code: otp, otp_expires_at: otpExpiresAt })
+    .eq("tenant_id", tenantId)
+    .eq("phone", driverProfile.phone);
+
+  if (otpError) {
+    return { error: otpError.message || "Failed to refresh demo Flutter OTP" };
   }
 
   const adminPassword = generatePassword();
@@ -813,8 +827,8 @@ export async function resetDemoAccessCredentials(
     schoolUrl,
     adminEmail: adminProfile.email,
     adminPassword,
-    phone: otpProfile.phone,
-    otp: otpProfile.otp_code,
+    phone: driverProfile.phone,
+    otp,
     expiresAt,
   };
 }
