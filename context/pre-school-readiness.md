@@ -84,14 +84,14 @@ Prove the lead → demo store path you will show or operate for prospects.
 - [ ] **S2** Platform login at apex `/login` as `super_admin` → lands on `/schools` (not a school console).
 - [ ] **S3** `/schools?tab=demos` shows pending request; open detail `/schools/demos/[id]`.
 - [ ] **S4** Confirm demo → provision `{school-slug}-demo.onthebusapp.com`; access email with admin password + Flutter phone guidance. **Expect:** slim roster (admin, driver, conductor, guardians, students).
-- [ ] **S5** Open demo subdomain `/login` with emailed admin password → `/dashboard` loads seeded data.
-- [ ] **S6** Resend access email resets/resends admin credentials successfully.
+- [x] **S5** Open demo subdomain `/login` with emailed admin password → `/dashboard` loads seeded data. — Pass (azima-demo; Resend credentials)
+- [x] **S6** Resend access email resets/resends admin credentials successfully. — Pass (email delivered; login works)
 - [ ] **S7** `[demo]` Flutter: request phone receives **login OTP SMS**; after a trip proximity/delay event, operational SMS is **dry-run** (no real parent trip SMS; Edge Function / queue shows dry-run or processed without AT delivery).
 - [ ] **S8** `[play-review]` Driver `+254700000001` / Parent `+254700000002` / OTP `123456` login works without a fresh SMS.
 - [ ] **S9** (Optional) `/demo/explore?token=…` signs into demo dashboard.
 - [ ] **S10** Complete & purge demo store → tenant gone; thank-you email; subdomain no longer serves console. **Only on a disposable demo.**
 
-**Section 2 result:** Pass / Fail — Notes:
+**Section 2 result:** Partial — S5, S6 Pass (azima-demo Resend + admin login). — Notes:
 
 ---
 

@@ -10,7 +10,7 @@ The visual design language is split to fit specific deployment environments:
 
 ### Driver mobile authentication
 
-Driver and conductor login uses a two-screen phone OTP flow: (1) Kenyan mobile number entry with a prominent **Send OTP** action and support path, then (2) six individual verification-code fields with back navigation, a 24-second resend countdown, and **Verify & Continue**. If the phone is not registered as a driver or conductor, the app shows guidance to contact the school (not a generic failure). The visual treatment uses the OnTheBus bus/map branding, emerald actions, daylight white surfaces, and a security reassurance card. Paid and per-lead demo tenants receive a fresh 15-minute OTP by SMS. The permanent Play Review tenant alone keeps reusable OTP `123456`.
+Driver and conductor login uses a two-screen phone OTP flow: (1) Kenyan mobile number entry with a prominent **Send OTP** action and support path, then (2) six individual verification-code fields with back navigation, a 24-second resend countdown, and **Verify & Continue**. If the phone is not registered as a driver or conductor, the app shows guidance to contact the school (not a generic failure). The visual treatment uses the OnTheBus bus/map branding, emerald actions, daylight white surfaces, and a security reassurance card. Both the driver and parent login start screens show the installed app version at the bottom (`v{version}+{buildNumber}` from `pubspec.yaml`, e.g. `v1.0.2+3`) so support can confirm which build a user is on. Paid and per-lead demo tenants receive a fresh 15-minute OTP by SMS. The permanent Play Review tenant alone keeps reusable OTP `123456`.
 
 ## Marketing Landing Tokens
 
@@ -86,7 +86,11 @@ CSS custom properties are defined in the dashboard root styles (`apps/admin_dash
 ## Layout Patterns
 
 - **Dashboard Layout:** Full-viewport split with a left-anchored sticky sidebar (`260px` width). Active nav uses a filled green pill. School home (`/dashboard`) uses a KPI row, live fleet map + upcoming stops, attendance overview, trip summary, and recent alerts. Platform and school CRUD pages share the same chrome; theme toggle is in the sidebar footer.
-- **Mobile Driver Interface:** Upper viewport dedicated to transit navigation vectors, bottom 55% containing oversized list elements displaying pickup check-ins.
+- **Mobile Driver Interface (Trip tab):** Daylight scrollable column while a trip is active:
+  1. **Header** — trip/route name, vehicle/school subtitle + student count, long-press SOS (no notification inbox in v1).
+  2. **Progress card** — TRIP IN PROGRESS, boarded `N / M` (remaining = `M − N`), progress bar, next stop name + geometric ETA + distance.
+  3. **Map** — embedded Google Maps (`google_maps_flutter`) with road polyline, live bus, numbered stop markers by state (next / upcoming / completed / not visited), legend, Live GPS footer. **Navigate** toggles in-app nav mode (camera follow + emphasized next leg); does not open external Google Maps from Trip.
+  4. **Stop action card** — Navigate (in-app) + primary CTA labeled **Pickup Students** or **DropOff Students** from schedule `direction`. CTA opens a **~70–80% height bottom drawer** (map peek remains) listing only students for the current stop. Tick = Present; **Complete Stop** marks remaining Pending as Absent, marks the stop completed, advances next. Geofence-gated. END TRIP remains a secondary control below the card.
 - **Mobile Parent Interface:** Bottom sheet overlay rendering child telemetry status cards that expands to show historical boarding logs.
 
 ## Icons

@@ -8,6 +8,7 @@ import 'package:driver_app/theme/app_colors.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -53,6 +54,21 @@ class _LoginScreenState extends State<LoginScreen> {
   int _resendRemaining = _resendSeconds;
   Timer? _resendTimer;
   String _phone = '';
+  String _versionLabel = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersionLabel();
+  }
+
+  Future<void> _loadVersionLabel() async {
+    final info = await PackageInfo.fromPlatform();
+    if (!mounted) return;
+    setState(() {
+      _versionLabel = 'v${info.version}+${info.buildNumber}';
+    });
+  }
 
   @override
   void dispose() {
@@ -125,6 +141,18 @@ class _LoginScreenState extends State<LoginScreen> {
         throw _NotRegisteredException(message);
       }
       throw Exception(message);
+    }
+
+    // Local/demo dry-run: surface OTP so login works without SMS delivery.
+    final sandboxOtp = result['sandbox_otp']?.toString();
+    if (sandboxOtp != null && sandboxOtp.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Dev OTP: $sandboxOtp'),
+          backgroundColor: const Color(0xFF0B1C30),
+          duration: const Duration(seconds: 8),
+        ),
+      );
     }
   }
 
@@ -343,6 +371,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   focusNodes: _otpFocusNodes,
                   isLoading: _isLoading,
                   resendRemaining: _resendRemaining,
+                  versionLabel: _versionLabel,
                   onBack: _returnToPhone,
                   onVerify: _handleVerifyOtp,
                   onResend: _resendOtp,
@@ -352,6 +381,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   formKey: _phoneFormKey,
                   phoneController: _phoneController,
                   isLoading: _isLoading,
+                  versionLabel: _versionLabel,
                   onSendOtp: _handleSendOtp,
                   onContactSupport: _contactSupport,
                 ),
@@ -367,6 +397,7 @@ class _PhoneEntryView extends StatelessWidget {
     required this.formKey,
     required this.phoneController,
     required this.isLoading,
+    required this.versionLabel,
     required this.onSendOtp,
     required this.onContactSupport,
   });
@@ -374,6 +405,7 @@ class _PhoneEntryView extends StatelessWidget {
   final GlobalKey<FormState> formKey;
   final TextEditingController phoneController;
   final bool isLoading;
+  final String versionLabel;
   final VoidCallback onSendOtp;
   final VoidCallback onContactSupport;
 
@@ -589,7 +621,7 @@ class _PhoneEntryView extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const _SafetyFooter(),
+                _SafetyFooter(versionLabel: versionLabel),
               ],
             ),
           ),
@@ -683,6 +715,7 @@ class _VerificationView extends StatelessWidget {
     required this.focusNodes,
     required this.isLoading,
     required this.resendRemaining,
+    required this.versionLabel,
     required this.onBack,
     required this.onVerify,
     required this.onResend,
@@ -693,6 +726,7 @@ class _VerificationView extends StatelessWidget {
   final List<FocusNode> focusNodes;
   final bool isLoading;
   final int resendRemaining;
+  final String versionLabel;
   final VoidCallback onBack;
   final VoidCallback onVerify;
   final VoidCallback onResend;
@@ -906,6 +940,19 @@ class _VerificationView extends StatelessWidget {
                         ],
                       ),
                     ),
+                    if (versionLabel.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      Text(
+                        versionLabel,
+                        key: const Key('app-version-label'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: AppColors.mutedLight,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1059,7 +1106,9 @@ class _PrimaryButton extends StatelessWidget {
 }
 
 class _SafetyFooter extends StatelessWidget {
-  const _SafetyFooter();
+  const _SafetyFooter({required this.versionLabel});
+
+  final String versionLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1067,19 +1116,35 @@ class _SafetyFooter extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 12),
       color: AppColors.paleGreen,
-      child: const Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Column(
         children: [
-          Icon(Icons.lock_outline, size: 12, color: AppColors.primaryGreen),
-          SizedBox(width: 5),
-          Text(
-            'Your data is safe with us',
-            style: TextStyle(
-              color: AppColors.muted,
-              fontSize: 9.5,
-              fontWeight: FontWeight.w600,
-            ),
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.lock_outline, size: 12, color: AppColors.primaryGreen),
+              SizedBox(width: 5),
+              Text(
+                'Your data is safe with us',
+                style: TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
+          if (versionLabel.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              versionLabel,
+              key: const Key('app-version-label'),
+              style: const TextStyle(
+                color: AppColors.mutedLight,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ],
       ),
     );

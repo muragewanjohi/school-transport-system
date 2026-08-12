@@ -10,6 +10,7 @@ import 'package:driver_app/services/location_service.dart';
 import 'package:driver_app/screens/login_screen.dart';
 import 'package:driver_app/services/driver_api_auth.dart';
 import 'package:driver_app/screens/student_selection_screen.dart';
+import 'package:driver_app/screens/trip_screen.dart';
 import 'package:driver_app/config/api_config.dart';
 import 'package:driver_app/widgets/route_map_widget.dart';
 import 'package:driver_app/utils/geo_utils.dart';
@@ -148,6 +149,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   dynamic _activeTrip;
   dynamic _nextTrip;
   dynamic _lastCompletedTrip;
+
+  final Set<String> _visitedStopIds = {};
+  bool _navMode = false;
+  DateTime? _arrivedAt;
+  String? _lastArrivedStopId;
 
   @override
   void initState() {
@@ -316,6 +322,26 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       bearing: bearing,
       timestamp: timestamp ?? DateTime.now().toIso8601String(),
     );
+
+    final arrived = findArrivedStop(
+      latitude: latitude,
+      longitude: longitude,
+      stops: _stopsList,
+    );
+    if (arrived == null) {
+      if (_lastArrivedStopId != null) {
+        setState(() {
+          _lastArrivedStopId = null;
+          _arrivedAt = null;
+        });
+      }
+    } else if (arrived.id != _lastArrivedStopId) {
+      setState(() {
+        _lastArrivedStopId = arrived.id;
+        _arrivedAt = DateTime.now();
+        if (_navMode) _navMode = false;
+      });
+    }
   }
 
   Future<void> _seedForegroundGps() async {
@@ -897,6 +923,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     ref.read(tripActiveProvider.notifier).state = true;
     setState(() {
       _currentTab = 1; // Switch to active trip tracking tab
+      _visitedStopIds.clear();
+      _navMode = false;
+      _arrivedAt = null;
+      _lastArrivedStopId = null;
     });
   }
 
@@ -916,6 +946,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       ref.read(telemetryCoordsProvider.notifier).state = null;
       setState(() {
         _currentTab = 0; // Switch back to Home tab
+        _visitedStopIds.clear();
+        _navMode = false;
+        _arrivedAt = null;
+        _lastArrivedStopId = null;
       });
     }
   }
@@ -946,7 +980,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     return "DR";
   }
 
-  Future<void> _updateStudentStatus(dynamic student, String newStatus) async {
+  Future<bool> _updateStudentStatus(dynamic student, String newStatus) async {
     final studentId = student['id'];
     final oldStatus = student['status'];
     setState(() {
@@ -974,7 +1008,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             _studentsList[idx]['status'] = oldStatus;
           }
         });
+        return false;
       }
+      return true;
     } catch (e) {
       debugPrint("Error updating student status: $e");
       setState(() {
@@ -984,6 +1020,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           _studentsList[idx]['status'] = oldStatus;
         }
       });
+      return false;
     }
   }
 
@@ -1718,173 +1755,50 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   }
 
   Widget _buildTripTab(bool isSos, bool isTripActive, String routeName, String tripName, TelemetryCoords? telemetry) {
-    if (!isTripActive) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 60.0, horizontal: 24.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.local_shipping_outlined, size: 80, color: Color(0xFF64748B)),
-              const SizedBox(height: 16),
-              const Text(
-                'No Active Trip',
-                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Select a route and trip run on the Home tab, then tap "START TRIP" to begin location tracking and telemetry streaming.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: Color(0xFF94A3B8)),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton.icon(
-                onPressed: () {
-                  setState(() {
-                    _currentTab = 0;
-                  });
-                },
-                icon: const Icon(Icons.home),
-                label: const Text('Go to Home'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
+    final scheduleDuration = _activeTrip is Map
+        ? (_activeTrip['estimated_duration'] as num?)?.toInt() ??
+            (_activeTrip['schedule']?['estimated_duration'] as num?)?.toInt()
+        : null;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(20.0),
-          decoration: BoxDecoration(
-            color: const Color(0xFFFFFFFF),
-            borderRadius: const BorderRadius.all(Radius.circular(16)),
-            border: Border.all(
-              color: isSos ? Colors.red : const Color(0xFFE2E8F0), 
-              width: isSos ? 2.0 : 1.5
-            ),
-          ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: Colors.green,
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.green.withAlpha(128),
-                          blurRadius: 8,
-                          spreadRadius: 2,
-                        )
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'TRACKING TELEMETRY ACTIVE',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.green,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Text(
-                '$routeName\n$tripName',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF94A3B8),
-                  height: 1.3
-                ),
-              ),
-              if (telemetry != null) ...[
-                const Divider(height: 24, color: Color(0xFFE2E8F0)),
-                Text(
-                  'Lat: ${telemetry.latitude.toStringAsFixed(6)}',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
-                ),
-                Text(
-                  'Lng: ${telemetry.longitude.toStringAsFixed(6)}',
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    Text(
-                      'Speed: ${(telemetry.speed * 3.6).toStringAsFixed(1)} km/h',
-                      style: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600),
-                    ),
-                    Text(
-                      'Bearing: ${telemetry.bearing.toStringAsFixed(0)}°',
-                      style: const TextStyle(fontSize: 14, color: Color(0xFF94A3B8), fontWeight: FontWeight.w600),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Last Sync: ${telemetry.timestamp.split('T').last.substring(0, 8)}',
-                  style: const TextStyle(fontSize: 12, color: Colors.grey),
-                ),
-              ] else ...[
-                const SizedBox(height: 8),
-                const Text(
-                  'Waiting for GPS coordinates...',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 13, color: Colors.grey),
-                ),
-              ],
-            ],
-          ),
-        ),
-        if (_selectedRouteId != null) ...[
-          const SizedBox(height: 16),
-          RouteMapWidget(
-            routeId: _selectedRouteId!,
-            liveLatitude: telemetry?.latitude,
-            liveLongitude: telemetry?.longitude,
-            vehiclePlate: _vehiclePlate,
-            arrivedStopId: _arrivedStopFor(telemetry)?.id,
-          ),
-          const SizedBox(height: 12),
-          _buildNextStopNavCard(telemetry),
-        ],
-        const SizedBox(height: 20),
-        ElevatedButton.icon(
-          onPressed: () async {
-            if (_activeTrip != null) {
-              await _handleEndTrip(_activeTrip['id']);
-            } else {
-              await _endTrip();
-            }
-          },
-          icon: const Icon(Icons.stop, size: 28),
-          label: const Text('END', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.red,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 64),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
-        const SizedBox(height: 24),
-      ],
+    return TripScreen(
+      isTripActive: isTripActive,
+      routeName: routeName,
+      tripName: tripName,
+      schoolName: _schoolName,
+      vehiclePlate: _vehiclePlate,
+      routeId: _selectedRouteId,
+      runType: _selectedRunType,
+      stops: _stopsList,
+      students: _studentsList,
+      visitedStopIds: Set<String>.from(_visitedStopIds),
+      navMode: _navMode,
+      arrivedAt: _arrivedAt,
+      scheduleDurationMinutes: scheduleDuration,
+      telemetry: telemetry,
+      onNavModeChanged: (enabled) {
+        setState(() => _navMode = enabled);
+      },
+      onStopCompleted: (stopId) {
+        setState(() {
+          _visitedStopIds.add(stopId);
+          _navMode = false;
+        });
+      },
+      onUpdateStudentStatus: (student, status) => _updateStudentStatus(student, status),
+      onViewStudents: () => setState(() => _currentTab = 2),
+      onGoHome: () => setState(() => _currentTab = 0),
+      onEndTrip: () async {
+        if (_activeTrip != null) {
+          await _handleEndTrip(_activeTrip['id']);
+        } else {
+          await _endTrip();
+        }
+      },
+      onMapRefresh: () {
+        if (_selectedRouteId != null && _selectedTripId != null) {
+          _fetchTripDetails(_selectedRouteId!, _selectedTripId!);
+        }
+      },
     );
   }
 
@@ -2412,12 +2326,15 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       tripName = _nextTrip['schedule']?['name'] ?? 'Scheduled Trip';
     }
 
+    final hideSchoolHeader = _currentTab == 1 && isTripActive;
+
     return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FF),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Pinned custom header section
-          _buildHeaderSection(context),
+          if (!hideSchoolHeader) _buildHeaderSection(context),
+          if (hideSchoolHeader) SizedBox(height: MediaQuery.of(context).padding.top),
           
           // Scrollable body content
           Expanded(

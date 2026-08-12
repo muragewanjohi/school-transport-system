@@ -31,6 +31,27 @@ function phoneVariants(phone: string): string[] {
   ];
 }
 
+async function withTimeout<T>(
+  promise: PromiseLike<T>,
+  ms: number,
+  label: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      Promise.resolve(promise),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} timed out after ${ms}ms`)),
+          ms
+        );
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 async function sendOtpSms(phone: string, otp: string): Promise<void> {
   const apiKey = process.env.AFRICASTALKING_API_KEY;
   if (!apiKey) {
@@ -47,15 +68,17 @@ async function sendOtpSms(phone: string, otp: string): Promise<void> {
   const apiUrl = username === "sandbox"
     ? "https://api.sandbox.africastalking.com/version1/messaging"
     : "https://api.africastalking.com/version1/messaging";
+
   const response = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        apiKey,
-        "Content-Type": "application/x-www-form-urlencoded",
-        Accept: "application/json",
-      },
-      body: params.toString(),
-    });
+    method: "POST",
+    headers: {
+      apiKey,
+      "Content-Type": "application/x-www-form-urlencoded",
+      Accept: "application/json",
+    },
+    body: params.toString(),
+    signal: AbortSignal.timeout(8_000),
+  });
 
   if (!response.ok) {
     throw new Error(`SMS provider returned HTTP ${response.status}`);
@@ -94,7 +117,7 @@ export async function POST(request: Request) {
     const phoneFilter = phoneVariants(phone)
       .map((candidate) => `phone.eq.${candidate}`)
       .join(",");
-    const { data: profile, error: profileError } = await client
+    const profileQuery = client
       .from("profiles")
       .select("id, tenant_id, status, otp_code")
       .in("role", ["driver", "conductor"])
@@ -102,10 +125,33 @@ export async function POST(request: Request) {
       .limit(1)
       .maybeSingle();
 
-    if (profileError) {
+    let profile: {
+      id: string;
+      tenant_id: string;
+      status: string | null;
+      otp_code: string | null;
+    } | null = null;
+    try {
+      const { data, error: profileError } = await withTimeout(
+        profileQuery,
+        8_000,
+        "Profile lookup"
+      );
+      if (profileError) {
+        return NextResponse.json(
+          { success: false, error: "Unable to verify this account" },
+          { status: 500 }
+        );
+      }
+      profile = data;
+    } catch {
       return NextResponse.json(
-        { success: false, error: "Unable to verify this account" },
-        { status: 500 }
+        {
+          success: false,
+          error:
+            "Cannot reach the database from this machine. Use production API or check your network/VPN.",
+        },
+        { status: 503 }
       );
     }
     if (!profile) {
@@ -153,11 +199,47 @@ export async function POST(request: Request) {
       }
     }
 
-    await sendOtpSms(phone, otp);
+    // Play Review uses fixed OTP 123456 — never block login on SMS.
+    if (isPlayReview) {
+      return NextResponse.json({
+        success: true,
+        source: "play_review",
+        message: "OTP ready (use 123456)",
+      });
+    }
+
+    const atUsername = process.env.AFRICASTALKING_USERNAME || "sandbox";
+    const forceDryRun =
+      isDemo ||
+      process.env.NODE_ENV !== "production" ||
+      atUsername === "sandbox" ||
+      process.env.OTP_SMS_DRY_RUN === "true";
+
+    // Skip Africa's Talking when local/demo/sandbox so the Flutter client
+    // does not hit its 20s timeout waiting on a hung SMS provider.
+    if (forceDryRun) {
+      return NextResponse.json({
+        success: true,
+        source: isDemo ? "demo_sms_dry_run" : "dev_sms_dry_run",
+        message: "OTP created (SMS dry-run)",
+        sandbox_otp: otp,
+      });
+    }
+
+    try {
+      await sendOtpSms(phone, otp);
+    } catch (smsError: unknown) {
+      const detail =
+        smsError instanceof Error ? smsError.message : "SMS delivery failed";
+      return NextResponse.json(
+        { success: false, error: `Unable to send SMS: ${detail}` },
+        { status: 502 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
-      source: isPlayReview ? "play_review_sms" : isDemo ? "demo_sms" : "sms",
+      source: "sms",
       message: "OTP sent successfully",
     });
   } catch (error: unknown) {

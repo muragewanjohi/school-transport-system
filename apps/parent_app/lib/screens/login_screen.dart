@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:parent_app/screens/dashboard_screen.dart';
 import 'package:parent_app/config/api_config.dart';
@@ -24,6 +25,21 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _otpSent = false;
   String? _sandboxOtp;
   String _selectedCountryCode = '+254';
+  String _versionLabel = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadVersionLabel();
+  }
+
+  Future<void> _loadVersionLabel() async {
+    final info = await PackageInfo.fromPlatform();
+    if (!mounted) return;
+    setState(() {
+      _versionLabel = 'v${info.version}+${info.buildNumber}';
+    });
+  }
 
   @override
   void dispose() {
@@ -546,6 +562,20 @@ class _LoginScreenState extends State<LoginScreen> {
                                 letterSpacing: 0.5,
                               ),
                             ),
+                    ),
+                  ),
+                ],
+
+                if (_versionLabel.isNotEmpty) ...[
+                  const SizedBox(height: 28),
+                  Text(
+                    _versionLabel,
+                    key: const Key('app-version-label'),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: Color(0xFF64748B),
                     ),
                   ),
                 ],
