@@ -5,7 +5,6 @@ import {
   Clock, 
   Search, 
   RefreshCw, 
-  MapPin, 
   Compass, 
   Truck, 
   User, 
@@ -21,6 +20,7 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
+import { tripStatusIconColor, tripStatusStyles } from "@/lib/tripStatusUi";
 
 interface DBRoute {
   id: string;
@@ -330,30 +330,14 @@ export default function TodayTrips() {
   const cancelledCount = joinedTrips.filter(t => t.status === "Cancelled").length;
 
   const getStatusIcon = (status: string) => {
+    const color = tripStatusIconColor(status);
     switch (status) {
-      case "Active": return <Activity size={15} style={{ color: "#10B981" }} />;
-      case "Completed": return <CheckCircle2 size={15} style={{ color: "#3B82F6" }} />;
-      case "Delayed": return <Clock size={15} style={{ color: "#F59E0B" }} />;
-      case "Missed": return <AlertCircle size={15} style={{ color: "#EF4444" }} />;
-      case "Cancelled": return <XCircle size={15} style={{ color: "#FFF" }} />;
-      default: return <Clock size={15} style={{ color: "#FFF" }} />;
-    }
-  };
-
-  const getStatusStyles = (status: string) => {
-    switch (status) {
-      case "Active":
-        return { background: "rgba(16, 185, 129, 0.15)", color: "#10B981", border: "1px solid rgba(16, 185, 129, 0.3)" };
-      case "Completed":
-        return { background: "rgba(59, 130, 246, 0.15)", color: "#3B82F6", border: "1px solid rgba(59, 130, 246, 0.3)" };
-      case "Delayed":
-        return { background: "rgba(245, 158, 11, 0.15)", color: "#F59E0B", border: "1px solid rgba(245, 158, 11, 0.3)" };
-      case "Missed":
-        return { background: "rgba(239, 68, 68, 0.15)", color: "#EF4444", border: "1px solid rgba(239, 68, 68, 0.3)" };
-      case "Cancelled":
-        return { background: "rgba(255, 255, 255, 0.08)", color: "#FFF", border: "1px solid rgba(255, 255, 255, 0.2)" };
-      default:
-        return { background: "rgba(255, 255, 255, 0.05)", color: "#FFF", border: "1px solid rgba(255, 255, 255, 0.1)" };
+      case "Active": return <Activity size={15} style={{ color }} />;
+      case "Completed": return <CheckCircle2 size={15} style={{ color }} />;
+      case "Delayed": return <Clock size={15} style={{ color }} />;
+      case "Missed": return <AlertCircle size={15} style={{ color }} />;
+      case "Cancelled": return <XCircle size={15} style={{ color }} />;
+      default: return <Clock size={15} style={{ color }} />;
     }
   };
 
@@ -364,8 +348,8 @@ export default function TodayTrips() {
       <main className="main-content">
         <header className="main-header">
           <div>
-            <span className="header-subtitle" style={{ color: "#FFF" }}>Routes</span>
-            <h1 className="header-title" style={{ display: "flex", alignItems: "center", gap: "8px", color: "#FFF" }}>
+            <span className="header-subtitle">Routes</span>
+            <h1 className="header-title" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
               <Clock size={24} style={{ color: "var(--accent-primary)" }} />
               Today's Trips
             </h1>
@@ -381,16 +365,15 @@ export default function TodayTrips() {
             justifyContent: "space-between",
             alignItems: "center",
             padding: "16px 20px",
-            background: "rgba(255, 255, 255, 0.02)",
+            background: "var(--bg-surface)",
             borderRadius: "12px",
             border: "1px solid var(--border-default)",
-            backdropFilter: "blur(8px)"
           }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.95rem", color: "#FFF" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.95rem", color: "var(--text-primary)" }}>
               <Calendar size={18} style={{ color: "var(--accent-primary)" }} />
               <span>Calendar Schedule: <strong>{formattedToday}</strong></span>
             </div>
-            <div style={{ fontSize: "0.85rem", color: "#FFF" }}>
+            <div style={{ fontSize: "0.85rem", color: "var(--text-muted)" }}>
               Operating Day Code: <strong style={{ color: "var(--accent-secondary)" }}>{dbDay} (Sat=6, Sun=7)</strong>
             </div>
           </div>
@@ -401,29 +384,29 @@ export default function TodayTrips() {
             gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))",
             gap: "14px"
           }}>
-            <div style={{ background: "var(--bg-glass)", border: "1px solid var(--border-default)", padding: "16px", borderRadius: "14px", textAlign: "center", boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}>
-              <span style={{ fontSize: "0.75rem", color: "#FFF", fontWeight: "bold", letterSpacing: "0.5px" }}>TOTAL RUNS</span>
-              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#FFF", marginTop: "4px" }}>{totalCount}</div>
+            <div className="trips-metric">
+              <span className="trips-metric-label">TOTAL RUNS</span>
+              <div className="trips-metric-value">{totalCount}</div>
             </div>
-            <div style={{ background: "var(--bg-glass)", border: "1px solid rgba(16, 185, 129, 0.15)", padding: "16px", borderRadius: "14px", textAlign: "center", boxShadow: "0 4px 12px rgba(16, 185, 129, 0.05)" }}>
-              <span style={{ fontSize: "0.75rem", color: "#10B981", fontWeight: "bold", letterSpacing: "0.5px" }}>ACTIVE</span>
-              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#10B981", marginTop: "4px" }}>{activeCount}</div>
+            <div className="trips-metric" style={{ borderColor: "rgba(16, 185, 129, 0.25)" }}>
+              <span className="trips-metric-label" style={{ color: "var(--accent-primary)" }}>ACTIVE</span>
+              <div className="trips-metric-value" style={{ color: "var(--accent-primary)" }}>{activeCount}</div>
             </div>
-            <div style={{ background: "var(--bg-glass)", border: "1px solid rgba(59, 130, 246, 0.15)", padding: "16px", borderRadius: "14px", textAlign: "center", boxShadow: "0 4px 12px rgba(59, 130, 246, 0.05)" }}>
-              <span style={{ fontSize: "0.75rem", color: "#3B82F6", fontWeight: "bold", letterSpacing: "0.5px" }}>COMPLETED</span>
-              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#3B82F6", marginTop: "4px" }}>{completedCount}</div>
+            <div className="trips-metric" style={{ borderColor: "rgba(59, 130, 246, 0.25)" }}>
+              <span className="trips-metric-label" style={{ color: "#3B82F6" }}>COMPLETED</span>
+              <div className="trips-metric-value" style={{ color: "#3B82F6" }}>{completedCount}</div>
             </div>
-            <div style={{ background: "var(--bg-glass)", border: "1px solid rgba(245, 158, 11, 0.15)", padding: "16px", borderRadius: "14px", textAlign: "center", boxShadow: "0 4px 12px rgba(245, 158, 11, 0.05)" }}>
-              <span style={{ fontSize: "0.75rem", color: "#F59E0B", fontWeight: "bold", letterSpacing: "0.5px" }}>DELAYED</span>
-              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#F59E0B", marginTop: "4px" }}>{delayedCount}</div>
+            <div className="trips-metric" style={{ borderColor: "rgba(245, 158, 11, 0.25)" }}>
+              <span className="trips-metric-label" style={{ color: "var(--state-warning)" }}>DELAYED</span>
+              <div className="trips-metric-value" style={{ color: "var(--state-warning)" }}>{delayedCount}</div>
             </div>
-            <div style={{ background: "var(--bg-glass)", border: "1px solid rgba(239, 68, 68, 0.15)", padding: "16px", borderRadius: "14px", textAlign: "center", boxShadow: "0 4px 12px rgba(239, 68, 68, 0.05)" }}>
-              <span style={{ fontSize: "0.75rem", color: "#EF4444", fontWeight: "bold", letterSpacing: "0.5px" }}>MISSED</span>
-              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#EF4444", marginTop: "4px" }}>{missedCount}</div>
+            <div className="trips-metric" style={{ borderColor: "rgba(239, 68, 68, 0.25)" }}>
+              <span className="trips-metric-label" style={{ color: "var(--state-error)" }}>MISSED</span>
+              <div className="trips-metric-value" style={{ color: "var(--state-error)" }}>{missedCount}</div>
             </div>
-            <div style={{ background: "var(--bg-glass)", border: "1px solid rgba(255, 255, 255, 0.2)", padding: "16px", borderRadius: "14px", textAlign: "center", boxShadow: "0 4px 12px rgba(255, 255, 255, 0.02)" }}>
-              <span style={{ fontSize: "0.75rem", color: "#FFF", fontWeight: "bold", letterSpacing: "0.5px" }}>CANCELLED</span>
-              <div style={{ fontSize: "2rem", fontWeight: "bold", color: "#FFF", marginTop: "4px" }}>{cancelledCount}</div>
+            <div className="trips-metric">
+              <span className="trips-metric-label">CANCELLED</span>
+              <div className="trips-metric-value">{cancelledCount}</div>
             </div>
           </div>
 
@@ -434,28 +417,27 @@ export default function TodayTrips() {
             alignItems: "center",
             flexWrap: "wrap",
             gap: "12px",
-            background: "var(--bg-glass)",
+            background: "var(--bg-surface)",
             border: "1px solid var(--border-default)",
             padding: "16px",
             borderRadius: "12px",
-            backdropFilter: "blur(8px)"
           }}>
             <div style={{ display: "flex", gap: "12px", flex: 1, minWidth: "280px", flexWrap: "wrap" }}>
-              {/* Search Bar */}
               <div style={{
                 display: "flex",
                 alignItems: "center",
-                background: "rgba(255, 255, 255, 0.02)",
+                background: "var(--input-bg)",
                 border: "1px solid var(--border-default)",
-                borderRadius: "8px",
+                borderRadius: "12px",
                 padding: "8px 14px",
                 gap: "8px",
                 flex: 2,
                 minWidth: "240px"
               }}>
-                <Search size={16} style={{ color: "#FFF" }} />
+                <Search size={16} style={{ color: "var(--text-muted)" }} />
                 <input
                   type="text"
+                  className="form-input"
                   placeholder="Search route name, driver, or license plate..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
@@ -463,7 +445,9 @@ export default function TodayTrips() {
                     background: "transparent",
                     border: "none",
                     outline: "none",
-                    color: "#FFF",
+                    boxShadow: "none",
+                    padding: 0,
+                    color: "var(--text-primary)",
                     fontSize: "0.85rem",
                     width: "100%"
                   }}
@@ -474,7 +458,7 @@ export default function TodayTrips() {
                     style={{
                       background: "transparent",
                       border: "none",
-                      color: "#FFF",
+                      color: "var(--text-muted)",
                       cursor: "pointer",
                       display: "flex",
                       alignItems: "center"
@@ -485,82 +469,57 @@ export default function TodayTrips() {
                 )}
               </div>
 
-              {/* Status Filter Dropdown */}
               <div style={{ flex: 1, minWidth: "150px" }}>
                 <select
+                  className="form-input"
                   value={statusFilter}
                   onChange={(e) => setStatusFilter(e.target.value)}
-                  style={{
-                    background: "rgba(6, 9, 19, 0.6) url(\"data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e\") no-repeat right 12px center / 16px",
-                    border: "1px solid var(--border-default)",
-                    borderRadius: "8px",
-                    padding: "10px 12px",
-                    color: "#FFF",
-                    fontSize: "0.85rem",
-                    outline: "none",
-                    width: "100%",
-                    appearance: "none",
-                    paddingRight: "36px",
-                    cursor: "pointer"
-                  }}
                 >
-                  <option value="All" style={{ background: "#131A2A", color: "#FFF" }}>All Statuses</option>
-                  <option value="Scheduled" style={{ background: "#131A2A", color: "#FFF" }}>Scheduled</option>
-                  <option value="Active" style={{ background: "#131A2A", color: "#FFF" }}>Active</option>
-                  <option value="Completed" style={{ background: "#131A2A", color: "#FFF" }}>Completed</option>
-                  <option value="Delayed" style={{ background: "#131A2A", color: "#FFF" }}>Delayed</option>
-                  <option value="Missed" style={{ background: "#131A2A", color: "#FFF" }}>Missed</option>
-                  <option value="Cancelled" style={{ background: "#131A2A", color: "#FFF" }}>Cancelled</option>
+                  <option value="All">All Statuses</option>
+                  <option value="Scheduled">Scheduled</option>
+                  <option value="Active">Active</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Delayed">Delayed</option>
+                  <option value="Missed">Missed</option>
+                  <option value="Cancelled">Cancelled</option>
                 </select>
               </div>
             </div>
 
-            <button 
+            <button
               onClick={fetchData}
-              style={{ 
-                display: "flex", 
-                alignItems: "center", 
-                gap: "6px", 
-                fontSize: "0.85rem", 
-                color: "#FFF",
-                background: "rgba(255, 255, 255, 0.08)",
-                border: "1px solid rgba(255, 255, 255, 0.2)",
+              className="btn btn-secondary"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "6px",
+                fontSize: "0.85rem",
                 padding: "8px 16px",
-                borderRadius: "8px",
+                borderRadius: "12px",
                 cursor: "pointer",
                 fontWeight: "600",
-                transition: "all 0.2s ease"
               }}
               disabled={isLoading}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.15)";
-                e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.35)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "rgba(255, 255, 255, 0.08)";
-                e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.2)";
-              }}
             >
               <RefreshCw size={14} className={isLoading ? "spin-animation" : ""} />
               Sync Console
             </button>
           </div>
 
-          {/* Premium Trips Table */}
+          {/* Trips Table */}
           <div className="table-container" style={{
-            background: "var(--bg-glass)",
+            background: "var(--bg-surface)",
             border: "1px solid var(--border-default)",
             borderRadius: "14px",
             padding: "8px",
-            backdropFilter: "blur(8px)"
           }}>
             {isLoading ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "80px", gap: "12px" }}>
                 <RefreshCw size={40} className="spin-animation" style={{ color: "var(--accent-primary)" }} />
-                <span style={{ color: "#FFF", fontSize: "0.9rem" }}>Fetching live schedule states...</span>
+                <span style={{ color: "var(--text-muted)", fontSize: "0.9rem" }}>Fetching live schedule states...</span>
               </div>
             ) : filteredTrips.length === 0 ? (
-              <div style={{ padding: "80px", textAlign: "center", color: "#FFF" }}>
+              <div style={{ padding: "80px", textAlign: "center", color: "var(--text-muted)" }}>
                 <HelpCircle size={48} style={{ opacity: 0.25, marginBottom: "14px", color: "var(--accent-primary)" }} />
                 <p style={{ fontSize: "0.95rem" }}>No trips scheduled for today matching your parameters.</p>
               </div>
@@ -568,91 +527,84 @@ export default function TodayTrips() {
               <table className="roster-table" style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead>
                   <tr style={{ borderBottom: "1.5px solid var(--border-default)" }}>
-                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "#FFF" }}>Route Name</th>
-                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "#FFF" }}>Trip Run</th>
-                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "#FFF" }}>Scheduled</th>
-                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "#FFF" }}>Bus Plate</th>
-                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "#FFF" }}>Driver</th>
-                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "#FFF" }}>Students Checked-in</th>
-                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "#FFF" }}>Status</th>
-                    <th style={{ padding: "14px 16px", textAlign: "center", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "#FFF" }}>Overrides</th>
+                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "var(--text-muted)" }}>Route Name</th>
+                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "var(--text-muted)" }}>Trip Run</th>
+                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "var(--text-muted)" }}>Scheduled</th>
+                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "var(--text-muted)" }}>Bus Plate</th>
+                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "var(--text-muted)" }}>Driver</th>
+                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "var(--text-muted)" }}>Students Checked-in</th>
+                    <th style={{ padding: "14px 16px", textAlign: "left", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "var(--text-muted)" }}>Status</th>
+                    <th style={{ padding: "14px 16px", textAlign: "center", fontSize: "0.75rem", textTransform: "uppercase", letterSpacing: "1px", color: "var(--text-muted)" }}>Overrides</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredTrips.map((item, idx) => {
-                    const mappedStyles = getStatusStyles(item.status);
+                    const mappedStyles = tripStatusStyles(item.status);
                     const isEven = idx % 2 === 0;
 
                     return (
-                      <tr 
+                      <tr
                         key={item.schedule.id}
                         style={{
-                          background: isEven ? "rgba(255, 255, 255, 0.01)" : "transparent",
-                          borderBottom: "1px solid rgba(255, 255, 255, 0.05)",
+                          background: isEven ? "var(--row-hover)" : "transparent",
+                          borderBottom: "1px solid var(--border-default)",
                           transition: "background 0.2s ease"
                         }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)"}
-                        onMouseLeave={(e) => e.currentTarget.style.background = isEven ? "rgba(255, 255, 255, 0.01)" : "transparent"}
+                        onMouseEnter={(e) => { e.currentTarget.style.background = "var(--bg-surface-hover)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = isEven ? "var(--row-hover)" : "transparent"; }}
                       >
-                        {/* Route Name */}
                         <td style={{ padding: "16px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "10px", fontWeight: "600", color: "#FFF" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "10px", fontWeight: "600", color: "var(--text-primary)" }}>
                             <Compass size={16} style={{ color: "var(--accent-primary)" }} />
                             {item.route?.name || "Unassigned Route"}
                           </div>
                         </td>
 
-                        {/* Trip Run */}
                         <td style={{ padding: "16px" }}>
-                          <div style={{ fontSize: "0.85rem", color: "#FFF" }}>
+                          <div style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
                             {item.schedule.name} • <strong>{item.schedule.direction === "HOME_TO_SCHOOL" ? "Pick Up" : "Drop Off"}</strong>
                           </div>
                         </td>
 
-                        {/* Scheduled Time */}
                         <td style={{ padding: "16px" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: "bold", color: "#FFF" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontWeight: "bold", color: "var(--text-primary)" }}>
                               <Clock size={13} style={{ color: "var(--accent-secondary)" }} />
                               {item.schedule.departure_time.substring(0, 5)}
                             </div>
                             {item.dbTrip?.custom_departure_time && (
-                              <span style={{ fontSize: "0.7rem", color: "#F59E0B", fontWeight: "600" }}>
+                              <span style={{ fontSize: "0.7rem", color: "var(--state-warning)", fontWeight: "600" }}>
                                 Delayed to: {item.dbTrip.custom_departure_time}
                               </span>
                             )}
                           </div>
                         </td>
 
-                        {/* Bus Plate */}
                         <td style={{ padding: "16px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "#FFF" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)" }}>
                             <Truck size={14} style={{ color: "var(--accent-primary)" }} />
-                            {item.vehicle?.license_plate || <span style={{ color: "rgba(255, 255, 255, 0.6)", fontStyle: "italic" }}>No Bus</span>}
+                            {item.vehicle?.license_plate || <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>No Bus</span>}
                           </div>
                         </td>
 
-                        {/* Driver */}
                         <td style={{ padding: "16px" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "#FFF" }}>
-                            <User size={14} style={{ color: "#FFF" }} />
-                            {item.driver?.name || <span style={{ color: "rgba(255, 255, 255, 0.6)", fontStyle: "italic" }}>No Driver Logged In</span>}
+                          <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)" }}>
+                            <User size={14} style={{ color: "var(--text-muted)" }} />
+                            {item.driver?.name || <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>No Driver Logged In</span>}
                           </div>
                         </td>
 
-                        {/* Students Checked-in */}
                         <td style={{ padding: "16px" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: "6px", minWidth: "120px" }}>
-                            <div style={{ fontSize: "1.05rem", fontWeight: "bold", color: "#FFF", display: "flex", alignItems: "center", gap: "6px" }}>
+                            <div style={{ fontSize: "1.05rem", fontWeight: "bold", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "6px" }}>
                               <Users size={14} style={{ color: "var(--accent-primary)" }} />
                               <span style={{ color: "var(--accent-primary)" }}>{item.checkedIn}</span>
-                              <span style={{ color: "rgba(255, 255, 255, 0.8)", fontSize: "0.8rem", fontWeight: "normal" }}>/ {item.total}</span>
+                              <span style={{ color: "var(--text-muted)", fontSize: "0.8rem", fontWeight: "normal" }}>/ {item.total}</span>
                             </div>
-                            {/* Miniature Sleek Progress Bar */}
-                            <div style={{ width: "90px", height: "4px", background: "rgba(255, 255, 255, 0.08)", borderRadius: "2px", overflow: "hidden" }}>
-                              <div style={{ 
-                                width: `${item.total > 0 ? (item.checkedIn / item.total) * 100 : 0}%`, 
-                                height: "100%", 
+                            <div style={{ width: "90px", height: "4px", background: "var(--border-default)", borderRadius: "2px", overflow: "hidden" }}>
+                              <div style={{
+                                width: `${item.total > 0 ? (item.checkedIn / item.total) * 100 : 0}%`,
+                                height: "100%",
                                 background: "var(--accent-primary)",
                                 borderRadius: "2px",
                                 transition: "width 0.4s ease"
@@ -661,7 +613,6 @@ export default function TodayTrips() {
                           </div>
                         </td>
 
-                        {/* Status */}
                         <td style={{ padding: "16px" }}>
                           <div style={{ display: "inline-flex", alignItems: "center", gap: "6px", padding: "6px 12px", borderRadius: "20px", fontSize: "0.75rem", fontWeight: "bold", ...mappedStyles }}>
                             {getStatusIcon(item.status)}
@@ -669,21 +620,17 @@ export default function TodayTrips() {
                           </div>
                         </td>
 
-                        {/* Overrides Update Button */}
                         <td style={{ padding: "16px", textAlign: "center" }}>
-                          <button 
+                          <button
                             onClick={() => openUpdateModal(item)}
                             className="btn btn-secondary"
-                            style={{ 
-                              display: "inline-flex", 
-                              alignItems: "center", 
-                              gap: "6px", 
-                              padding: "6px 14px", 
+                            style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: "6px",
+                              padding: "6px 14px",
                               fontSize: "0.8rem",
-                              borderRadius: "8px",
-                              background: "rgba(25, 35, 55, 0.8)",
-                              border: "1px solid rgba(255, 255, 255, 0.2)",
-                              color: "#FFF",
+                              borderRadius: "12px",
                               fontWeight: "600"
                             }}
                           >
@@ -702,12 +649,12 @@ export default function TodayTrips() {
         </div>
       </main>
 
-      {/* Premium Glassmorphic Update Modal popup */}
+      {/* Override trip modal */}
       {showModal && selectedRun && (
         <div style={{
           position: "fixed",
           inset: 0,
-          background: "rgba(0, 0, 0, 0.65)",
+          background: "rgba(15, 23, 42, 0.45)",
           backdropFilter: "blur(6px)",
           display: "flex",
           justifyContent: "center",
@@ -716,9 +663,9 @@ export default function TodayTrips() {
           padding: "20px"
         }}>
           <div style={{
-            background: "linear-gradient(135deg, #131A2A 0%, #0F1524 100%)",
-            border: "1px solid rgba(255, 255, 255, 0.15)",
-            boxShadow: "0 20px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05)",
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-default)",
+            boxShadow: "var(--shadow-xl)",
             borderRadius: "16px",
             width: "100%",
             maxWidth: "500px",
@@ -726,93 +673,76 @@ export default function TodayTrips() {
             flexDirection: "column",
             overflow: "hidden"
           }}>
-            {/* Modal Header */}
             <div style={{
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
               padding: "18px 24px",
-              borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
-              background: "rgba(255, 255, 255, 0.01)"
+              borderBottom: "1px solid var(--border-default)",
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Clock size={18} style={{ color: "var(--accent-primary)" }} />
-                <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", color: "#FFF", margin: 0 }}>Override Trip State</h3>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", color: "var(--text-primary)", margin: 0 }}>Override Trip State</h3>
               </div>
-              <button 
+              <button
                 onClick={() => setShowModal(false)}
-                style={{ background: "transparent", border: "none", color: "#FFF", cursor: "pointer", display: "flex", alignItems: "center", padding: "4px" }}
+                style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", padding: "4px" }}
               >
                 <X size={18} />
               </button>
             </div>
 
-            {/* Modal Body */}
             <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
-              {/* Trip details box */}
               <div style={{
-                background: "rgba(255, 255, 255, 0.02)",
-                border: "1px solid rgba(255, 255, 255, 0.08)",
+                background: "var(--input-bg)",
+                border: "1px solid var(--border-default)",
                 padding: "14px 16px",
-                borderRadius: "10px",
+                borderRadius: "12px",
                 fontSize: "0.85rem",
                 display: "flex",
                 flexDirection: "column",
                 gap: "8px"
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#FFF" }}>Route:</span>
-                  <strong style={{ color: "#FFF" }}>{selectedRun.route?.name || "Unassigned"}</strong>
+                  <span style={{ color: "var(--text-muted)" }}>Route:</span>
+                  <strong style={{ color: "var(--text-primary)" }}>{selectedRun.route?.name || "Unassigned"}</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#FFF" }}>Run Name:</span>
-                  <strong style={{ color: "#FFF" }}>{selectedRun.schedule.name} ({selectedRun.schedule.direction === "HOME_TO_SCHOOL" ? "AM" : "PM"})</strong>
+                  <span style={{ color: "var(--text-muted)" }}>Run Name:</span>
+                  <strong style={{ color: "var(--text-primary)" }}>{selectedRun.schedule.name} ({selectedRun.schedule.direction === "HOME_TO_SCHOOL" ? "AM" : "PM"})</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#FFF" }}>Scheduled Depart:</span>
+                  <span style={{ color: "var(--text-muted)" }}>Scheduled Depart:</span>
                   <strong style={{ color: "var(--accent-secondary)" }}>{selectedRun.schedule.departure_time.substring(0, 5)}</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "#FFF" }}>Current Status:</span>
+                  <span style={{ color: "var(--text-muted)" }}>Current Status:</span>
                   <strong style={{ color: "var(--accent-primary)" }}>{selectedRun.status}</strong>
                 </div>
               </div>
 
-              {/* Status Select dropdown */}
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <label style={{ fontSize: "0.8rem", color: "#FFF", fontWeight: "bold", letterSpacing: "0.5px" }}>UPDATE TRIP STATUS</label>
-                <div style={{ position: "relative" }}>
-                  <select
-                    value={modalStatus}
-                    onChange={(e) => {
-                      setModalStatus(e.target.value);
-                      setTimeValidationError("");
-                    }}
-                    className="form-input"
-                    style={{ 
-                      background: "rgba(10, 15, 25, 0.9) url(\"data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e\") no-repeat right 12px center / 16px",
-                      border: "1px solid rgba(255, 255, 255, 0.2)",
-                      color: "#FFF",
-                      appearance: "none",
-                      paddingRight: "36px",
-                      fontWeight: "600",
-                      cursor: "pointer"
-                    }}
-                  >
-                    <option value="Scheduled" style={{ background: "#131A2A", color: "#FFF" }}>Scheduled</option>
-                    <option value="Active" style={{ background: "#131A2A", color: "#FFF" }}>Active</option>
-                    <option value="Completed" style={{ background: "#131A2A", color: "#FFF" }}>Completed</option>
-                    <option value="Delayed" style={{ background: "#131A2A", color: "#FFF" }}>Delayed</option>
-                    <option value="Missed" style={{ background: "#131A2A", color: "#FFF" }}>Missed</option>
-                    <option value="Cancelled" style={{ background: "#131A2A", color: "#FFF" }}>Cancelled</option>
-                  </select>
-                </div>
+                <label style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: "bold", letterSpacing: "0.5px" }}>UPDATE TRIP STATUS</label>
+                <select
+                  value={modalStatus}
+                  onChange={(e) => {
+                    setModalStatus(e.target.value);
+                    setTimeValidationError("");
+                  }}
+                  className="form-input"
+                >
+                  <option value="Scheduled">Scheduled</option>
+                  <option value="Active">Active</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Delayed">Delayed</option>
+                  <option value="Missed">Missed</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
               </div>
 
-              {/* Conditional new time picker if delayed */}
               {modalStatus === "Delayed" && (
                 <div style={{ display: "flex", flexDirection: "column", gap: "6px" }} className="fade-in-animation">
-                  <label style={{ fontSize: "0.8rem", color: "#FFF", fontWeight: "bold", letterSpacing: "0.5px" }}>NEW SCHEDULED DEPARTURE TIME</label>
+                  <label style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: "bold", letterSpacing: "0.5px" }}>NEW SCHEDULED DEPARTURE TIME</label>
                   <input
                     type="time"
                     value={modalNewTime}
@@ -821,71 +751,63 @@ export default function TodayTrips() {
                       setTimeValidationError("");
                     }}
                     className="form-input"
-                    style={{ background: "rgba(10, 15, 25, 0.9)", border: "1px solid rgba(255, 255, 255, 0.2)", color: "#FFF" }}
                   />
                   {timeValidationError && (
-                    <span style={{ fontSize: "0.75rem", color: "#EF4444", fontWeight: "500", marginTop: "2px" }}>
+                    <span style={{ fontSize: "0.75rem", color: "var(--state-error)", fontWeight: "500", marginTop: "2px" }}>
                       ⚠️ {timeValidationError}
                     </span>
                   )}
                 </div>
               )}
 
-              {/* Description textarea */}
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <label style={{ fontSize: "0.8rem", color: "#FFF", fontWeight: "bold", letterSpacing: "0.5px" }}>DESCRIPTION / REASON TEXT</label>
+                <label style={{ fontSize: "0.8rem", color: "var(--text-muted)", fontWeight: "bold", letterSpacing: "0.5px" }}>DESCRIPTION / REASON TEXT</label>
                 <textarea
                   value={modalDescription}
                   onChange={(e) => setModalDescription(e.target.value)}
                   placeholder="Provide brief details or justification for the override (e.g. Heavy traffic along Westlands, vehicle flat tire, etc.)..."
                   className="form-input"
                   rows={3}
-                  style={{ background: "rgba(10, 15, 25, 0.9)", border: "1px solid rgba(255, 255, 255, 0.2)", color: "#FFF", resize: "none", fontSize: "0.85rem" }}
+                  style={{ resize: "none", fontSize: "0.85rem" }}
                 />
               </div>
             </div>
 
-            {/* Modal Footer */}
             <div style={{
               display: "flex",
               justifyContent: "flex-end",
               gap: "12px",
               padding: "18px 24px",
-              borderTop: "1px solid rgba(255, 255, 255, 0.08)",
-              background: "rgba(255, 255, 255, 0.01)"
+              borderTop: "1px solid var(--border-default)",
             }}>
-              <button 
+              <button
                 onClick={() => setShowModal(false)}
                 className="btn btn-secondary"
                 disabled={isSaving}
-                style={{ padding: "8px 18px", fontSize: "0.85rem", color: "#FFF" }}
+                style={{ padding: "8px 18px", fontSize: "0.85rem" }}
               >
                 Cancel
               </button>
-              <button 
+              <button
                 onClick={handleSaveModal}
                 className="btn btn-primary"
                 disabled={isSaving}
-                style={{ 
-                  padding: "8px 22px", 
-                  fontSize: "0.85rem", 
-                  display: "flex", 
-                  alignItems: "center", 
+                style={{
+                  padding: "8px 22px",
+                  fontSize: "0.85rem",
+                  display: "flex",
+                  alignItems: "center",
                   gap: "6px",
-                  background: "var(--accent-primary)",
-                  border: "none",
-                  fontWeight: "bold",
-                  color: "#FFF"
                 }}
               >
                 {isSaving ? (
                   <>
-                    <RefreshCw size={14} className="spin-animation" style={{ color: "#FFF" }} />
+                    <RefreshCw size={14} className="spin-animation" />
                     Saving...
                   </>
                 ) : (
                   <>
-                    <CheckCircle2 size={14} style={{ color: "#FFF" }} />
+                    <CheckCircle2 size={14} />
                     Save & Broadcast
                   </>
                 )}

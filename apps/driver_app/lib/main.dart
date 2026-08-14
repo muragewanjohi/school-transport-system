@@ -14,6 +14,7 @@ import 'package:driver_app/screens/trip_screen.dart';
 import 'package:driver_app/config/api_config.dart';
 import 'package:driver_app/widgets/route_map_widget.dart';
 import 'package:driver_app/utils/geo_utils.dart';
+import 'package:driver_app/utils/trip_ui_logic.dart';
 import 'package:driver_app/providers/trip_providers.dart';
 import 'package:driver_app/services/stop_navigation_service.dart';
 import 'package:geolocator/geolocator.dart';
@@ -151,7 +152,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   dynamic _lastCompletedTrip;
 
   final Set<String> _visitedStopIds = {};
-  bool _navMode = false;
   DateTime? _arrivedAt;
   String? _lastArrivedStopId;
 
@@ -339,7 +339,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       setState(() {
         _lastArrivedStopId = arrived.id;
         _arrivedAt = DateTime.now();
-        if (_navMode) _navMode = false;
       });
     }
   }
@@ -811,6 +810,40 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         }
       }
 
+      final previousManifests = _studentsList
+          .whereType<Map>()
+          .map((s) => <String, dynamic>{
+                'student_id': s['id'],
+                'attendance': s['attendance'] ?? 'pending',
+              })
+          .toList();
+      var apiManifests = <dynamic>[];
+      var fetchedManifests = false;
+      final tripRunId = _activeTrip is Map ? _activeTrip['id']?.toString() : null;
+      if (tripRunId != null && tripRunId.isNotEmpty) {
+        try {
+          final manifestResponse = await http
+              .get(
+                Uri.parse('$baseUrl/api/trips?trip_id=$tripRunId'),
+                headers: await DriverApiAuth.headers(),
+              )
+              .timeout(const Duration(seconds: 8));
+          if (manifestResponse.statusCode == 200) {
+            final manifestResult = json.decode(manifestResponse.body);
+            if (manifestResult['success'] == true && manifestResult['data'] is List) {
+              apiManifests = manifestResult['data'] as List<dynamic>;
+              fetchedManifests = true;
+            }
+          }
+        } catch (e) {
+          debugPrint('Error fetching trip manifests: $e');
+        }
+      }
+      studentsList = mergeManifestAttendance(
+        students: studentsList,
+        manifests: fetchedManifests ? apiManifests : previousManifests,
+      );
+
       if (mounted) {
         setState(() {
           _stopsList = stopsList;
@@ -924,7 +957,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     setState(() {
       _currentTab = 1; // Switch to active trip tracking tab
       _visitedStopIds.clear();
-      _navMode = false;
       _arrivedAt = null;
       _lastArrivedStopId = null;
     });
@@ -947,7 +979,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       setState(() {
         _currentTab = 0; // Switch back to Home tab
         _visitedStopIds.clear();
-        _navMode = false;
         _arrivedAt = null;
         _lastArrivedStopId = null;
       });
@@ -983,11 +1014,15 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   Future<bool> _updateStudentStatus(dynamic student, String newStatus) async {
     final studentId = student['id'];
     final oldStatus = student['status'];
+    final oldAttendance = student is Map ? student['attendance'] : null;
+    final newAttendance = attendanceForStatusUpdate(isPickup: _isPickupRun, status: newStatus);
     setState(() {
       student['status'] = newStatus;
+      student['attendance'] = newAttendance;
       final idx = _studentsList.indexWhere((s) => s['id'] == studentId);
       if (idx != -1) {
         _studentsList[idx]['status'] = newStatus;
+        _studentsList[idx]['attendance'] = newAttendance;
       }
     });
 
@@ -1003,9 +1038,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       if (response.statusCode != 200 || result['success'] != true) {
         setState(() {
           student['status'] = oldStatus;
+          student['attendance'] = oldAttendance;
           final idx = _studentsList.indexWhere((s) => s['id'] == studentId);
           if (idx != -1) {
             _studentsList[idx]['status'] = oldStatus;
+            _studentsList[idx]['attendance'] = oldAttendance;
           }
         });
         return false;
@@ -1015,9 +1052,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       debugPrint("Error updating student status: $e");
       setState(() {
         student['status'] = oldStatus;
+        student['attendance'] = oldAttendance;
         final idx = _studentsList.indexWhere((s) => s['id'] == studentId);
         if (idx != -1) {
           _studentsList[idx]['status'] = oldStatus;
+          _studentsList[idx]['attendance'] = oldAttendance;
         }
       });
       return false;
@@ -1754,7 +1793,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     );
   }
 
-  Widget _buildTripTab(bool isSos, bool isTripActive, String routeName, String tripName, TelemetryCoords? telemetry) {
+  Widget _buildTripTab(bool isTripActive, TelemetryCoords? telemetry) {
     final scheduleDuration = _activeTrip is Map
         ? (_activeTrip['estimated_duration'] as num?)?.toInt() ??
             (_activeTrip['schedule']?['estimated_duration'] as num?)?.toInt()
@@ -1762,26 +1801,18 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
     return TripScreen(
       isTripActive: isTripActive,
-      routeName: routeName,
-      tripName: tripName,
-      schoolName: _schoolName,
       vehiclePlate: _vehiclePlate,
       routeId: _selectedRouteId,
       runType: _selectedRunType,
       stops: _stopsList,
       students: _studentsList,
       visitedStopIds: Set<String>.from(_visitedStopIds),
-      navMode: _navMode,
       arrivedAt: _arrivedAt,
       scheduleDurationMinutes: scheduleDuration,
       telemetry: telemetry,
-      onNavModeChanged: (enabled) {
-        setState(() => _navMode = enabled);
-      },
       onStopCompleted: (stopId) {
         setState(() {
           _visitedStopIds.add(stopId);
-          _navMode = false;
         });
       },
       onUpdateStudentStatus: (student, status) => _updateStudentStatus(student, status),
@@ -2299,7 +2330,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       case 0:
         return _buildHomeTab(isSos, isTripActive, routeName, tripName, telemetry);
       case 1:
-        return _buildTripTab(isSos, isTripActive, routeName, tripName, telemetry);
+        return _buildTripTab(isTripActive, telemetry);
       case 2:
         return _buildStudentsTab();
       case 3:
@@ -2330,12 +2361,18 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FF),
+      appBar: hideSchoolHeader
+          ? AppBar(
+              title: Text(tripName.isNotEmpty ? tripName : routeName),
+              automaticallyImplyLeading: false,
+              actions: const [TripSosAction()],
+            )
+          : null,
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (!hideSchoolHeader) _buildHeaderSection(context),
-          if (hideSchoolHeader) SizedBox(height: MediaQuery.of(context).padding.top),
-          
+
           // Scrollable body content
           Expanded(
             child: SingleChildScrollView(

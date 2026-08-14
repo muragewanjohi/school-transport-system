@@ -501,8 +501,8 @@ export default function LoginPage() {
           padding: 12px 12px 12px 38px;
           background: var(--input-bg);
           border: 1px solid var(--border-default, #1e293b);
-          border-radius: 8px;
-          color: var(--text-primary, #f1f5f9);
+          border-radius: 12px;
+          color: var(--text-primary);
           font-size: 0.9rem;
           transition: all 0.2s ease;
           outline: none;

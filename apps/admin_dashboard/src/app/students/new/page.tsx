@@ -242,15 +242,15 @@ export default function RegisterStudentPage() {
           width: 100%;
         }
         .form-card {
-          background: rgba(12, 17, 34, 0.75);
+          background: var(--bg-surface);
           border: 1px solid var(--border-default);
           border-radius: 12px;
           padding: 32px;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
-          backdrop-filter: blur(10px);
+          box-shadow: var(--shadow-md);
           display: flex;
           flex-direction: column;
           gap: 24px;
+          color: var(--text-primary);
         }
         .form-section-title {
           font-size: 0.9rem;
@@ -258,7 +258,7 @@ export default function RegisterStudentPage() {
           color: var(--accent-secondary);
           text-transform: uppercase;
           letter-spacing: 0.08em;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+          border-bottom: 1px solid var(--border-default);
           padding-bottom: 8px;
           margin-bottom: 16px;
         }
@@ -286,9 +286,9 @@ export default function RegisterStudentPage() {
           letter-spacing: 0.05em;
         }
         .form-input {
-          background: rgba(6, 9, 19, 0.6);
+          background: var(--input-bg);
           border: 1px solid var(--border-default);
-          border-radius: 6px;
+          border-radius: 12px;
           padding: 10px 12px;
           color: var(--text-primary);
           font-size: 0.9rem;
@@ -296,8 +296,8 @@ export default function RegisterStudentPage() {
           transition: all 0.2s ease;
         }
         .form-input:focus {
-          border-color: rgba(99, 102, 241, 0.5);
-          box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+          border-color: var(--accent-primary);
+          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
         }
         .form-error-text {
           font-size: 0.75rem;
@@ -726,7 +726,7 @@ export default function RegisterStudentPage() {
                       <div className="form-group">
                         <label className="form-label">Pick up trip</label>
                         <div style={{
-                          background: "rgba(6, 9, 19, 0.6)",
+                          background: "var(--input-bg)",
                           border: "1px solid var(--border-default)",
                           borderRadius: "6px",
                           padding: "12px",
@@ -776,7 +776,7 @@ export default function RegisterStudentPage() {
                       <div className="form-group">
                         <label className="form-label">Drop off trip</label>
                         <div style={{
-                          background: "rgba(6, 9, 19, 0.6)",
+                          background: "var(--input-bg)",
                           border: "1px solid var(--border-default)",
                           borderRadius: "6px",
                           padding: "12px",

@@ -296,22 +296,25 @@ export default function DriversManagement() {
 
       <style jsx global>{`
         .driver-card {
-          background: rgba(12, 17, 34, 0.7);
+          background: var(--bg-surface);
           border: 1px solid var(--border-default);
           border-radius: 12px;
           padding: 16px;
           position: relative;
           transition: all 0.2s ease;
+          color: var(--text-primary);
+          box-shadow: var(--shadow-sm);
         }
         .driver-card:hover {
-          border-color: rgba(99, 102, 241, 0.4);
+          border-color: var(--accent-secondary);
           transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
         }
         .driver-avatar {
           width: 44px;
           height: 44px;
-          background: rgba(16, 185, 129, 0.1);
-          color: var(--accent-primary);
+          background: rgba(4, 120, 87, 0.12);
+          color: var(--accent-primary-ink);
           border-radius: 50%;
           display: flex;
           align-items: center;
@@ -357,9 +360,9 @@ export default function DriversManagement() {
           letter-spacing: 0.05em;
         }
         .form-input {
-          background: rgba(6, 9, 19, 0.6);
+          background: var(--input-bg);
           border: 1px solid var(--border-default);
-          border-radius: 6px;
+          border-radius: 12px;
           padding: 10px 12px;
           color: var(--text-primary);
           font-size: 0.9rem;
@@ -378,14 +381,14 @@ export default function DriversManagement() {
           cursor: pointer;
         }
         .badge-availability.Available {
-          background: rgba(16, 185, 129, 0.15);
-          color: var(--state-success);
-          border: 1px solid rgba(16, 185, 129, 0.3);
+          background: rgba(4, 120, 87, 0.12);
+          color: var(--accent-primary-ink);
+          border: 1px solid rgba(4, 120, 87, 0.3);
         }
         .badge-availability.Unavailable {
-          background: rgba(244, 63, 94, 0.15);
-          color: var(--state-error);
-          border: 1px solid rgba(244, 63, 94, 0.3);
+          background: rgba(225, 29, 72, 0.12);
+          color: var(--state-error-ink);
+          border: 1px solid rgba(225, 29, 72, 0.3);
         }
         .switch-container {
           display: flex;
@@ -399,7 +402,7 @@ export default function DriversManagement() {
           width: 36px;
           height: 20px;
           border-radius: 999px;
-          background: rgba(255, 255, 255, 0.08);
+          background: var(--border-default);
           border: 1px solid var(--border-default);
           position: relative;
           transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -439,10 +442,10 @@ export default function DriversManagement() {
           text-transform: uppercase;
         }
         .switch-label.Available {
-          color: var(--state-success);
+          color: var(--accent-primary-ink);
         }
         .switch-label.Unavailable {
-          color: var(--state-error);
+          color: var(--state-error-ink);
         }
         @keyframes slide-in {
           from { transform: translateX(100%); }
@@ -573,7 +576,7 @@ export default function DriversManagement() {
                             <div className="driver-avatar">{initials}</div>
                           )}
                           <div>
-                            <h3 style={{ fontSize: "1rem", fontWeight: 600 }}>{driver.name}</h3>
+                            <h3 style={{ fontSize: "1rem", fontWeight: 600, color: "var(--text-primary)" }}>{driver.name}</h3>
                             <div className="switch-container" onClick={() => handleToggleStatus(driver.id)}>
                               <div className={`switch-track ${driver.status}`} title="Click to toggle availability status">
                                 <div className="switch-thumb" />
@@ -601,7 +604,7 @@ export default function DriversManagement() {
                               });
                               setShowDrawer(true);
                             }}
-                            style={{ background: "rgba(255,255,255,0.03)", border: "none", borderRadius: "6px", padding: "6px", cursor: "pointer", color: "var(--text-muted)" }}
+                            className="icon-btn-ghost"
                             title="Edit Driver Profile"
                           >
                             <Edit size={12} />
@@ -619,7 +622,7 @@ export default function DriversManagement() {
                       {/* Contacts & ID */}
                       <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px", fontSize: "0.85rem", color: "var(--text-muted)" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <Phone size={12} style={{ color: "var(--accent-primary)" }} />
+                          <Phone size={12} style={{ color: "var(--accent-primary-ink)" }} />
                           <span>{driver.phone}</span>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -627,14 +630,14 @@ export default function DriversManagement() {
                           <span>{driver.email}</span>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <ShieldAlert size={12} style={{ color: "var(--state-warning)" }} />
+                          <ShieldAlert size={12} style={{ color: "var(--state-warning-ink)" }} />
                           <span>National ID: <strong style={{ color: "var(--text-primary)" }}>{driver.national_id || "N/A"}</strong></span>
                         </div>
                       </div>
 
                       {/* Bus Assignment Section */}
                       <div style={{
-                        background: "rgba(255,255,255,0.02)",
+                        background: "var(--input-bg)",
                         border: "1px solid var(--border-default)",
                         borderRadius: "8px",
                         padding: "12px",
@@ -695,7 +698,7 @@ export default function DriversManagement() {
                       width: "60px",
                       height: "60px",
                       borderRadius: "50%",
-                      backgroundColor: "rgba(255,255,255,0.04)",
+                      backgroundColor: "var(--input-bg)",
                       border: "2px dashed var(--border-default)",
                       display: "flex",
                       alignItems: "center",
@@ -884,7 +887,7 @@ export default function DriversManagement() {
                   onClick={() => setShowDrawer(false)}
                   style={{
                     flex: 1,
-                    background: "rgba(255,255,255,0.02)",
+                    background: "var(--input-bg)",
                     border: "1px solid var(--border-default)",
                     color: "var(--text-muted)",
                     padding: "10px 16px",

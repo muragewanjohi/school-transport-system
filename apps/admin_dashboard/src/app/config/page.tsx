@@ -253,7 +253,7 @@ export default function ConfigConsole() {
                 position: "fixed",
                 bottom: "24px",
                 right: "24px",
-                background: toast.type === "success" ? "var(--accent-primary)" : "var(--state-error)",
+                background: toast.type === "success" ? "var(--accent-fill)" : "var(--state-error-ink)",
                 color: "#ffffff",
                 padding: "12px 20px",
                 borderRadius: "8px",
@@ -617,9 +617,9 @@ export default function ConfigConsole() {
                               fontSize: "0.85rem",
                               fontWeight: "600",
                               cursor: canEdit ? "pointer" : "default",
-                              background: isActive ? "var(--accent-primary)" : "var(--background-card)",
-                              border: isActive ? "1px solid var(--accent-primary)" : "1px solid var(--border-default)",
-                              color: isActive ? "#ffffff" : "var(--text-muted)",
+                              background: isActive ? "var(--accent-fill)" : "var(--input-bg)",
+                              border: isActive ? "1px solid var(--accent-fill)" : "1px solid var(--border-default)",
+                              color: isActive ? "var(--nav-active-fg)" : "var(--text-muted)",
                               transition: "all 0.2s ease"
                             }}
                           >
@@ -663,7 +663,7 @@ export default function ConfigConsole() {
                             padding: "10px 16px"
                           }}>
                             <div>
-                              <span style={{ fontWeight: 600, color: "#ffffff", fontSize: "0.85rem" }}>{h.label}</span>
+                              <span style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.85rem" }}>{h.label}</span>
                               <span style={{ marginLeft: "12px", fontSize: "0.75rem", color: "var(--text-muted)" }}>
                                 {h.startDate} to {h.endDate}
                               </span>
@@ -774,7 +774,7 @@ export default function ConfigConsole() {
                       borderRadius: "10px",
                       padding: "20px"
                     }}>
-                      <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "#ffffff", display: "block", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)", display: "block", marginBottom: "4px" }}>
                         App Push Notifications (In-App & Background)
                       </span>
                       <span style={{ fontSize: "0.80rem", color: "var(--text-muted)", display: "block", marginBottom: "16px" }}>
@@ -830,7 +830,7 @@ export default function ConfigConsole() {
                       borderRadius: "10px",
                       padding: "20px"
                     }}>
-                      <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "#ffffff", display: "block", marginBottom: "4px" }}>
+                      <span style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)", display: "block", marginBottom: "4px" }}>
                         SMS Dispatch Services
                       </span>
                       <span style={{ fontSize: "0.80rem", color: "var(--text-muted)", display: "block", marginBottom: "16px" }}>
@@ -874,7 +874,7 @@ export default function ConfigConsole() {
           <style jsx global>{`
             /* Config Console Specific Styles */
             .config-panel {
-              background: #111625;
+              background: var(--bg-surface);
               border: 1px solid var(--border-default);
               border-radius: 12px;
               padding: 24px;
@@ -887,7 +887,7 @@ export default function ConfigConsole() {
               display: block;
               font-size: 1.15rem;
               font-weight: 700;
-              color: #ffffff;
+              color: var(--text-primary);
               margin-bottom: 4px;
             }
 
@@ -920,8 +920,8 @@ export default function ConfigConsole() {
             }
 
             .tab-btn:hover {
-              color: #ffffff;
-              background: rgba(255, 255, 255, 0.02);
+              color: var(--text-primary);
+              background: var(--bg-surface-hover);
             }
 
             .tab-btn.active {
@@ -968,9 +968,9 @@ export default function ConfigConsole() {
 
             .input-with-icon input {
               width: 100%;
-              background: var(--background-card);
+              background: var(--input-bg);
               border: 1px solid var(--border-default);
-              border-radius: 8px;
+              border-radius: 12px;
               padding: 10px 12px 10px 38px;
               color: var(--text-primary);
               font-size: 0.85rem;
@@ -1011,7 +1011,7 @@ export default function ConfigConsole() {
               display: block;
               font-size: 0.85rem;
               font-weight: 600;
-              color: #ffffff;
+              color: var(--text-primary);
             }
 
             .checkbox-row p {
@@ -1022,8 +1022,8 @@ export default function ConfigConsole() {
             }
 
             .save-submit-btn {
-              background: var(--accent-primary);
-              color: #ffffff;
+              background: var(--accent-fill);
+              color: var(--nav-active-fg);
               border: none;
               border-radius: 8px;
               padding: 12px 24px;

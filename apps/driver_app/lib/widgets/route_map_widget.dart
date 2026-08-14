@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:http/http.dart' as http;
@@ -91,7 +92,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
   }
 
   Future<BitmapDescriptor> _createNumberedMarker(StopMarkerState state, int number) async {
-    const size = 64.0;
+    const size = 32.0;
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
     late Color fill;
@@ -123,18 +124,18 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
     }
 
     final paint = Paint()..color = fill;
-    canvas.drawCircle(const Offset(size / 2, size / 2), size / 2 - 2, paint);
+    canvas.drawCircle(const Offset(size / 2, size / 2), size / 2 - 1, paint);
     final borderPaint = Paint()
       ..color = border
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 3;
-    canvas.drawCircle(const Offset(size / 2, size / 2), size / 2 - 2, borderPaint);
+      ..strokeWidth = 1.5;
+    canvas.drawCircle(const Offset(size / 2, size / 2), size / 2 - 1, borderPaint);
 
     if (iconData != null) {
       final builder = ui.ParagraphBuilder(
         ui.ParagraphStyle(textAlign: TextAlign.center),
       )
-        ..pushStyle(ui.TextStyle(color: Colors.white, fontSize: 28))
+        ..pushStyle(ui.TextStyle(color: Colors.white, fontSize: 14))
         ..addText('✓');
       final paragraph = builder.build()
         ..layout(const ui.ParagraphConstraints(width: size));
@@ -143,7 +144,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
       final builder = ui.ParagraphBuilder(
         ui.ParagraphStyle(textAlign: TextAlign.center, fontWeight: FontWeight.bold),
       )
-        ..pushStyle(ui.TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold))
+        ..pushStyle(ui.TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold))
         ..addText(text);
       final paragraph = builder.build()
         ..layout(const ui.ParagraphConstraints(width: size));
@@ -532,11 +533,18 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
             myLocationEnabled: false,
             myLocationButtonEnabled: false,
             zoomControlsEnabled: true,
+            zoomGesturesEnabled: true,
+            scrollGesturesEnabled: true,
+            rotateGesturesEnabled: true,
+            tiltGesturesEnabled: true,
             mapToolbarEnabled: false,
             compassEnabled: false,
             markers: _buildMarkers(),
             circles: _buildCircles(),
             polylines: _buildPolylines(),
+            gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{
+              Factory<EagerGestureRecognizer>(EagerGestureRecognizer.new),
+            },
             onMapCreated: (controller) async {
               _mapController = controller;
               final points =

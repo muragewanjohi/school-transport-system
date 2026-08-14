@@ -278,11 +278,11 @@ export default function BillingConsole() {
 
         /* Mockup Plan Card Style */
         .mockup-plan-card {
-          background: #111625;
+          background: var(--bg-surface);
           border: 1px solid var(--border-default);
           border-radius: 14px;
           padding: 24px;
-          color: #f1f5f9;
+          color: var(--text-primary);
           font-family: var(--font-sans), system-ui, sans-serif;
           box-shadow: var(--shadow-md);
         }
@@ -291,7 +291,7 @@ export default function BillingConsole() {
           display: flex;
           align-items: center;
           gap: 10px;
-          color: #94a3b8;
+          color: var(--text-muted);
           font-size: 0.85rem;
           font-weight: 600;
           text-transform: uppercase;
@@ -310,7 +310,7 @@ export default function BillingConsole() {
           font-size: 2rem;
           font-weight: 700;
           letter-spacing: -0.02em;
-          color: #ffffff;
+          color: var(--text-primary);
         }
 
         .mockup-active-badge {
@@ -364,12 +364,12 @@ export default function BillingConsole() {
         }
 
         .mockup-metric-label {
-          color: #94a3b8;
+          color: var(--text-muted);
           font-weight: 500;
         }
 
         .mockup-metric-value {
-          color: #ffffff;
+          color: var(--text-primary);
           font-weight: 700;
         }
 
@@ -383,12 +383,12 @@ export default function BillingConsole() {
 
         .mockup-sms-title {
           font-weight: 600;
-          color: #ffffff;
+          color: var(--text-primary);
         }
 
         .mockup-sms-value {
           font-weight: 700;
-          color: #ffffff;
+          color: var(--text-primary);
         }
 
         .mockup-progress-bg {
@@ -440,7 +440,7 @@ export default function BillingConsole() {
           padding-top: 14px;
           font-weight: 700;
           font-size: 1.15rem;
-          color: #ffffff;
+          color: var(--text-primary);
         }
 
         .badge-status {
@@ -643,9 +643,9 @@ export default function BillingConsole() {
         }
 
         .payment-form-input {
-          background: rgba(6, 9, 19, 0.6);
+          background: var(--input-bg);
           border: 1px solid var(--border-default);
-          border-radius: 6px;
+          border-radius: 12px;
           padding: 10px 12px;
           color: var(--text-primary);
           font-size: 0.9rem;
@@ -719,7 +719,7 @@ export default function BillingConsole() {
 
         .btn-download:hover {
           background: rgba(99, 102, 241, 0.2);
-          color: #ffffff;
+          color: var(--text-primary);
         }
 
         /* Spinner for loading state */
@@ -795,7 +795,7 @@ export default function BillingConsole() {
           <div className="mockup-plan-card">
             {/* Header matching image */}
             <div className="mockup-header">
-              <Box size={14} style={{ color: "#94a3b8" }} />
+              <Box size={14} style={{ color: "var(--text-muted)" }} />
               <span>Current plan</span>
             </div>
 
@@ -997,11 +997,11 @@ export default function BillingConsole() {
             <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", flexDirection: "column", gap: "8px" }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span>June (Current Month Billing):</span>
-                <span style={{ color: "#ffffff", fontWeight: 600 }}>16,000 SMS (KES 16,000)</span>
+                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>16,000 SMS (KES 16,000)</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
                 <span>May (Previous Month Billing):</span>
-                <span style={{ color: "#ffffff", fontWeight: 600 }}>14,500 SMS (KES 14,500)</span>
+                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>14,500 SMS (KES 14,500)</span>
               </div>
               <div style={{ borderTop: "1px solid rgba(255,255,255,0.03)", paddingTop: "8px", marginTop: "4px", fontSize: "0.75rem", fontStyle: "italic" }}>
                 * Expecting ~25,000 SMS total this month based on active routes. Predicted SMS charge: KES 25,000.
@@ -1038,7 +1038,7 @@ export default function BillingConsole() {
                       <tr key={item.id}>
                         <td style={{ fontWeight: 600, color: "var(--text-primary)" }}>{item.id}</td>
                         <td style={{ color: "var(--text-muted)" }}>{item.period}</td>
-                        <td style={{ fontWeight: 600, color: "#ffffff" }}>KES {item.totalAmount.toLocaleString()}</td>
+                        <td style={{ fontWeight: 600, color: "var(--text-primary)" }}>KES {item.totalAmount.toLocaleString()}</td>
                         <td>
                           <span className="badge-status paid">Paid</span>
                         </td>
@@ -1100,7 +1100,7 @@ export default function BillingConsole() {
             <div className="gateway-header">
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Lock size={16} style={{ color: "var(--accent-primary)" }} />
-                <span style={{ fontWeight: 700, fontSize: "1rem", color: "#ffffff" }}>Secure Payment Portal</span>
+                <span style={{ fontWeight: 700, fontSize: "1rem", color: "var(--text-primary)" }}>Secure Payment Portal</span>
               </div>
               <button 
                 onClick={() => setShowPaymentModal(false)}
@@ -1114,7 +1114,7 @@ export default function BillingConsole() {
             <div style={{ padding: "18px 24px 0 24px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Payment Reference</div>
-                <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "#ffffff" }}>INV-2026-006 (June 2026)</div>
+                <div style={{ fontWeight: 600, fontSize: "0.9rem", color: "var(--text-primary)" }}>INV-2026-006 (June 2026)</div>
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>Amount Payable</div>
@@ -1231,7 +1231,7 @@ export default function BillingConsole() {
               {paymentStep === "processing" && (
                 <div className="processing-container">
                   <div className="spinner" />
-                  <div style={{ fontWeight: 600, color: "#ffffff", fontSize: "1.05rem" }}>
+                  <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "1.05rem" }}>
                     {paymentTab === "mpesa" ? "Sending STK Push Prompt..." : "Authorizing Transaction..."}
                   </div>
                   <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center" }}>
@@ -1258,7 +1258,7 @@ export default function BillingConsole() {
                   }}>
                     <CheckCircle size={28} />
                   </div>
-                  <div style={{ fontWeight: 700, color: "#ffffff", fontSize: "1.1rem" }}>Payment Successful!</div>
+                  <div style={{ fontWeight: 700, color: "var(--text-primary)", fontSize: "1.1rem" }}>Payment Successful!</div>
                   <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", textAlign: "center", maxWidth: "280px" }}>
                     Outstanding balance has been settled. Your account is fully active and current.
                   </div>

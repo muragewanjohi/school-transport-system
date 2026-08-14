@@ -81,8 +81,6 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const tripId = searchParams.get("trip_id");
     const scheduleId = searchParams.get("schedule_id");
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
       if (tripId) {
@@ -96,11 +94,15 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: filteredTrips });
     }
 
-    const client = getSupabaseClient(token);
+    const db = await resolveRequestDb(request);
+    if (!db) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    const client = db.client;
 
     if (tripId) {
       // Get detailed manifest of a trip
-      const { data: manifests, error: manifestError } = await client
+      let manifestQuery = client
         .from("trip_manifests")
         .select(`
           id,
@@ -119,6 +121,10 @@ export async function GET(request: Request) {
           )
         `)
         .eq("trip_id", tripId);
+      if (db.driver?.tenant_id) {
+        manifestQuery = manifestQuery.eq("tenant_id", db.driver.tenant_id);
+      }
+      const { data: manifests, error: manifestError } = await manifestQuery;
 
       if (manifestError) {
         console.warn("Supabase fetch manifest error:", manifestError.message);

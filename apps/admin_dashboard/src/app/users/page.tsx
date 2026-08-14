@@ -46,7 +46,7 @@ const PERMISSION_MATRIX = [
   },
   {
     role: "Operations Admin",
-    color: "#ec4899",
+    color: "#be185d",
     permissions: {
       dashboard: "Full Console (Ops)",
       fleet: "Manage All",
@@ -57,7 +57,7 @@ const PERMISSION_MATRIX = [
   },
   {
     role: "Bursar",
-    color: "#14b8a6",
+    color: "#0f766e",
     permissions: {
       dashboard: "Billing Console",
       fleet: "View Only",
@@ -79,7 +79,7 @@ const PERMISSION_MATRIX = [
   },
   {
     role: "Fleet Manager",
-    color: "var(--accent-primary)",
+    color: "var(--accent-primary-ink)",
     permissions: {
       dashboard: "Fleet & Staff Consoles",
       fleet: "Manage Vehicles/Staff/Maintenance",
@@ -90,7 +90,7 @@ const PERMISSION_MATRIX = [
   },
   {
     role: "Roster Manager",
-    color: "#eab308",
+    color: "var(--state-warning-ink)",
     permissions: {
       dashboard: "Roster & Route Planning",
       fleet: "View Only",
@@ -332,16 +332,19 @@ export default function UserAndRoleManagement() {
 
       <style jsx global>{`
         .admin-card {
-          background: rgba(12, 17, 34, 0.7);
+          background: var(--bg-surface);
           border: 1px solid var(--border-default);
           border-radius: 12px;
           padding: 20px;
           position: relative;
           transition: all 0.2s ease;
+          color: var(--text-primary);
+          box-shadow: var(--shadow-sm);
         }
         .admin-card:hover {
-          border-color: rgba(99, 102, 241, 0.4);
+          border-color: var(--accent-secondary);
           transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
         }
         .admin-card::before {
           content: '';
@@ -370,11 +373,11 @@ export default function UserAndRoleManagement() {
           font-size: 1.1rem;
         }
         .admin-avatar.Super-Admin { background: rgba(99, 102, 241, 0.1); color: var(--accent-secondary); }
-        .admin-avatar.Operations-Admin { background: rgba(236, 72, 153, 0.1); color: #ec4899; }
-        .admin-avatar.Bursar { background: rgba(20, 184, 166, 0.1); color: #14b8a6; }
-        .admin-avatar.Dispatcher { background: rgba(99, 102, 241, 0.1); color: #6366f1; }
-        .admin-avatar.Fleet-Manager { background: rgba(16, 185, 129, 0.1); color: var(--accent-primary); }
-        .admin-avatar.Roster-Manager { background: rgba(234, 179, 8, 0.1); color: #eab308; }
+        .admin-avatar.Operations-Admin { background: rgba(190, 24, 93, 0.1); color: #be185d; }
+        .admin-avatar.Bursar { background: rgba(15, 118, 110, 0.1); color: #0f766e; }
+        .admin-avatar.Dispatcher { background: rgba(99, 102, 241, 0.1); color: #4338ca; }
+        .admin-avatar.Fleet-Manager { background: rgba(4, 120, 87, 0.12); color: var(--accent-primary-ink); }
+        .admin-avatar.Roster-Manager { background: rgba(161, 98, 7, 0.12); color: var(--state-warning-ink); }
 
         .role-badge {
           font-size: 0.7rem;
@@ -384,11 +387,11 @@ export default function UserAndRoleManagement() {
           text-transform: uppercase;
         }
         .role-badge.Super-Admin { background: rgba(99, 102, 241, 0.15); color: var(--accent-secondary); border: 1px solid rgba(99, 102, 241, 0.3); }
-        .role-badge.Operations-Admin { background: rgba(236, 72, 153, 0.15); color: #ec4899; border: 1px solid rgba(236, 72, 153, 0.3); }
-        .role-badge.Bursar { background: rgba(20, 184, 166, 0.15); color: #14b8a6; border: 1px solid rgba(20, 184, 166, 0.3); }
-        .role-badge.Dispatcher { background: rgba(99, 102, 241, 0.15); color: #818cf8; border: 1px solid rgba(99, 102, 241, 0.3); }
-        .role-badge.Fleet-Manager { background: rgba(16, 185, 129, 0.15); color: var(--accent-primary); border: 1px solid rgba(16, 185, 129, 0.3); }
-        .role-badge.Roster-Manager { background: rgba(234, 179, 8, 0.15); color: #facc15; border: 1px solid rgba(234, 179, 8, 0.3); }
+        .role-badge.Operations-Admin { background: rgba(190, 24, 93, 0.12); color: #be185d; border: 1px solid rgba(190, 24, 93, 0.3); }
+        .role-badge.Bursar { background: rgba(15, 118, 110, 0.12); color: #0f766e; border: 1px solid rgba(15, 118, 110, 0.3); }
+        .role-badge.Dispatcher { background: rgba(67, 56, 202, 0.12); color: #4338ca; border: 1px solid rgba(67, 56, 202, 0.3); }
+        .role-badge.Fleet-Manager { background: rgba(4, 120, 87, 0.12); color: var(--accent-primary-ink); border: 1px solid rgba(4, 120, 87, 0.3); }
+        .role-badge.Roster-Manager { background: rgba(161, 98, 7, 0.12); color: var(--state-warning-ink); border: 1px solid rgba(161, 98, 7, 0.3); }
 
         .drawer-overlay {
           position: fixed;
@@ -428,9 +431,9 @@ export default function UserAndRoleManagement() {
           letter-spacing: 0.05em;
         }
         .form-input {
-          background: rgba(6, 9, 19, 0.6);
+          background: var(--input-bg);
           border: 1px solid var(--border-default);
-          border-radius: 6px;
+          border-radius: 12px;
           padding: 10px 12px;
           color: var(--text-primary);
           font-size: 0.9rem;
@@ -456,7 +459,7 @@ export default function UserAndRoleManagement() {
         }
         .matrix-table td {
           padding: 10px 12px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+          border-bottom: 1px solid var(--border-default);
           vertical-align: middle;
         }
 
@@ -620,7 +623,7 @@ export default function UserAndRoleManagement() {
                         <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
                           <div className={`admin-avatar ${roleClass}`}>{initials}</div>
                           <div>
-                            <h3 style={{ fontSize: "0.95rem", fontWeight: 600 }}>{admin.name}</h3>
+                            <h3 style={{ fontSize: "0.95rem", fontWeight: 600, color: "var(--text-primary)" }}>{admin.name}</h3>
                             <div style={{ marginTop: "4px" }}>
                               <span className={`role-badge ${roleClass}`}>
                                 {admin.admin_role}
@@ -644,7 +647,7 @@ export default function UserAndRoleManagement() {
                               });
                               setShowDrawer(true);
                             }}
-                            style={{ background: "rgba(255,255,255,0.03)", border: "none", borderRadius: "6px", padding: "6px", cursor: "pointer", color: "var(--text-muted)" }}
+                            className="icon-btn-ghost"
                             title="Edit Profile"
                           >
                             <Edit size={12} />
@@ -653,12 +656,12 @@ export default function UserAndRoleManagement() {
                             disabled={admin.email === "sarah.jenkins@school.com"} // Lock main admin
                             onClick={() => handleDeleteAdmin(admin.id)}
                             style={{ 
-                              background: admin.email === "sarah.jenkins@school.com" ? "rgba(255,255,255,0.01)" : "rgba(244,63,94,0.05)", 
+                              background: admin.email === "sarah.jenkins@school.com" ? "var(--input-bg)" : "rgba(225, 29, 72, 0.08)", 
                               border: "none", 
                               borderRadius: "6px", 
                               padding: "6px", 
                               cursor: admin.email === "sarah.jenkins@school.com" ? "default" : "pointer", 
-                              color: admin.email === "sarah.jenkins@school.com" ? "rgba(255,255,255,0.1)" : "var(--state-error)" 
+                              color: admin.email === "sarah.jenkins@school.com" ? "var(--text-muted)" : "var(--state-error-ink)" 
                             }}
                             title={admin.email === "sarah.jenkins@school.com" ? "Main Admin Account Locked" : "Revoke Access"}
                           >
@@ -670,7 +673,7 @@ export default function UserAndRoleManagement() {
                       {/* Contact Fields */}
                       <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "0.8rem", color: "var(--text-muted)" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                          <Phone size={12} style={{ color: "var(--accent-primary)" }} />
+                          <Phone size={12} style={{ color: "var(--accent-primary-ink)" }} />
                           <span>{admin.phone}</span>
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -700,8 +703,8 @@ export default function UserAndRoleManagement() {
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               {PERMISSION_MATRIX.map((pm, i) => (
                 <div key={i} style={{ 
-                  background: "rgba(255,255,255,0.01)", 
-                  border: `1px solid rgba(255,255,255,0.03)`,
+                  background: "var(--input-bg)", 
+                  border: `1px solid var(--border-default)`,
                   borderLeft: `3px solid ${pm.color}`,
                   borderRadius: "8px", 
                   padding: "12px"

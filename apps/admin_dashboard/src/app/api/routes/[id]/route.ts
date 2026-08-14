@@ -1,13 +1,36 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import {
+  demoReadonlyForbiddenResponse,
+  getCallerProfile,
+  isDemoReadonly,
+} from "@/lib/authApi";
+
+const schoolLocationSchema = z.object({
+  name: z.string().min(2),
+  latitude: z.number(),
+  longitude: z.number(),
+});
 
 const routeUpdateSchema = z.object({
-  name: z.string().min(2, "Name must be at least 2 characters")
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  schoolStart: schoolLocationSchema.optional(),
+  schoolEnd: schoolLocationSchema.optional(),
 });
+
+interface StopRow {
+  id: string;
+  sequence_no: number;
+}
 
 export async function PUT(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const caller = await getCallerProfile(request);
+    if (isDemoReadonly(caller)) {
+      return demoReadonlyForbiddenResponse();
+    }
+
     const { id: routeId } = await params;
     const body: unknown = await request.json();
     const result = routeUpdateSchema.safeParse(body);
@@ -23,7 +46,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
         data: {
           id: routeId,
           name: result.data.name,
-          path: null
+          path: null,
+          schoolStart: result.data.schoolStart ?? null,
+          schoolEnd: result.data.schoolEnd ?? null,
         }
       });
     }
@@ -52,6 +77,37 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       });
     }
 
+    if (result.data.schoolStart || result.data.schoolEnd) {
+      const { data: stops } = await client
+        .from("stops")
+        .select("id, sequence_no")
+        .eq("route_id", routeId)
+        .order("sequence_no", { ascending: true });
+
+      const ordered = (stops ?? []) as StopRow[];
+      const first = ordered[0];
+      const last = ordered[ordered.length - 1];
+
+      if (result.data.schoolStart && first) {
+        await client
+          .from("stops")
+          .update({
+            name: result.data.schoolStart.name,
+            location: `POINT(${result.data.schoolStart.longitude} ${result.data.schoolStart.latitude})`,
+          })
+          .eq("id", first.id);
+      }
+      if (result.data.schoolEnd && last && last.id !== first?.id) {
+        await client
+          .from("stops")
+          .update({
+            name: result.data.schoolEnd.name,
+            location: `POINT(${result.data.schoolEnd.longitude} ${result.data.schoolEnd.latitude})`,
+          })
+          .eq("id", last.id);
+      }
+    }
+
     return NextResponse.json({
       success: true,
       source: "supabase",
@@ -65,6 +121,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
 export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const caller = await getCallerProfile(request);
+    if (isDemoReadonly(caller)) {
+      return demoReadonlyForbiddenResponse();
+    }
+
     const { id: routeId } = await params;
 
     if (!isSupabaseConfigured) {

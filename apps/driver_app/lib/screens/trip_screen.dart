@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:driver_app/providers/trip_providers.dart';
+import 'package:driver_app/services/stop_navigation_service.dart';
 import 'package:driver_app/theme/app_colors.dart';
 import 'package:driver_app/utils/geo_utils.dart';
 import 'package:driver_app/utils/trip_ui_logic.dart';
@@ -10,82 +11,9 @@ import 'package:driver_app/widgets/stop_boarding_drawer.dart';
 import 'package:driver_app/widgets/trip_progress_card.dart';
 import 'package:driver_app/widgets/trip_stop_action_card.dart';
 
-class TripScreen extends ConsumerWidget {
-  final bool isTripActive;
-  final String routeName;
-  final String tripName;
-  final String schoolName;
-  final String vehiclePlate;
-  final String? routeId;
-  final String runType;
-  final List<dynamic> stops;
-  final List<dynamic> students;
-  final Set<String> visitedStopIds;
-  final bool navMode;
-  final DateTime? arrivedAt;
-  final int? scheduleDurationMinutes;
-  final TelemetryCoords? telemetry;
-  final ValueChanged<bool> onNavModeChanged;
-  final ValueChanged<String> onStopCompleted;
-  final Future<bool> Function(Map<String, dynamic> student, String status) onUpdateStudentStatus;
-  final VoidCallback onViewStudents;
-  final VoidCallback onGoHome;
-  final Future<void> Function() onEndTrip;
-  final VoidCallback? onMapRefresh;
-
-  const TripScreen({
-    super.key,
-    required this.isTripActive,
-    required this.routeName,
-    required this.tripName,
-    required this.schoolName,
-    required this.vehiclePlate,
-    required this.routeId,
-    required this.runType,
-    required this.stops,
-    required this.students,
-    required this.visitedStopIds,
-    required this.navMode,
-    this.arrivedAt,
-    this.scheduleDurationMinutes,
-    required this.telemetry,
-    required this.onNavModeChanged,
-    required this.onStopCompleted,
-    required this.onUpdateStudentStatus,
-    required this.onViewStudents,
-    required this.onGoHome,
-    required this.onEndTrip,
-    this.onMapRefresh,
-  });
-
-  bool get _isPickup => isPickupRunType(runType);
-
-  ArrivedStop? get _arrived {
-    if (telemetry == null || stops.isEmpty) return null;
-    return findArrivedStop(
-      latitude: telemetry!.latitude,
-      longitude: telemetry!.longitude,
-      stops: stops,
-    );
-  }
-
-  Map<String, dynamic>? get _nextStop {
-    // Prefer first incomplete stop in sequence as "active" stop for boarding.
-    final ordered = sortedStopsBySequence(stops);
-    for (final s in ordered) {
-      if (s is! Map) continue;
-      final id = s['id']?.toString() ?? '';
-      if (id.isEmpty) continue;
-      if (!visitedStopIds.contains(id)) {
-        return Map<String, dynamic>.from(s);
-      }
-    }
-    return nextNavigationStop(
-      stops: stops,
-      latitude: telemetry?.latitude,
-      longitude: telemetry?.longitude,
-    );
-  }
+/// Long-press SOS control for the Trip AppBar.
+class TripSosAction extends ConsumerWidget {
+  const TripSosAction({super.key});
 
   Future<void> _confirmSos(BuildContext context, WidgetRef ref) async {
     final confirm = await showDialog<bool>(
@@ -130,6 +58,110 @@ class TripScreen extends ConsumerWidget {
     }
   }
 
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final isSos = ref.watch(emergencyActiveProvider);
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: Center(
+        child: GestureDetector(
+          onLongPress: () => isSos ? _clearSos(context, ref) : _confirmSos(context, ref),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: isSos ? Colors.red : Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: isSos ? Colors.white : Colors.red, width: 1.5),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.shield, color: isSos ? Colors.white : Colors.red, size: 20),
+                const SizedBox(width: 4),
+                Text(
+                  'SOS',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: isSos ? Colors.white : Colors.red,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class TripScreen extends ConsumerWidget {
+  final bool isTripActive;
+  final String vehiclePlate;
+  final String? routeId;
+  final String runType;
+  final List<dynamic> stops;
+  final List<dynamic> students;
+  final Set<String> visitedStopIds;
+  final DateTime? arrivedAt;
+  final int? scheduleDurationMinutes;
+  final TelemetryCoords? telemetry;
+  final ValueChanged<String> onStopCompleted;
+  final Future<bool> Function(Map<String, dynamic> student, String status) onUpdateStudentStatus;
+  final VoidCallback onViewStudents;
+  final VoidCallback onGoHome;
+  final Future<void> Function() onEndTrip;
+  final VoidCallback? onMapRefresh;
+
+  const TripScreen({
+    super.key,
+    required this.isTripActive,
+    required this.vehiclePlate,
+    required this.routeId,
+    required this.runType,
+    required this.stops,
+    required this.students,
+    required this.visitedStopIds,
+    this.arrivedAt,
+    this.scheduleDurationMinutes,
+    required this.telemetry,
+    required this.onStopCompleted,
+    required this.onUpdateStudentStatus,
+    required this.onViewStudents,
+    required this.onGoHome,
+    required this.onEndTrip,
+    this.onMapRefresh,
+  });
+
+  bool get _isPickup => isPickupRunType(runType);
+
+  ArrivedStop? get _arrived {
+    if (telemetry == null || stops.isEmpty) return null;
+    return findArrivedStop(
+      latitude: telemetry!.latitude,
+      longitude: telemetry!.longitude,
+      stops: stops,
+    );
+  }
+
+  Map<String, dynamic>? get _nextStop {
+    // Prefer first incomplete stop in sequence as "active" stop for boarding.
+    final ordered = sortedStopsBySequence(stops);
+    for (final s in ordered) {
+      if (s is! Map) continue;
+      final id = s['id']?.toString() ?? '';
+      if (id.isEmpty) continue;
+      if (!visitedStopIds.contains(id)) {
+        return Map<String, dynamic>.from(s);
+      }
+    }
+    return nextNavigationStop(
+      stops: stops,
+      latitude: telemetry?.latitude,
+      longitude: telemetry?.longitude,
+    );
+  }
+
   Future<void> _openBoardingDrawer(BuildContext context) async {
     final stop = _nextStop;
     if (stop == null) return;
@@ -170,7 +202,32 @@ class TripScreen extends ConsumerWidget {
 
     if (result != null) {
       onStopCompleted(result.stopId);
-      onNavModeChanged(false);
+    }
+  }
+
+  Future<void> _navigateToNextStop(BuildContext context) async {
+    final stop = _nextStop;
+    if (stop == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No next stop available for navigation.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final ok = await StopNavigationService.navigateToStop(stop);
+    if (!context.mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not open Google Maps navigation for ${stop['name'] ?? 'stop'}.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -211,7 +268,7 @@ class TripScreen extends ConsumerWidget {
     }
 
     final isSos = ref.watch(emergencyActiveProvider);
-    final progress = computeAttendanceProgress(students);
+    final progress = computeAttendanceProgress(students, isPickup: _isPickup);
     final next = _nextStop;
     final nextPoint = next == null ? null : stopLatLng(next);
     final nextId = next?['id']?.toString();
@@ -244,17 +301,7 @@ class TripScreen extends ConsumerWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _TripHeader(
-          tripName: tripName,
-          routeName: routeName,
-          schoolName: schoolName,
-          vehiclePlate: vehiclePlate,
-          studentCount: students.length,
-          isSos: isSos,
-          onSosLongPress: () => isSos ? _clearSos(context, ref) : _confirmSos(context, ref),
-        ),
         if (isSos) ...[
-          const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -275,15 +322,11 @@ class TripScreen extends ConsumerWidget {
               ],
             ),
           ),
+          const SizedBox(height: 12),
         ],
-        const SizedBox(height: 12),
         TripProgressCard(
           progress: progress,
           isPickup: _isPickup,
-          nextStopName: next?['name']?.toString(),
-          etaMinutes: eta,
-          distanceKm: distKm,
-          onViewStopDetails: onViewStudents,
         ),
         if (routeId != null) ...[
           const SizedBox(height: 12),
@@ -296,10 +339,9 @@ class TripScreen extends ConsumerWidget {
             arrivedStopId: arrived?.id,
             nextStopId: nextId,
             visitedStopIds: visitedStopIds,
-            navMode: navMode,
             lastTelemetryIso: telemetry?.timestamp,
             onRefresh: onMapRefresh,
-            height: 300,
+            height: 450,
           ),
           const SizedBox(height: 12),
           TripStopActionCard(
@@ -307,12 +349,9 @@ class TripScreen extends ConsumerWidget {
             studentsAtStop: atStopStudents,
             etaMinutes: eta,
             distanceKm: distKm,
-            navMode: navMode,
             canBoard: canBoard,
             runType: runType,
-            onNavigate: next == null
-                ? null
-                : () => onNavModeChanged(!navMode),
+            onNavigate: next == null ? null : () => _navigateToNextStop(context),
             onBoardStudents: () => _openBoardingDrawer(context),
             onViewStudents: onViewStudents,
           ),
@@ -333,86 +372,6 @@ class TripScreen extends ConsumerWidget {
         ),
         const SizedBox(height: 16),
       ],
-    );
-  }
-}
-
-class _TripHeader extends StatelessWidget {
-  final String tripName;
-  final String routeName;
-  final String schoolName;
-  final String vehiclePlate;
-  final int studentCount;
-  final bool isSos;
-  final VoidCallback onSosLongPress;
-
-  const _TripHeader({
-    required this.tripName,
-    required this.routeName,
-    required this.schoolName,
-    required this.vehiclePlate,
-    required this.studentCount,
-    required this.isSos,
-    required this.onSosLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Text(
-                  tripName.isNotEmpty ? tripName : routeName,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppColors.ink,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '$schoolName · $vehiclePlate · $studentCount students',
-                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          GestureDetector(
-            onLongPress: onSosLongPress,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                color: isSos ? Colors.red : Colors.red.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.red, width: 1.5),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.shield, color: isSos ? Colors.white : Colors.red, size: 20),
-                  const SizedBox(width: 4),
-                  Text(
-                    'SOS',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      color: isSos ? Colors.white : Colors.red,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

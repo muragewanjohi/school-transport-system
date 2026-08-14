@@ -9,6 +9,9 @@ interface HomeLocationMapPickerProps {
   longitude: number;
   onAddressChange: (address: string) => void;
   onLocationChange: (lat: number, lng: number, address?: string) => void;
+  searchLabel?: string;
+  searchPlaceholder?: string;
+  searchRequired?: boolean;
 }
 
 interface GeocodingFeature {
@@ -106,6 +109,9 @@ export default function HomeLocationMapPicker({
   longitude,
   onAddressChange,
   onLocationChange,
+  searchLabel = "HOME ADDRESS / LANDMARK / BUILDING *",
+  searchPlaceholder = "Search Google Maps for building or landmark (e.g. KICC, Afya Centre, Nation Centre, Britam)...",
+  searchRequired = true,
 }: HomeLocationMapPickerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -477,20 +483,20 @@ export default function HomeLocationMapPicker({
           style={{ display: "flex", alignItems: "center", gap: "6px", width: "100%" }}
         >
           <Home size={15} style={{ color: "#2563EB" }} />
-          HOME ADDRESS / LANDMARK / BUILDING *
+          {searchLabel}
         </label>
 
         <div style={{ position: "relative", width: "100%", display: "flex", alignItems: "center" }}>
           <input
             type="text"
-            required
+            required={searchRequired}
             autoComplete="off"
             name="home_address_landmark_search"
             data-1p-ignore="true"
             data-lpignore="true"
             className="form-input"
             style={{ width: "100%", paddingRight: "40px" }}
-            placeholder="Search Google Maps for building or landmark (e.g. KICC, Afya Centre, Nation Centre, Britam)..."
+            placeholder={searchPlaceholder}
             value={searchQuery}
             onChange={(e) => handleSearchInputChange(e.target.value)}
             onFocus={() => {
@@ -550,8 +556,8 @@ export default function HomeLocationMapPicker({
               width: "100%",
               zIndex: 999999,
               marginTop: "4px",
-              background: "#0F172A",
-              border: "1px solid rgba(37, 99, 235, 0.4)",
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-default)",
               borderRadius: "8px",
               boxShadow: "0 14px 35px rgba(0,0,0,0.75)",
               overflow: "hidden",
@@ -592,7 +598,7 @@ export default function HomeLocationMapPicker({
                         justifyContent: "space-between",
                       }}
                     >
-                      <span style={{ fontWeight: 600, color: "#ffffff" }}>
+                      <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
                         {feature.title}
                       </span>
                       {feature.source && (

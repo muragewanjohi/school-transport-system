@@ -11,12 +11,51 @@ class TripAttendanceProgress {
   double get fraction => total <= 0 ? 0 : boarded / total;
 }
 
-TripAttendanceProgress computeAttendanceProgress(List<dynamic> students) {
-  var boarded = 0;
+/// Pickup: trip `attendance == boarded`. Dropoff: `attendance == dropped_off`.
+/// Roster `students.status` (often default Present) is not trip boarding.
+TripAttendanceProgress computeAttendanceProgress(
+  List<dynamic> students, {
+  required bool isPickup,
+}) {
+  var completed = 0;
   for (final s in students) {
-    if (s is Map && (s['status'] ?? 'Absent') == 'Present') boarded++;
+    if (s is! Map) continue;
+    final attendance = (s['attendance'] ?? 'pending').toString();
+    if (isPickup && attendance == 'boarded') completed++;
+    if (!isPickup && attendance == 'dropped_off') completed++;
   }
-  return TripAttendanceProgress(boarded: boarded, total: students.length);
+  return TripAttendanceProgress(boarded: completed, total: students.length);
+}
+
+String attendanceDoneWord({required bool isPickup}) => isPickup ? 'picked' : 'dropped';
+
+/// Maps a driver Present/Absent toggle onto trip-manifest attendance.
+String attendanceForStatusUpdate({required bool isPickup, required String status}) {
+  if (isPickup) {
+    return status == 'Present' ? 'boarded' : 'absent';
+  }
+  return status == 'Absent' ? 'dropped_off' : 'boarded';
+}
+
+/// Overlay trip-manifest attendance onto roster students. Missing rows stay pending.
+List<Map<String, dynamic>> mergeManifestAttendance({
+  required List<dynamic> students,
+  required List<dynamic> manifests,
+}) {
+  final byId = <String, String>{};
+  for (final m in manifests) {
+    if (m is! Map) continue;
+    final sid = m['student_id']?.toString() ?? '';
+    final att = m['attendance']?.toString();
+    if (sid.isEmpty || att == null || att.isEmpty) continue;
+    byId[sid] = att;
+  }
+  return students.whereType<Map>().map((s) {
+    final copy = Map<String, dynamic>.from(s);
+    final id = copy['id']?.toString() ?? '';
+    copy['attendance'] = byId[id] ?? copy['attendance'] ?? 'pending';
+    return copy;
+  }).toList();
 }
 
 /// Primary Trip CTA label from run type.

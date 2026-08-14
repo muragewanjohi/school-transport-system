@@ -534,7 +534,7 @@ export default function StudentsManagement() {
           100% { transform: rotate(360deg); }
         }
         .student-card {
-          background: rgba(12, 17, 34, 0.7);
+          background: var(--bg-surface);
           border: 1px solid var(--border-default);
           border-radius: 12px;
           padding: 16px;
@@ -543,10 +543,13 @@ export default function StudentsManagement() {
           display: flex;
           flex-direction: column;
           gap: 12px;
+          color: var(--text-primary);
+          box-shadow: var(--shadow-sm);
         }
         .student-card:hover {
-          border-color: rgba(99, 102, 241, 0.4);
+          border-color: var(--accent-secondary);
           transform: translateY(-2px);
+          box-shadow: var(--shadow-md);
         }
         .student-table {
           width: 100%;
@@ -565,11 +568,11 @@ export default function StudentsManagement() {
         }
         .student-table td {
           padding: 12px 16px;
-          border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+          border-bottom: 1px solid var(--border-default);
           vertical-align: middle;
         }
         .student-table tr:hover {
-          background: rgba(255, 255, 255, 0.01);
+          background: var(--row-hover);
         }
         .student-avatar {
           width: 44px;
@@ -625,9 +628,9 @@ export default function StudentsManagement() {
           letter-spacing: 0.05em;
         }
         .form-input {
-          background: rgba(6, 9, 19, 0.6);
+          background: var(--input-bg);
           border: 1px solid var(--border-default);
-          border-radius: 6px;
+          border-radius: 12px;
           padding: 10px 12px;
           color: var(--text-primary);
           font-size: 0.9rem;
@@ -948,9 +951,9 @@ export default function StudentsManagement() {
                   value={gradeFilter}
                   onChange={(e) => setGradeFilter(e.target.value)}
                   style={{
-                    background: "rgba(6, 9, 19, 0.6)",
+                    background: "var(--input-bg)",
                     border: "1px solid var(--border-default)",
-                    borderRadius: "8px",
+                    borderRadius: "12px",
                     padding: "10px 12px",
                     color: "var(--text-primary)",
                     fontSize: "0.85rem",

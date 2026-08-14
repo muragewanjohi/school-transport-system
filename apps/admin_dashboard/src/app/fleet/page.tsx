@@ -382,14 +382,16 @@ export default function FleetManagement() {
           position: relative;
           cursor: pointer;
           border: 1px solid var(--border-default);
-          background: rgba(255, 255, 255, 0.01);
+          background: var(--bg-surface);
           border-radius: 12px;
           padding: 16px;
           transition: all 0.3s ease;
+          color: var(--text-primary);
+          box-shadow: var(--shadow-sm);
         }
         .bus-card:hover {
-          background: rgba(255, 255, 255, 0.03);
-          border-color: rgba(99, 102, 241, 0.4);
+          background: var(--bg-surface-hover);
+          border-color: var(--accent-secondary);
           transform: translateY(-2px);
         }
         .bus-card.selected {
@@ -439,9 +441,9 @@ export default function FleetManagement() {
           letter-spacing: 0.05em;
         }
         .form-input {
-          background: rgba(6, 9, 19, 0.6);
+          background: var(--input-bg);
           border: 1px solid var(--border-default);
-          border-radius: 6px;
+          border-radius: 12px;
           padding: 10px 12px;
           color: var(--text-primary);
           font-size: 0.9rem;

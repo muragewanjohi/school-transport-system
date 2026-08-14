@@ -53,8 +53,12 @@ CSS custom properties are defined in the dashboard root styles (`apps/admin_dash
 | **Surface** | `--bg-surface` | `#ffffff` | `#0c1122` | Cards, sidebar, panels |
 | **Surface Hover** | `--bg-surface-hover` | `#E8F8F0` | `#151c36` | Hovered / active nav tint |
 | **Primary text** | `--text-primary` | `#0F172A` | `#f1f5f9` | Titles, prominent values |
-| **Muted text** | `--text-muted` | `#64748B` | `#64748b` | Subheadings, meta |
-| **Primary accent** | `--accent-primary` | `#10b981` | `#10b981` | Green actions / active nav |
+| **Muted text** | `--text-muted` | `#475569` | `#94a3b8` | Subheadings, meta (WCAG AA on `--bg-surface` / `--bg-base`) |
+| **Primary accent** | `--accent-primary` | `#10b981` | `#10b981` | Decorative fills / progress |
+| **Accent fill** | `--accent-fill` | `#047857` | `#047857` | Filled buttons / active nav (white label ≥ 4.5:1) |
+| **Accent ink** | `--accent-primary-ink` | `#047857` | `#34d399` | Green labels/icons on surfaces |
+| **Warning ink** | `--state-warning-ink` | `#a16207` | `#fbbf24` | Warning labels on surfaces |
+| **Error ink** | `--state-error-ink` | `#e11d48` | `#fb7185` | Error labels on surfaces |
 | **Secondary accent**| `--accent-secondary` | `#6366f1` | `#6366f1` | Secondary status accents |
 | **Border** | `--border-default` | `#E2E8F0` | `#1e293b` | Card / panel borders |
 | **Error state** | `--state-error` | `#f43f5e` | `#f43f5e` | SOS / errors |
@@ -62,6 +66,11 @@ CSS custom properties are defined in the dashboard root styles (`apps/admin_dash
 | **Warning state** | `--state-warning` | `#eab308` | `#eab308` | Warnings |
 | **Nav active fg** | `--nav-active-fg` | `#ffffff` | `#ffffff` | Text on filled green nav pill |
 | **Row hover** | `--row-hover` | `rgba(15,23,42,0.03)` | `rgba(255,255,255,0.03)` | Table / list hover |
+| **Input fill** | `--input-bg` | `#F4F6FA` (same as `--bg-base`) | `#060913` (same as `--bg-base`) | Text fields, selects, textareas — inset grey like dashboard trip-summary rows |
+
+Console form controls (`.form-input`, `.form-select`) must use `--input-bg`, `--text-primary`, `--border-default`, and 12px radius. Do not hardcode navy fills (`rgba(6, 9, 19, …)`), `#FFF` text, or `--bg-glass`. Placeholders use `--text-muted`. This keeps typed text readable in both themes (dark ink on light grey; light ink on dark inset). Today's Trips (`/routes/today-trips`) uses the same tokens — never white on `--bg-base`.
+
+Roster cards (drivers, conductors, administrators) and other console tiles use `.roster-card`: `--bg-surface` fill, `--text-primary` titles, `--text-muted` meta, `--accent-primary-ink` / `--state-*-ink` for colored labels. Do not use `rgba(12, 17, 34, …)` card chrome. Body text must meet **WCAG 2.2 AA 4.5:1** against its background; filled primary actions use `--accent-fill` so white labels also meet 4.5:1.
 
 ## Typography
 
@@ -87,11 +96,12 @@ CSS custom properties are defined in the dashboard root styles (`apps/admin_dash
 
 - **Dashboard Layout:** Full-viewport split with a left-anchored sticky sidebar (`260px` width). Active nav uses a filled green pill. School home (`/dashboard`) uses a KPI row, live fleet map + upcoming stops, attendance overview, trip summary, and recent alerts. Platform and school CRUD pages share the same chrome; theme toggle is in the sidebar footer.
 - **Mobile Driver Interface (Trip tab):** Daylight scrollable column while a trip is active:
-  1. **Header** — trip/route name, vehicle/school subtitle + student count, long-press SOS (no notification inbox in v1).
-  2. **Progress card** — TRIP IN PROGRESS, boarded `N / M` (remaining = `M − N`), progress bar, next stop name + geometric ETA + distance.
-  3. **Map** — embedded Google Maps (`google_maps_flutter`) with road polyline, live bus, numbered stop markers by state (next / upcoming / completed / not visited), legend, Live GPS footer. **Navigate** toggles in-app nav mode (camera follow + emphasized next leg); does not open external Google Maps from Trip.
-  4. **Stop action card** — Navigate (in-app) + primary CTA labeled **Pickup Students** or **DropOff Students** from schedule `direction`. CTA opens a **~70–80% height bottom drawer** (map peek remains) listing only students for the current stop. Tick = Present; **Complete Stop** marks remaining Pending as Absent, marks the stop completed, advances next. Geofence-gated. END TRIP remains a secondary control below the card.
+  1. **AppBar** — title is the trip name (fallback route name); long-press SOS in actions. School header is hidden on this tab while a trip is in progress (no notification inbox in v1).
+  2. **Progress card** — collapsible (default collapsed). Collapsed: `N / M picked` or `N / M dropped`. Expanded: TRIP IN PROGRESS, `N / M students picked|dropped` (pickup = trip-manifest `boarded`; dropoff = `dropped_off`; roster `students.status` Present is not treated as picked), remaining, progress bar.
+  3. **Map** — embedded Google Maps (`google_maps_flutter`) at 1.5× prior height (450), pinch-zoom enabled inside the scroll view, road polyline, live bus, numbered stop markers at half prior size (32px canvas) by state (next / upcoming / completed / not visited), legend, Live GPS footer.
+  4. **Stop action card** — collapsible (default collapsed). Collapsed: `Next stop: {name}`. Expanded: students at stop, geometric ETA + distance, **Navigate** (opens Google Maps turn-by-turn to the next stop) + primary CTA labeled **Pickup Students** or **DropOff Students** from schedule `direction`. CTA opens a **~70–80% height bottom drawer** (map peek remains) listing only students for the current stop. Tick = Present; **Complete Stop** marks remaining Pending as Absent, marks the stop completed, advances next. Geofence-gated. END TRIP remains a secondary control below the card.
 - **Mobile Parent Interface:** Bottom sheet overlay rendering child telemetry status cards that expands to show historical boarding logs.
+- **Admin Route editor:** Add Route and Edit Route open a full page (`/routes/new`, `/routes/[id]/edit`) — not a drawer. Fields: route name, school location name, **Search location** (Google Places), Google Map (click or drag pin for exact lat/lng). Create writes matching start/end school stops; edit updates name plus first/last stop coordinates.
 
 ## Icons
 

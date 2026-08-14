@@ -786,7 +786,7 @@ export default function DemoRequestDetailPage() {
           background: var(--input-bg);
           border: 1px solid var(--border-default);
           color: var(--text-primary);
-          border-radius: 8px;
+          border-radius: 12px;
           padding: 10px 12px;
           font-family: inherit;
           font-size: 0.9rem;

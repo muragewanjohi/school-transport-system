@@ -4,83 +4,60 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Driver Trip Screen UI |
-| **Stack** | `flutter` (driver app) |
-| **Owner path(s)** | `apps/driver_app/lib/screens/trip_screen.dart`, `apps/driver_app/lib/widgets/trip_*.dart`, `apps/driver_app/lib/widgets/stop_boarding_drawer.dart`, `apps/driver_app/lib/widgets/route_map_widget.dart`, `apps/driver_app/lib/main.dart` |
-| **Started** | 2026-08-12 |
+| **Name** | Admin Add/Edit Route page |
+| **Stack** | `next.js` (admin dashboard) |
+| **Owner path(s)** | `apps/admin_dashboard/src/app/routes/new/page.tsx`, `apps/admin_dashboard/src/app/routes/[id]/edit/page.tsx`, `apps/admin_dashboard/src/components/RouteEditorForm.tsx`, `apps/admin_dashboard/src/app/api/routes/route.ts`, `apps/admin_dashboard/src/app/api/routes/[id]/route.ts` |
+| **Started** | 2026-08-14 |
 | **Status** | `passing` |
 
 ## Goal
 
-While a trip is active, the Trip tab shows progress (boarded / remaining), stop states on the map (next / upcoming / completed), in-app Navigate (no external Maps handoff), long-press SOS, and a stop boarding drawer opened by **Pickup Students** or **DropOff Students** where Complete Stop absents unchecked students and advances the next stop.
+Add Route and Edit Route open a full page (not a drawer) with route name, school location name, Google Maps search, and a map where click or drag sets exact coordinates. Create posts start/end school stops; edit updates the route name and first/last stop coordinates.
 
 ## Scenarios
 
 ```gherkin
-Feature: Driver Trip Screen
+Feature: Admin route editor page
 
-  Scenario: Progress card shows boarded and remaining
-    Given an active trip with 12 students and 8 Present
-    When the driver opens the Trip tab
-    Then the progress card shows TRIP IN PROGRESS
-    And boarded count is 8 / 12 with remaining 4
+  Scenario: Add Route opens the full editor page
+    Given the operator is on /routes
+    When they click Add Route
+    Then they navigate to /routes/new
+    And the page shows route name, search location, and a map
 
-  Scenario: Map markers reflect stop states
-    Given visited stops and a next navigation stop
-    When the Trip map renders
-    Then completed stops show a green check
-    And the next stop is highlighted as next
-    And later stops are upcoming
-    And skipped past uncompleted stops are not-visited
+  Scenario: Create route requires name and coordinates
+    Given the operator submits POST /api/routes without schoolStart
+    Then the API returns 400
 
-  Scenario: Navigate stays in-app
-    Given an active trip with live GPS and a next stop
-    When the driver taps Navigate on the Trip action card
-    Then the map enters nav mode (camera follow / next leg emphasized)
-    And the app does not launch external Google Maps from that control
+  Scenario: Create route with map coordinates succeeds
+    Given a valid route name and school latitude/longitude
+    When they submit the editor
+    Then POST /api/routes returns 200
+    And the route is created with matching school start and end points
 
-  Scenario: Primary CTA label follows trip direction
-    Given schedule direction HOME_TO_SCHOOL (PICKUP)
-    When the stop action card renders
-    Then the primary button reads Pickup Students
-    Given schedule direction SCHOOL_TO_HOME (DROPOFF)
-    Then the primary button reads DropOff Students
+  Scenario: Edit Route opens the same editor
+    Given an existing route
+    When the operator clicks Edit
+    Then they navigate to /routes/{id}/edit
+    And the form is prefilled with the route name and first-stop coordinates
 
-  Scenario: Stop drawer Complete Stop absents pending
-    Given the bus is inside the current stop geofence
-    And the stop drawer lists 4 students with 2 checked Present and 2 Pending
-    When the driver taps Complete Stop
-    Then the 2 Pending students are PUT to Absent
-    And the stop is marked completed
-    And the drawer closes
-    And the next stop becomes active on the map
-
-  Scenario: Mark CTA blocked outside geofence
-    Given the bus is outside all stop geofences
-    When the Trip action card renders
-    Then Pickup Students / DropOff Students is disabled or shows guidance
-
-  Scenario: Long-press SOS arms emergency telemetry
-    Given an active trip
-    When the driver long-presses SOS and confirms
-    Then emergencyActiveProvider is true
-    And the background service receives toggleSOS
+  Scenario: Edit without a name fails
+    Given PUT /api/routes/{id} with an empty name
+    Then the API returns 400
 ```
 
 ## Automation map
 
 | Scenario title | Test / verification | Status |
 | :--- | :--- | :--- |
-| Progress boarded/remaining | `test/trip_ui_logic_test.dart` | `passing` |
-| Marker states | `test/trip_ui_logic_test.dart` | `passing` |
-| In-app Navigate | `trip_screen.dart` navMode (no StopNavigationService) | `passing` (code path) |
-| CTA label by direction | `test/trip_ui_logic_test.dart` | `passing` |
-| Complete Stop absents | `stop_boarding_drawer.dart` + geo gate | `passing` (code path) |
-| Geofence gate | `trip_screen.dart` canBoard + drawer | `passing` (code path) |
-| SOS long-press | `trip_screen.dart` + `toggleSOS` | `passing` (code path) |
+| Add Route opens full editor | `/routes` Add Route → `router.push("/routes/new")` | `passing` (code path) |
+| Create requires name and coordinates | `src/app/api/routes/route.test.ts` | `passing` |
+| Create with coordinates succeeds | `src/app/api/routes/route.test.ts` | `passing` |
+| Edit Route opens same editor | Edit → `router.push("/routes/{id}/edit")` | `passing` (code path) |
+| Edit without a name fails | `src/app/api/routes/[id]/route.test.ts` | `passing` |
 
 ## Notes
 
-- Geometric ETA only (haversine / speed or schedule duration slice) — no live traffic.
-- Absent notes are UI-only / out of scope for persistence.
-- NFC boarding remains out of scope for this module.
+- Map click/drag and Places search reuse `HomeLocationMapPicker`.
+- Start and end school stops share the picked coordinate (single-campus v1).
+- Edit updates sequence-first and sequence-last stops for that route.

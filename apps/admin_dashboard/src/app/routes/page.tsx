@@ -92,11 +92,6 @@ function RoutesManagement() {
   // Drawer modal states
   const [showStopDrawer, setShowStopDrawer] = useState(false);
   const [showScheduleDrawer, setShowScheduleDrawer] = useState(false);
-  const [showRouteDrawer, setShowRouteDrawer] = useState(false);
-  const [showEditRouteDrawer, setShowEditRouteDrawer] = useState(false);
-  const [editRouteId, setEditRouteId] = useState("");
-  const [editRouteName, setEditRouteName] = useState("");
-  const [routeName, setRouteName] = useState("");
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
 
@@ -112,8 +107,6 @@ function RoutesManagement() {
     latitude: -1.2921,
     longitude: 36.8219
   });
-  const [startSchoolId, setStartSchoolId] = useState("");
-  const [endSchoolId, setEndSchoolId] = useState("");
   const [schoolSuggestions, setSchoolSuggestions] = useState<any[]>([]);
   const [showSchoolSuggestions, setShowSchoolSuggestions] = useState(false);
   const [isSearchingSchool, setIsSearchingSchool] = useState(false);
@@ -1190,39 +1183,6 @@ function RoutesManagement() {
     }
   };
 
-  const handleOpenEditRoute = (route: DBRoute) => {
-    setEditRouteId(route.id);
-    setEditRouteName(route.name);
-    setShowEditRouteDrawer(true);
-  };
-
-  const handleEditRouteSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editRouteName.trim()) return;
-    setIsSubmitLoading(true);
-
-    try {
-      const res = await fetch(`/api/routes/${editRouteId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: editRouteName
-        })
-      });
-      const json = await res.json();
-      if (json.success) {
-        setRoutes(prev => prev.map(r => r.id === editRouteId ? { ...r, name: editRouteName } : r));
-        setShowEditRouteDrawer(false);
-      } else {
-        alert(json.error || "Failed to update route");
-      }
-    } catch (err) {
-      console.error("Error editing route:", err);
-    } finally {
-      setIsSubmitLoading(false);
-    }
-  };
-
   const handleDeleteRoute = async (routeId: string) => {
     if (!confirm("Are you sure you want to delete this entire transit route? All associated stops and schedules will also be removed.")) return;
     
@@ -1244,51 +1204,6 @@ function RoutesManagement() {
       }
     } catch (err) {
       console.error("Error deleting route:", err);
-    }
-  };
-
-  const handleAddRoute = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!routeName.trim()) return;
-
-    const startLoc = schoolLocations.find(l => l.id === startSchoolId) || schoolLocations[0];
-    const endLoc = schoolLocations.find(l => l.id === endSchoolId) || schoolLocations[0];
-
-    if (!startLoc || !endLoc) {
-      alert("Please configure a school location first.");
-      return;
-    }
-
-    setIsSubmitLoading(true);
-
-    try {
-      const res = await fetch("/api/routes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: routeName,
-          schoolStart: { name: startLoc.name, latitude: startLoc.latitude, longitude: startLoc.longitude },
-          schoolEnd: { name: endLoc.name, latitude: endLoc.latitude, longitude: endLoc.longitude }
-        })
-      });
-      const json = await res.json();
-      if (json.success) {
-        const { route, schoolStops } = json.data;
-        setRoutes(prev => [...prev, route]);
-        setSelectedRouteId(route.id);
-        if (schoolStops && schoolStops.length > 0) {
-          saveStopsState([...stops, ...schoolStops]);
-        }
-        setShowRouteDrawer(false);
-        setRouteName("");
-        router.push("/routes");
-      } else {
-        alert(json.error || "Failed to create route");
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSubmitLoading(false);
     }
   };
 
@@ -1450,9 +1365,9 @@ function RoutesManagement() {
           letter-spacing: 0.05em;
         }
         .form-input {
-          background: rgba(6, 9, 19, 0.6);
+          background: var(--input-bg);
           border: 1px solid var(--border-default);
-          border-radius: 6px;
+          border-radius: 12px;
           padding: 10px 12px;
           color: var(--text-primary);
           font-size: 0.9rem;
@@ -1461,9 +1376,9 @@ function RoutesManagement() {
           width: 100%;
         }
         .form-input:focus {
-          border-color: var(--accent-secondary);
-          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
-          background: rgba(6, 9, 19, 0.8);
+          border-color: var(--accent-primary);
+          box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+          background: var(--input-bg);
         }
         select.form-input {
           cursor: pointer;
@@ -1475,7 +1390,7 @@ function RoutesManagement() {
           padding-right: 40px;
         }
         select.form-input option {
-          background: #0c1122;
+          background: var(--bg-surface);
           color: var(--text-primary);
         }
 
@@ -1485,8 +1400,8 @@ function RoutesManagement() {
           top: 100%;
           left: 0;
           right: 0;
-          background: rgba(12, 17, 34, 0.98);
-          border: 1px solid rgba(255, 255, 255, 0.08);
+          background: var(--bg-surface);
+          border: 1px solid var(--border-default);
           border-radius: 8px;
           margin-top: 4px;
           max-height: 220px;
@@ -1545,7 +1460,7 @@ function RoutesManagement() {
                   Active Routes
                 </span>
                 <button
-                  onClick={() => setShowRouteDrawer(true)}
+                  onClick={() => router.push("/routes/new")}
                   style={{
                     background: "rgba(99, 102, 241, 0.1)",
                     color: "var(--accent-secondary)",
@@ -1596,7 +1511,7 @@ function RoutesManagement() {
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button
-                          onClick={() => handleOpenEditRoute(route)}
+                          onClick={() => router.push(`/routes/${route.id}/edit`)}
                           style={{
                             background: "transparent",
                             border: "none",
@@ -2373,173 +2288,6 @@ function RoutesManagement() {
           </div>
         </div>
       )}
-      {/* Route onboard drawer */}
-      {showRouteDrawer && (
-        <div className="drawer-overlay" onClick={() => setShowRouteDrawer(false)}>
-          <div className="drawer-content" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid var(--border-default)", paddingBottom: "12px" }}>
-              <h2 style={{ fontSize: "1.1rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
-                <Compass size={18} style={{ color: "var(--accent-primary)" }} />
-                Add New Route
-              </h2>
-              <button onClick={() => setShowRouteDrawer(false)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddRoute} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              <div className="form-group">
-                <label className="form-label">Route Name *</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="e.g. Route 5 (Kasarani)"
-                  className="form-input"
-                  value={routeName}
-                  onChange={(e) => setRouteName(e.target.value)}
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Start School Location *</label>
-                <select
-                  className="form-input"
-                  value={startSchoolId}
-                  onChange={(e) => setStartSchoolId(e.target.value)}
-                  required
-                >
-                  {schoolLocations.map(loc => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">End School Location *</label>
-                <select
-                  className="form-input"
-                  value={endSchoolId}
-                  onChange={(e) => setEndSchoolId(e.target.value)}
-                  required
-                >
-                  {schoolLocations.map(loc => (
-                    <option key={loc.id} value={loc.id}>{loc.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div style={{ display: "flex", gap: "12px", marginTop: "20px", paddingTop: "16px", borderTop: "1px solid var(--border-default)" }}>
-                <button
-                  type="button"
-                  onClick={() => setShowRouteDrawer(false)}
-                  style={{
-                    flex: 1,
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid var(--border-default)",
-                    color: "var(--text-muted)",
-                    padding: "10px 16px",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontSize: "0.85rem"
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitLoading}
-                  style={{
-                    flex: 2,
-                    background: "var(--accent-primary)",
-                    color: "#ffffff",
-                    border: "none",
-                    padding: "10px 16px",
-                    borderRadius: "6px",
-                    fontWeight: 600,
-                    cursor: isSubmitLoading ? "default" : "pointer",
-                    fontSize: "0.85rem"
-                  }}
-                >
-                  {isSubmitLoading ? "Creating Route..." : "Create Route"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Edit Route Modal Drawer */}
-      {showEditRouteDrawer && (
-        <div className="drawer-overlay" onClick={() => setShowEditRouteDrawer(false)}>
-          <div className="drawer-content" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px", borderBottom: "1px solid var(--border-default)", paddingBottom: "16px" }}>
-              <h2 style={{ fontSize: "1.2rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
-                <Compass size={20} style={{ color: "var(--accent-primary)" }} />
-                Edit Route Configuration
-              </h2>
-              <button 
-                onClick={() => setShowEditRouteDrawer(false)} 
-                style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleEditRouteSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-              <div className="form-group">
-                <label className="form-label">Route Name *</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="e.g. Morning Route 1 (Kileleshwa)"
-                  className="form-input"
-                  value={editRouteName}
-                  onChange={(e) => setEditRouteName(e.target.value)}
-                />
-              </div>
-
-
-
-              <div style={{ display: "flex", gap: "12px", marginTop: "20px", paddingTop: "16px", borderTop: "1px solid var(--border-default)" }}>
-                <button
-                  type="button"
-                  onClick={() => setShowEditRouteDrawer(false)}
-                  style={{
-                    flex: 1,
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid var(--border-default)",
-                    color: "var(--text-muted)",
-                    padding: "10px 16px",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontSize: "0.85rem"
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitLoading}
-                  style={{
-                    flex: 2,
-                    background: "var(--accent-primary)",
-                    color: "#ffffff",
-                    border: "none",
-                    padding: "10px 16px",
-                    borderRadius: "6px",
-                    fontWeight: 600,
-                    cursor: isSubmitLoading ? "default" : "pointer",
-                    fontSize: "0.85rem"
-                  }}
-                >
-                  {isSubmitLoading ? "Saving Changes..." : "Save Route"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
       {/* Edit School Location Modal */}
       {showSchoolModal && (
         <div className="drawer-overlay" onClick={() => setShowSchoolModal(false)}>

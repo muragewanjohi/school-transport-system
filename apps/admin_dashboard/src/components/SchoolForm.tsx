@@ -602,10 +602,10 @@ export default function SchoolForm({ mode, schoolId }: Readonly<SchoolFormProps>
         .form-label { font-size: 0.78rem; color: var(--text-muted); }
         .form-input {
           width: 100%;
-          background: var(--bg-base);
+          background: var(--input-bg);
           border: 1px solid var(--border-default);
           color: var(--text-primary);
-          border-radius: 8px;
+          border-radius: 12px;
           padding: 10px 12px;
           font-family: inherit;
           font-size: 0.9rem;

@@ -3,17 +3,81 @@ import 'package:driver_app/utils/trip_ui_logic.dart';
 
 void main() {
   group('computeAttendanceProgress', () {
-    test('counts Present as boarded and remaining', () {
+    test('pickup roster Present without trip attendance is 0 picked', () {
       final progress = computeAttendanceProgress([
         {'id': '1', 'status': 'Present'},
         {'id': '2', 'status': 'Present'},
-        {'id': '3', 'status': 'Absent'},
-        {'id': '4', 'status': 'Absent'},
-      ]);
+        {'id': '3', 'status': 'Present'},
+      ], isPickup: true);
+      expect(progress.boarded, 0);
+      expect(progress.total, 3);
+      expect(progress.remaining, 3);
+      expect(progress.fraction, 0);
+    });
+
+    test('pickup counts boarded attendance not roster Present', () {
+      final progress = computeAttendanceProgress([
+        {'id': '1', 'status': 'Present', 'attendance': 'boarded'},
+        {'id': '2', 'status': 'Present', 'attendance': 'pending'},
+        {'id': '3', 'status': 'Present'},
+        {'id': '4', 'status': 'Absent', 'attendance': 'boarded'},
+      ], isPickup: true);
       expect(progress.boarded, 2);
       expect(progress.total, 4);
       expect(progress.remaining, 2);
       expect(progress.fraction, 0.5);
+    });
+
+    test('dropoff counts dropped_off attendance not roster Absent', () {
+      final progress = computeAttendanceProgress([
+        {'id': '1', 'status': 'Absent', 'attendance': 'dropped_off'},
+        {'id': '2', 'status': 'Absent'},
+        {'id': '3', 'status': 'Present', 'attendance': 'boarded'},
+        {'id': '4', 'status': 'Present', 'attendance': 'pending'},
+      ], isPickup: false);
+      expect(progress.boarded, 1);
+      expect(progress.total, 4);
+      expect(progress.remaining, 3);
+    });
+  });
+
+  group('attendanceForStatusUpdate', () {
+    test('pickup Present → boarded', () {
+      expect(attendanceForStatusUpdate(isPickup: true, status: 'Present'), 'boarded');
+    });
+    test('pickup Absent → absent', () {
+      expect(attendanceForStatusUpdate(isPickup: true, status: 'Absent'), 'absent');
+    });
+    test('dropoff Absent → dropped_off', () {
+      expect(attendanceForStatusUpdate(isPickup: false, status: 'Absent'), 'dropped_off');
+    });
+    test('dropoff Present → boarded', () {
+      expect(attendanceForStatusUpdate(isPickup: false, status: 'Present'), 'boarded');
+    });
+  });
+
+  group('mergeManifestAttendance', () {
+    test('applies boarded from manifests and defaults others to pending', () {
+      final merged = mergeManifestAttendance(
+        students: [
+          {'id': '1', 'status': 'Present'},
+          {'id': '2', 'status': 'Present'},
+        ],
+        manifests: [
+          {'student_id': '1', 'attendance': 'boarded'},
+        ],
+      );
+      expect(merged[0]['attendance'], 'boarded');
+      expect(merged[1]['attendance'], 'pending');
+    });
+  });
+
+  group('attendanceDoneWord', () {
+    test('pickup → picked', () {
+      expect(attendanceDoneWord(isPickup: true), 'picked');
+    });
+    test('dropoff → dropped', () {
+      expect(attendanceDoneWord(isPickup: false), 'dropped');
     });
   });
 
