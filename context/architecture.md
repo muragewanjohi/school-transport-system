@@ -75,7 +75,7 @@ Platform (super_admin, tenant_id null)
 
 - **Tenant** = commercial / legal school organization (billing, SMS sender branding, subscription).
 - **Campus** = one physical school site under that org. Never treat a campus as its own tenant (that breaks shared billing and cross-campus admins).
-- Isolation invariant unchanged: every operational row keeps `tenant_id` for RLS. `campus_id` is a **secondary scope inside the tenant**.
+- **Operational tenant wall:** School console APIs resolve `tenant_id` from the signed-in profile **and** the school subdomain (`x-tenant-slug` / Host) via `requireOperationalTenant`. They never use `tenants.limit(1)`. Platform `super_admin` on `{slug}.onthebusapp.com` is scoped to that slug only. A school admin on another school's host is denied. Empty tenant lists return `[]`, not mock data from another school or static demo staff. Covered routes: students, routes, stops (including attach/reorder), schedules, fleet + maintenance, drivers, conductors, school admins, parents, campuses, trips, billing, config, telemetry, uploads. Driver/parent mobile APIs scope by session `tenant_id` (not Host). Platform-only routes (`/api/tenants`, demo-requests, platform purge/settings) stay cross-tenant for `super_admin`. Cron `trips/predeparture-check` remains all-tenant by design.
 
 ### Target tables (introduce `campuses` in Phase 1)
 

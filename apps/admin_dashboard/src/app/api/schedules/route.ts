@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { z } from "zod";
 
 const scheduleCreateSchema = z.object({
@@ -84,9 +85,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: filtered });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
     
-    let query = client.from("schedules").select("id, tenant_id, route_id, name, departure_time, direction, target_grades, days_of_week, vehicle_id, created_at, updated_at");
+    let query = client.from("schedules").select("id, tenant_id, route_id, name, departure_time, direction, target_grades, days_of_week, vehicle_id, created_at, updated_at").eq("tenant_id", scope.tenantId);
     
     if (routeId) {
       query = query.eq("route_id", routeId);
@@ -135,14 +138,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: newMockSchedule });
     }
 
-    const client = getSupabaseClient(token);
-
-    // Fetch tenant ID
-    let tenantId = "8c9ad841-f762-4217-a021-9876251b5bcf";
-    const { data: tenants } = await client.from("tenants").select("id").limit(1);
-    if (tenants && tenants.length > 0) {
-      tenantId = tenants[0].id;
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     const payload = {
       id: crypto.randomUUID(),

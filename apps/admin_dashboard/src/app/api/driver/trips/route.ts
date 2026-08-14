@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { resolveRequestDb } from "@/lib/driverSession";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const mockDriverTrips = [
   {
@@ -66,11 +66,10 @@ export async function GET(request: Request) {
       });
     }
 
-    const db = await resolveRequestDb(request);
-    if (!db) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-    const client = db.client;
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     let vehicleId = vehicleIdParam;
     
@@ -80,6 +79,7 @@ export async function GET(request: Request) {
         .from("vehicles")
         .select("id")
         .eq("active_driver_id", driverId)
+        .eq("tenant_id", tenantId)
         .limit(1);
       
       if (vehicleData && vehicleData.length > 0) {
@@ -89,6 +89,7 @@ export async function GET(request: Request) {
         const { data: conductorVehicle } = await client
           .from("vehicles")
           .select("id")
+          .eq("tenant_id", tenantId)
           .or(`conductor_1_id.eq.${driverId},conductor_2_id.eq.${driverId}`)
           .limit(1);
         if (conductorVehicle && conductorVehicle.length > 0) {
@@ -106,11 +107,28 @@ export async function GET(request: Request) {
       });
     }
 
+    const { data: ownedVehicle } = await client
+      .from("vehicles")
+      .select("id")
+      .eq("id", vehicleId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+
+    if (!ownedVehicle) {
+      return NextResponse.json({
+        success: true,
+        source: "supabase",
+        server_time: serverTime,
+        data: []
+      });
+    }
+
     // Fetch schedules for the vehicle
     const { data: allSchedules, error: schedulesError } = await client
       .from("schedules")
       .select("id, tenant_id, route_id, name, departure_time, direction, target_grades, days_of_week")
-      .eq("vehicle_id", vehicleId);
+      .eq("vehicle_id", vehicleId)
+      .eq("tenant_id", tenantId);
 
     if (schedulesError) {
       console.error("Failed to fetch schedules for vehicle:", schedulesError.message);
@@ -144,6 +162,7 @@ export async function GET(request: Request) {
         .select("id")
         .eq("schedule_id", schedule.id)
         .eq("trip_date", todayStr)
+        .eq("tenant_id", tenantId)
         .limit(1);
 
       if (!existingTrip || existingTrip.length === 0) {
@@ -169,6 +188,7 @@ export async function GET(request: Request) {
           const { data: students } = await client
             .from("students")
             .select("id")
+            .eq("tenant_id", tenantId)
             .contains("schedule_ids", [schedule.id]);
 
           if (students && students.length > 0) {
@@ -213,7 +233,8 @@ export async function GET(request: Request) {
         )
       `)
       .eq("vehicle_id", vehicleId)
-      .eq("trip_date", todayStr);
+      .eq("trip_date", todayStr)
+      .eq("tenant_id", tenantId);
 
     if (tripsError) {
       console.error("Failed to fetch trips for vehicle:", tripsError.message);
@@ -229,13 +250,15 @@ export async function GET(request: Request) {
       const { count: stopsCount } = await client
         .from("stops")
         .select("id", { count: "exact", head: true })
-        .eq("route_id", (trip.route as any).id);
+        .eq("route_id", (trip.route as any).id)
+        .eq("tenant_id", tenantId);
 
       // Fetch students count for trip manifest
       const { count: studentsCount } = await client
         .from("trip_manifests")
         .select("id", { count: "exact", head: true })
-        .eq("trip_id", trip.id);
+        .eq("trip_id", trip.id)
+        .eq("tenant_id", tenantId);
 
       const resolvedStopsCount = stopsCount || 0;
       const resolvedStudentsCount = studentsCount || 0;

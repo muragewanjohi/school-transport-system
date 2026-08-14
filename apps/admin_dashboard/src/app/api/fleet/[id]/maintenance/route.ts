@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const maintenanceSchema = z.object({
   description: z.string().min(3, "Description too short"),
@@ -29,8 +30,6 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
       return NextResponse.json({
@@ -40,28 +39,32 @@ export async function GET(
       });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
 
-    const { data: logs, error } = await client
+    const { data: vehicle } = await scope.client
+      .from("vehicles")
+      .select("id")
+      .eq("id", id)
+      .eq("tenant_id", scope.tenantId)
+      .maybeSingle();
+
+    if (!vehicle) {
+      return NextResponse.json({ success: false, error: "Vehicle not found" }, { status: 404 });
+    }
+
+    const { data: logs, error } = await scope.client
       .from("maintenance_logs")
       .select("id, vehicle_id, description, cost, service_date, technician, created_at")
       .eq("vehicle_id", id)
+      .eq("tenant_id", scope.tenantId)
       .order("service_date", { ascending: false });
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     }
 
-    if (logs && logs.length > 0) {
-      return NextResponse.json({ success: true, source: "supabase", data: logs });
-    }
-
-    // Fallback to mock data if DB returns nothing to keep UI populated
-    return NextResponse.json({
-      success: true,
-      source: "supabase_mock_fallback",
-      data: mockLogs[id] || []
-    });
+    return NextResponse.json({ success: true, source: "supabase", data: logs ?? [] });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
@@ -82,9 +85,6 @@ export async function POST(
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
     }
 
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
       const newMockLog = {
         id: `log-${Math.floor(Math.random() * 1000)}`,
@@ -94,13 +94,20 @@ export async function POST(
       return NextResponse.json({ success: true, source: "mock", data: newMockLog });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
-    // Fetch tenant ID
-    let tenantId = "8c9ad841-f762-4217-a021-9876251b5bcf"; // Fallback dummy tenant ID
-    const { data: tenants } = await client.from("tenants").select("id").limit(1);
-    if (tenants && tenants.length > 0) {
-      tenantId = tenants[0].id;
+    const { data: vehicle } = await client
+      .from("vehicles")
+      .select("id")
+      .eq("id", id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+
+    if (!vehicle) {
+      return NextResponse.json({ success: false, error: "Vehicle not found" }, { status: 404 });
     }
 
     const payload = {

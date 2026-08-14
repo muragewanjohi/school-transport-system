@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { resolveRequestDb } from "@/lib/driverSession";
 import { z } from "zod";
 import { getLocalVehicles, saveLocalVehicles } from "@/lib/jsonDb";
 import {
@@ -8,6 +7,7 @@ import {
   getCallerProfile,
   isDemoReadonly,
 } from "@/lib/authApi";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const vehicleSchema = z.object({
   license_plate: z.string().min(3, "License plate must be at least 3 characters"),
@@ -125,11 +125,9 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: getLocalVehicles() });
     }
 
-    const db = await resolveRequestDb(request);
-    if (!db) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-    const client = db.client;
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
 
     // Fetch vehicles, join with driver and conductor profiles
     // We handle the join queries safely
@@ -148,7 +146,8 @@ export async function GET(request: Request) {
         active_driver_id,
         conductor_1_id,
         conductor_2_id
-      `);
+      `)
+      .eq("tenant_id", scope.tenantId);
 
     if (error) {
       console.warn("Supabase vehicles fetch failed (likely missing columns). Falling back to mock data:", error.message);
@@ -160,7 +159,8 @@ export async function GET(request: Request) {
       // Query profiles to map driver and conductor names manually to bypass complex multi-foreign key syntax issues
       const { data: profiles } = await client
         .from("profiles")
-        .select("id, name, phone");
+        .select("id, name, phone")
+        .eq("tenant_id", scope.tenantId);
 
       const profileMap = new Map(profiles?.map(p => [p.id, p]) || []);
 
@@ -175,7 +175,7 @@ export async function GET(request: Request) {
     }
 
     // If Supabase table is empty, return the rich mock fleet to keep development functional
-    return NextResponse.json({ success: true, source: "supabase_mock_fallback", data: getLocalVehicles() });
+    return NextResponse.json({ success: true, source: "supabase", data: [] });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
@@ -213,14 +213,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: newMockVehicle });
     }
 
-    const client = getSupabaseClient(token);
-
-    // For inserts, we need a tenant ID. Try to fetch the first tenant ID in the DB
-    let tenantId = "8c9ad841-f762-4217-a021-9876251b5bcf"; // Fallback dummy tenant ID
-    const { data: tenants } = await client.from("tenants").select("id").limit(1);
-    if (tenants && tenants.length > 0) {
-      tenantId = tenants[0].id;
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     const payload = {
       tenant_id: tenantId,

@@ -2,10 +2,25 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const maybeSingle = vi.fn();
 const limit = vi.fn();
-const order = vi.fn(() => ({ limit }));
-const eqStop = vi.fn(() => ({ order }));
-const eqRoute = vi.fn(() => ({ eq: eqStop }));
-const selectEtas = vi.fn(() => ({ eq: eqRoute }));
+
+function studentQuery() {
+  const api = {
+    select: () => api,
+    eq: () => api,
+    maybeSingle,
+  };
+  return api;
+}
+
+function etaQuery() {
+  const api = {
+    select: () => api,
+    eq: () => api,
+    order: () => api,
+    limit,
+  };
+  return api;
+}
 
 vi.mock("@/lib/supabaseClient", () => ({
   isSupabaseConfigured: true,
@@ -14,18 +29,8 @@ vi.mock("@/lib/supabaseClient", () => ({
 vi.mock("@/lib/supabaseAdmin", () => ({
   getServiceSupabaseClient: () => ({
     from: (table: string) => {
-      if (table === "students") {
-        return {
-          select: () => ({
-            eq: () => ({
-              maybeSingle,
-            }),
-          }),
-        };
-      }
-      if (table === "trip_stop_etas") {
-        return { select: selectEtas };
-      }
+      if (table === "students") return studentQuery();
+      if (table === "trip_stop_etas") return etaQuery();
       throw new Error(`Unexpected table ${table}`);
     },
   }),
@@ -55,7 +60,6 @@ describe("GET /api/parent/etas", () => {
     process.env.PARENT_SESSION_SECRET = "unit-test-parent-secret";
     maybeSingle.mockReset();
     limit.mockReset();
-    selectEtas.mockClear();
   });
 
   it("Given missing token, When requested, Then 401", async () => {

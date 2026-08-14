@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { resolveRequestDb } from "@/lib/driverSession";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { z } from "zod";
 
 const stopCreateSchema = z.object({
@@ -87,13 +87,11 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: filtered });
     }
 
-    const db = await resolveRequestDb(request);
-    if (!db) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-    const client = db.client;
+    const dbScope = await requireOperationalTenant(request);
+    if (!dbScope.ok) return tenantScopeError(dbScope);
+    const client = dbScope.client;
     
-    let query = client.from("stops").select("id, tenant_id, route_id, name, location, sequence_no, geofence_radius_meters, stop_type, distance_from_prev_meters, duration_from_prev_seconds, created_at, updated_at");
+    let query = client.from("stops").select("id, tenant_id, route_id, name, location, sequence_no, geofence_radius_meters, stop_type, distance_from_prev_meters, duration_from_prev_seconds, created_at, updated_at").eq("tenant_id", dbScope.tenantId);
     
     if (routeId) {
       query = query.eq("route_id", routeId);
@@ -167,14 +165,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: newMockStop });
     }
 
-    const client = getSupabaseClient(token);
-
-    // Fetch tenant ID
-    let tenantId = "8c9ad841-f762-4217-a021-9876251b5bcf";
-    const { data: tenants } = await client.from("tenants").select("id").limit(1);
-    if (tenants && tenants.length > 0) {
-      tenantId = tenants[0].id;
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     const locationWKT = `POINT(${result.data.longitude} ${result.data.latitude})`;
 

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { z } from "zod";
 
 const conductorCreateSchema = z.object({
@@ -11,36 +12,27 @@ const conductorCreateSchema = z.object({
   avatar_url: z.string().optional().nullable(),
 });
 
-const mockConductors = [
-  { id: "cnd-1", name: "Jane Wanjiku", phone: "+254 755 123 456", email: "jane.wanjiku@school.com", national_id: "29402941", status: "Available", avatar_url: null },
-  { id: "cnd-2", name: "Sam Mutua", phone: "+254 788 321 654", email: "sam.mutua@school.com", national_id: "31049281", status: "Available", avatar_url: null },
-  { id: "cnd-3", name: "Grace Nekesa", phone: "+254 744 789 012", email: "grace.nekesa@school.com", national_id: "32405912", status: "Available", avatar_url: null },
-  { id: "cnd-4", name: "Lucy Wambui", phone: "+254 799 444 555", email: "lucy.wambui@school.com", national_id: "27409284", status: "Unavailable", avatar_url: null },
-];
-
 export async function GET(request: Request) {
   try {
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
-      return NextResponse.json({ success: true, source: "mock", data: mockConductors });
+      return NextResponse.json({ success: true, source: "mock", data: [] });
     }
 
-    const client = getSupabaseClient(token);
-    
-    const { data: conductors, error } = await client
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+
+    const { data: conductors, error } = await scope.client
       .from("profiles")
       .select("id, name, phone, email, national_id, status, avatar_url")
-      .eq("role", "conductor");
+      .eq("role", "conductor")
+      .eq("tenant_id", scope.tenantId);
 
     if (error) {
       console.warn("Supabase conductors fetch error (might lack columns):", error.message);
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: mockConductors });
+      return NextResponse.json({ success: false, error: "Failed to load conductors" }, { status: 500 });
     }
 
-    const conductorsList = conductors && conductors.length > 0 ? conductors : mockConductors;
-    return NextResponse.json({ success: true, source: "supabase", data: conductorsList });
+    return NextResponse.json({ success: true, source: "supabase", data: conductors ?? [] });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
@@ -57,9 +49,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
     }
 
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
       const newMockConductor = {
         id: `cnd-${Math.floor(Math.random() * 1000)}`,
@@ -68,14 +57,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: newMockConductor });
     }
 
-    const client = getSupabaseClient(token);
-
-    // Get tenant ID
-    let tenantId = "8c9ad841-f762-4217-a021-9876251b5bcf";
-    const { data: tenants } = await client.from("tenants").select("id").limit(1);
-    if (tenants && tenants.length > 0) {
-      tenantId = tenants[0].id;
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     const payload = {
       id: crypto.randomUUID(),

@@ -13,10 +13,20 @@ import {
   Sparkles,
   Info,
   Edit,
-  GripVertical
+  GripVertical,
+  ListPlus
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import { useSearchParams, useRouter } from "next/navigation";
+import {
+  groupStopsByRoute,
+  stopsAvailableToAttach,
+} from "@/lib/attachStopsToRoute";
+import {
+  formatScheduleApiErrors,
+  summarizeMissingScheduleFields,
+  validateScheduleForm,
+} from "@/lib/scheduleFormValidation";
 
 interface DBRoute {
   id: string;
@@ -92,6 +102,10 @@ function RoutesManagement() {
   // Drawer modal states
   const [showStopDrawer, setShowStopDrawer] = useState(false);
   const [showScheduleDrawer, setShowScheduleDrawer] = useState(false);
+  const [showAttachStopsModal, setShowAttachStopsModal] = useState(false);
+  const [selectedAttachIds, setSelectedAttachIds] = useState<string[]>([]);
+  const [attachSearch, setAttachSearch] = useState("");
+  const [isAttachLoading, setIsAttachLoading] = useState(false);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
 
@@ -191,6 +205,8 @@ function RoutesManagement() {
     });
     setScheduleDrawerMode("edit");
     setCurrentEditScheduleId(sched.id);
+    setScheduleFormErrors({});
+    setScheduleFormSummary(null);
     setShowScheduleDrawer(true);
   };
 
@@ -213,6 +229,8 @@ function RoutesManagement() {
     days_of_week: [1, 2, 3, 4, 5],
     vehicle_id: ""
   });
+  const [scheduleFormErrors, setScheduleFormErrors] = useState<Record<string, string>>({});
+  const [scheduleFormSummary, setScheduleFormSummary] = useState<string | null>(null);
 
   // Google Maps references
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -1021,10 +1039,64 @@ function RoutesManagement() {
     }
   };
 
+  const handleAttachExistingStops = async () => {
+    if (!selectedRouteId || selectedAttachIds.length === 0) return;
+    setIsAttachLoading(true);
+    try {
+      const res = await fetch("/api/stops/attach", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ route_id: selectedRouteId, stop_ids: selectedAttachIds }),
+      });
+      const json = (await res.json()) as { success?: boolean; error?: string };
+      if (!json.success) {
+        alert(json.error || "Failed to add existing stops to this route.");
+        return;
+      }
+      const stopsRes = await fetch("/api/stops");
+      const stopsJson = (await stopsRes.json()) as { success?: boolean; data?: DBStop[] };
+      if (stopsJson.success && stopsJson.data) {
+        setStops(stopsJson.data);
+      }
+      setShowAttachStopsModal(false);
+      setSelectedAttachIds([]);
+      setAttachSearch("");
+    } catch (err) {
+      console.error("Failed to attach stops:", err);
+      alert("Failed to add existing stops to this route.");
+    } finally {
+      setIsAttachLoading(false);
+    }
+  };
+
   // Schedules handlers
+  const clearScheduleFieldError = (field: string) => {
+    setScheduleFormErrors((prev) => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+    setScheduleFormSummary(null);
+  };
+
   const handleAddSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!scheduleForm.name.trim()) return;
+    const fieldErrors = validateScheduleForm({
+      name: scheduleForm.name,
+      departure_time: scheduleForm.departure_time,
+      direction: scheduleForm.direction,
+      target_grades: scheduleForm.target_grades,
+      days_of_week: scheduleForm.days_of_week,
+      route_id: selectedRouteId,
+    });
+    if (Object.keys(fieldErrors).length > 0) {
+      setScheduleFormErrors(fieldErrors);
+      setScheduleFormSummary(summarizeMissingScheduleFields(fieldErrors));
+      return;
+    }
+    setScheduleFormErrors({});
+    setScheduleFormSummary(null);
     setIsSubmitLoading(true);
 
     const timeParts = scheduleForm.departure_time.split(":");
@@ -1080,10 +1152,22 @@ function RoutesManagement() {
           vehicle_id: ""
         });
       } else {
-        alert(json.error || "Failed to save schedule");
+        const apiErrors = json.errors as Record<string, string[] | undefined> | undefined;
+        const fromFields = formatScheduleApiErrors(apiErrors);
+        if (fromFields) {
+          const mapped: Record<string, string> = {};
+          for (const [key, messages] of Object.entries(apiErrors ?? {})) {
+            if (messages && messages[0]) mapped[key] = messages[0];
+          }
+          setScheduleFormErrors(mapped);
+          setScheduleFormSummary(fromFields);
+        } else {
+          setScheduleFormSummary(json.error || "Could not save this trip. Check the required fields and try again.");
+        }
       }
     } catch (err) {
       console.error(err);
+      setScheduleFormSummary("Could not save this trip. Check the required fields and try again.");
     } finally {
       setIsSubmitLoading(false);
     }
@@ -1154,6 +1238,7 @@ function RoutesManagement() {
   };
 
   const handleGradeCheckboxChange = (grade: string, checked: boolean) => {
+    clearScheduleFieldError("target_grades");
     setScheduleForm(prev => ({
       ...prev,
       target_grades: checked 
@@ -1163,6 +1248,7 @@ function RoutesManagement() {
   };
 
   const handleDayCheckboxChange = (dayNum: number, checked: boolean) => {
+    clearScheduleFieldError("days_of_week");
     setScheduleForm(prev => ({
       ...prev,
       days_of_week: checked 
@@ -1173,6 +1259,13 @@ function RoutesManagement() {
 
   const routeStops = stops.filter(s => s.route_id === selectedRouteId).sort((a, b) => a.sequence_no - b.sequence_no);
   const routeSchedules = schedules.filter(s => s.route_id === selectedRouteId);
+  const attachableStops = stopsAvailableToAttach(stops, selectedRouteId).filter((stop) => {
+    const query = attachSearch.trim().toLowerCase();
+    if (!query) return true;
+    const routeName = routes.find((route) => route.id === stop.route_id)?.name ?? "";
+    return stop.name.toLowerCase().includes(query) || routeName.toLowerCase().includes(query);
+  });
+  const attachableGroups = groupStopsByRoute(attachableStops, routes);
 
   const getDirectionText = (dir: string) => {
     return dir === "HOME_TO_SCHOOL" ? "AM Route (Home to School)" : "PM Route (School to Home)";
@@ -1500,7 +1593,31 @@ function RoutesManagement() {
                 )}
 
                 {activeTab === "stops" ? (
-                  <button 
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    <button
+                      onClick={() => {
+                        setSelectedAttachIds([]);
+                        setAttachSearch("");
+                        setShowAttachStopsModal(true);
+                      }}
+                      style={{
+                        background: "rgba(4, 120, 87, 0.1)",
+                        color: "var(--accent-primary-ink)",
+                        border: "1px solid rgba(4, 120, 87, 0.25)",
+                        padding: "6px 12px",
+                        borderRadius: "6px",
+                        fontSize: "0.8rem",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px"
+                      }}
+                    >
+                      <ListPlus size={14} />
+                      Add existing
+                    </button>
+                    <button 
                     onClick={() => {
                       const rid = selectedRouteId || currentRoute?.id || "";
                       const qs = new URLSearchParams({ return: "/routes" });
@@ -1524,6 +1641,7 @@ function RoutesManagement() {
                     <Plus size={14} />
                     Add Route Stop
                   </button>
+                  </div>
                 ) : activeTab === "schedules" ? (
                   <button 
                     onClick={() => {
@@ -1537,6 +1655,8 @@ function RoutesManagement() {
                       });
                       setScheduleDrawerMode("add");
                       setCurrentEditScheduleId(null);
+                      setScheduleFormErrors({});
+                      setScheduleFormSummary(null);
                       setShowScheduleDrawer(true);
                     }}
                     style={{
@@ -1593,7 +1713,7 @@ function RoutesManagement() {
               {activeTab === "stops" ? (
                 routeStops.length === 0 ? (
                   <div style={{ display: "flex", justifyContent: "center", padding: "30px 0", color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                    No stops assigned to this route yet. Click "Add Route Stop" to configure one.
+                    No stops assigned to this route yet. Click "Add existing" to use stages you already created, or "Add Route Stop" to create a new one.
                   </div>
                 ) : (
                   <div style={{ overflowX: "auto" }}>
@@ -1860,6 +1980,11 @@ function RoutesManagement() {
             </div>
 
             <form onSubmit={handleAddSchedule} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+              {scheduleFormSummary && (
+                <p role="alert" style={{ fontSize: "0.85rem", color: "var(--state-error)", margin: 0 }}>
+                  {scheduleFormSummary}
+                </p>
+              )}
               <div className="form-group">
                 <label className="form-label">Trip Name *</label>
                 <input 
@@ -1868,8 +1993,14 @@ function RoutesManagement() {
                   placeholder="e.g. Early AM Run (Lower Primary)"
                   className="form-input"
                   value={scheduleForm.name}
-                  onChange={(e) => setScheduleForm(prev => ({ ...prev, name: e.target.value }))}
+                  onChange={(e) => {
+                    clearScheduleFieldError("name");
+                    setScheduleForm(prev => ({ ...prev, name: e.target.value }));
+                  }}
                 />
+                {scheduleFormErrors.name && (
+                  <span style={{ fontSize: "0.75rem", color: "var(--state-error)" }}>{scheduleFormErrors.name}</span>
+                )}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
@@ -1880,26 +2011,38 @@ function RoutesManagement() {
                     required
                     className="form-input"
                     value={scheduleForm.departure_time}
-                    onChange={(e) => setScheduleForm(prev => ({ ...prev, departure_time: e.target.value }))}
+                    onChange={(e) => {
+                      clearScheduleFieldError("departure_time");
+                      setScheduleForm(prev => ({ ...prev, departure_time: e.target.value }));
+                    }}
                   />
+                  {scheduleFormErrors.departure_time && (
+                    <span style={{ fontSize: "0.75rem", color: "var(--state-error)" }}>{scheduleFormErrors.departure_time}</span>
+                  )}
                 </div>
                 <div className="form-group">
                   <label className="form-label">Transit Direction *</label>
                   <select 
                     className="form-input"
                     value={scheduleForm.direction}
-                    onChange={(e) => setScheduleForm(prev => ({ ...prev, direction: e.target.value as any }))}
+                    onChange={(e) => {
+                      clearScheduleFieldError("direction");
+                      setScheduleForm(prev => ({ ...prev, direction: e.target.value as "HOME_TO_SCHOOL" | "SCHOOL_TO_HOME" }));
+                    }}
                   >
                     <option value="HOME_TO_SCHOOL">Home to School (AM)</option>
                     <option value="SCHOOL_TO_HOME">School to Home (PM)</option>
                   </select>
+                  {scheduleFormErrors.direction && (
+                    <span style={{ fontSize: "0.75rem", color: "var(--state-error)" }}>{scheduleFormErrors.direction}</span>
+                  )}
                 </div>
               </div>
 
               {/* Target grades selection */}
               <div className="form-group">
                 <label className="form-label">Target Grade Classes *</label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", background: "rgba(0,0,0,0.15)", padding: "10px", borderRadius: "6px", border: "1px solid var(--border-default)" }}>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", background: "rgba(0,0,0,0.15)", padding: "10px", borderRadius: "6px", border: scheduleFormErrors.target_grades ? "1px solid var(--state-error)" : "1px solid var(--border-default)" }}>
                   {["Grade 1", "Grade 2", "Grade 3", "Grade 4", "Grade 5", "Grade 6"].map(grade => (
                     <label key={grade} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem", color: "var(--text-primary)", cursor: "pointer" }}>
                       <input 
@@ -1911,12 +2054,15 @@ function RoutesManagement() {
                     </label>
                   ))}
                 </div>
+                {scheduleFormErrors.target_grades && (
+                  <span style={{ fontSize: "0.75rem", color: "var(--state-error)" }}>{scheduleFormErrors.target_grades}</span>
+                )}
               </div>
 
               {/* Operating days */}
               <div className="form-group">
                 <label className="form-label">Operating Days *</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", background: "rgba(0,0,0,0.15)", padding: "10px", borderRadius: "6px", border: "1px solid var(--border-default)" }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", background: "rgba(0,0,0,0.15)", padding: "10px", borderRadius: "6px", border: scheduleFormErrors.days_of_week ? "1px solid var(--state-error)" : "1px solid var(--border-default)" }}>
                   {[
                     { num: 1, label: "Mon" },
                     { num: 2, label: "Tue" },
@@ -1936,6 +2082,9 @@ function RoutesManagement() {
                     </label>
                   ))}
                 </div>
+                {scheduleFormErrors.days_of_week && (
+                  <span style={{ fontSize: "0.75rem", color: "var(--state-error)" }}>{scheduleFormErrors.days_of_week}</span>
+                )}
               </div>
 
               {/* Assigned Bus */}
@@ -2102,6 +2251,144 @@ function RoutesManagement() {
                   {schoolDrawerMode === "edit" ? "Save Changes" : "Add Location"}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAttachStopsModal && (
+        <div style={{
+          position: "fixed",
+          inset: 0,
+          background: "rgba(15, 23, 42, 0.45)",
+          backdropFilter: "blur(6px)",
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 9999,
+          padding: "20px"
+        }}>
+          <div style={{
+            background: "var(--bg-surface)",
+            border: "1px solid var(--border-default)",
+            boxShadow: "var(--shadow-xl)",
+            borderRadius: "16px",
+            width: "100%",
+            maxWidth: "560px",
+            maxHeight: "80vh",
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden"
+          }}>
+            <div style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              padding: "18px 24px",
+              borderBottom: "1px solid var(--border-default)",
+            }}>
+              <div>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", color: "var(--text-primary)", margin: 0 }}>
+                  Add existing stops
+                </h3>
+                <p style={{ margin: "6px 0 0", fontSize: "0.8rem", color: "var(--text-muted)" }}>
+                  Copies selected stages onto this route. Originals stay on their current route.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAttachStopsModal(false)}
+                style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", padding: "4px" }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div style={{ padding: "16px 24px", borderBottom: "1px solid var(--border-default)" }}>
+              <input
+                className="form-input"
+                value={attachSearch}
+                onChange={(e) => setAttachSearch(e.target.value)}
+                placeholder="Search stop or route name…"
+              />
+            </div>
+            <div style={{ padding: "16px 24px", overflowY: "auto", flex: 1 }}>
+              {attachableGroups.length === 0 ? (
+                <p style={{ color: "var(--text-muted)", fontSize: "0.85rem" }}>
+                  No other stops to add. Create a new stop if this stage does not exist yet.
+                </p>
+              ) : (
+                attachableGroups.map((group) => (
+                  <div key={group.routeId} style={{ marginBottom: 16 }}>
+                    <p style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 8 }}>
+                      {group.routeName}
+                    </p>
+                    {group.stops.map((stop) => {
+                      const checked = selectedAttachIds.includes(stop.id);
+                      return (
+                        <label
+                          key={stop.id}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                            padding: "8px 0",
+                            color: "var(--text-primary)",
+                            fontSize: "0.9rem",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setSelectedAttachIds((prev) =>
+                                checked ? prev.filter((id) => id !== stop.id) : [...prev, stop.id],
+                              );
+                            }}
+                          />
+                          {stop.name}
+                        </label>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 12, padding: "16px 24px", borderTop: "1px solid var(--border-default)" }}>
+              <button
+                type="button"
+                onClick={() => setShowAttachStopsModal(false)}
+                style={{
+                  flex: 1,
+                  background: "transparent",
+                  border: "1px solid var(--border-default)",
+                  color: "var(--text-primary)",
+                  padding: "10px 16px",
+                  borderRadius: "6px",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleAttachExistingStops()}
+                disabled={isAttachLoading || selectedAttachIds.length === 0}
+                style={{
+                  flex: 2,
+                  background: "var(--accent-primary)",
+                  color: "#ffffff",
+                  border: "none",
+                  padding: "10px 16px",
+                  borderRadius: "6px",
+                  fontWeight: 600,
+                  cursor: selectedAttachIds.length === 0 ? "not-allowed" : "pointer",
+                  opacity: selectedAttachIds.length === 0 ? 0.6 : 1,
+                }}
+              >
+                {isAttachLoading ? "Adding…" : `Add ${selectedAttachIds.length || ""} selected`}
+              </button>
             </div>
           </div>
         </div>

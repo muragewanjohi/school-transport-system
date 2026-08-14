@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
+import { assignDriverToVehicle, emptyToNullVehicleId } from "@/lib/assignDriverVehicle";
 import { z } from "zod";
 
 const driverCreateSchema = z.object({
@@ -9,38 +11,30 @@ const driverCreateSchema = z.object({
   national_id: z.string().min(4, "National ID must be at least 4 characters"),
   status: z.enum(["Available", "Unavailable"]).default("Available"),
   avatar_url: z.string().optional().nullable(),
+  vehicle_id: z.string().min(1).nullable().optional(),
 });
-
-const mockDrivers = [
-  { id: "drv-1", name: "John Kamau", phone: "+254 712 345 678", email: "john.kamau@school.com", national_id: "32908422", status: "Available", avatar_url: null },
-  { id: "drv-2", name: "David Ochieng", phone: "+254 722 890 123", email: "david.ochieng@school.com", national_id: "28405911", status: "Available", avatar_url: null },
-  { id: "drv-3", name: "Peter Ndwiga", phone: "+254 733 456 789", email: "peter.ndwiga@school.com", national_id: "31049284", status: "Unavailable", avatar_url: null },
-  { id: "drv-4", name: "Michael Mwangi", phone: "+254 701 111 222", email: "michael.mwangi@school.com", national_id: "24905184", status: "Available", avatar_url: null },
-];
 
 export async function GET(request: Request) {
   try {
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
-      return NextResponse.json({ success: true, source: "mock", data: mockDrivers });
+      return NextResponse.json({ success: true, source: "mock", data: [] });
     }
 
-    const client = getSupabaseClient(token);
-    
-    const { data: drivers, error } = await client
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+
+    const { data: drivers, error } = await scope.client
       .from("profiles")
       .select("id, name, phone, email, national_id, status, avatar_url")
-      .eq("role", "driver");
+      .eq("role", "driver")
+      .eq("tenant_id", scope.tenantId);
 
     if (error) {
       console.warn("Supabase drivers fetch error (might lack columns):", error.message);
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: mockDrivers });
+      return NextResponse.json({ success: false, error: "Failed to load drivers" }, { status: 500 });
     }
 
-    const driversList = drivers && drivers.length > 0 ? drivers : mockDrivers;
-    return NextResponse.json({ success: true, source: "supabase", data: driversList });
+    return NextResponse.json({ success: true, source: "supabase", data: drivers ?? [] });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
@@ -56,9 +50,6 @@ export async function POST(request: Request) {
     if (!result.success) {
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
     }
-
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     // Generate random 6-digit OTP and 15-minute expiration
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
@@ -109,19 +100,21 @@ export async function POST(request: Request) {
         role: "driver",
         otp_code: otpCode,
         otp_expires_at: otpExpiresAt,
-        ...result.data,
+        vehicle_id: emptyToNullVehicleId(result.data.vehicle_id),
+        name: result.data.name,
+        phone: result.data.phone,
+        email: result.data.email,
+        national_id: result.data.national_id,
+        status: result.data.status,
+        avatar_url: result.data.avatar_url ?? null,
       };
       return NextResponse.json({ success: true, source: "mock", data: newMockDriver, sandbox_otp: otpCode });
     }
 
-    const client = getSupabaseClient(token);
-
-    // Get tenant ID
-    let tenantId = "8c9ad841-f762-4217-a021-9876251b5bcf";
-    const { data: tenants } = await client.from("tenants").select("id").limit(1);
-    if (tenants && tenants.length > 0) {
-      tenantId = tenants[0].id;
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     const payload = {
       id: crypto.randomUUID(),
@@ -143,12 +136,26 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      console.warn("Supabase driver insert error, falling back to mock save:", error.message);
-      const mockDriver = {
-        ...payload,
-        id: `drv-db-fallback-${Math.floor(Math.random() * 1000)}`
-      };
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: mockDriver, sandbox_otp: otpCode });
+      console.warn("Supabase driver insert error:", error.message);
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
+
+    const vehicleId = emptyToNullVehicleId(result.data.vehicle_id);
+    if (vehicleId) {
+      const assigned = await assignDriverToVehicle(client, {
+        tenantId,
+        driverId: driverInsert.id,
+        vehicleId,
+      });
+      if (!assigned.ok) {
+        return NextResponse.json({
+          success: true,
+          source: "supabase",
+          data: driverInsert,
+          sandbox_otp: otpCode,
+          assignment_error: assigned.error,
+        });
+      }
     }
 
     return NextResponse.json({ success: true, source: "supabase", data: driverInsert, sandbox_otp: otpCode });

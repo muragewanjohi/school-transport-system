@@ -70,6 +70,7 @@ export async function GET(request: Request) {
       .from("students")
       .select("id, parent_id, tenant_id, route_id, pickup_stop_id, dropoff_stop_id")
       .eq("id", student_id)
+      .eq("tenant_id", parent.tenant_id)
       .maybeSingle();
 
     if (studentError) {
@@ -99,6 +100,7 @@ export async function GET(request: Request) {
       .select("stop_id, route_id, trip_id, predicted_arrival, delay_seconds, updated_at")
       .eq("route_id", row.route_id)
       .eq("stop_id", stopId)
+      .eq("tenant_id", parent.tenant_id)
       .order("updated_at", { ascending: false })
       .limit(1);
 

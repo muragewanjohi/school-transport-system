@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { resolveRequestDb } from "@/lib/driverSession";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 // Zod schema for telemetry ingestion validation
 const telemetryIngestSchema = z.object({
@@ -30,9 +30,6 @@ interface TelemetryPoint {
 // GET: Retrieve latest coordinate telemetry
 export async function GET(request: Request) {
   try {
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
       // Mocked telemetry data matching Nairobi routes
       const mockTelemetry: TelemetryPoint[] = [
@@ -69,12 +66,13 @@ export async function GET(request: Request) {
       });
     }
 
-    const client = getSupabaseClient(token);
-    
-    // Fetch latest coordinates. PostgREST handles PostGIS Point as GeoJSON Point object automatically.
-    const { data: telemetry, error } = await client
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+
+    const { data: telemetry, error } = await scope.client
       .from("live_coordinates")
       .select("id, vehicle_id, route_id, coordinates, speed, bearing, created_at")
+      .eq("tenant_id", scope.tenantId)
       .order("created_at", { ascending: false })
       .limit(50);
 
@@ -128,29 +126,37 @@ export async function POST(request: Request) {
       });
     }
 
-    const db = await resolveRequestDb(request);
-    if (!db) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+
+    if (tenant_id && tenant_id !== scope.tenantId) {
+      return NextResponse.json({ success: false, error: "Tenant mismatch" }, { status: 403 });
     }
 
-    const resolvedTenantId = tenant_id || db.driver?.tenant_id;
-    if (!resolvedTenantId) {
-      return NextResponse.json({ success: false, error: "tenant_id is required" }, { status: 400 });
+    const { data: ownedVehicle } = await scope.client
+      .from("vehicles")
+      .select("id")
+      .eq("id", vehicle_id)
+      .eq("tenant_id", scope.tenantId)
+      .maybeSingle();
+    if (!ownedVehicle) {
+      return NextResponse.json({ success: false, error: "Vehicle not found" }, { status: 404 });
     }
 
-    if (db.mode === "driver" && db.driver) {
-      if (db.driver.tenant_id !== resolvedTenantId) {
-        return NextResponse.json({ success: false, error: "Tenant mismatch" }, { status: 403 });
-      }
-      if (db.driver.vehicle_id && db.driver.vehicle_id !== vehicle_id) {
-        return NextResponse.json({ success: false, error: "Vehicle not assigned to driver" }, { status: 403 });
-      }
+    const { data: ownedRoute } = await scope.client
+      .from("routes")
+      .select("id")
+      .eq("id", route_id)
+      .eq("tenant_id", scope.tenantId)
+      .maybeSingle();
+    if (!ownedRoute) {
+      return NextResponse.json({ success: false, error: "Route not found" }, { status: 404 });
     }
 
-    const { data: telemetryInsert, error } = await db.client
+    const { data: telemetryInsert, error } = await scope.client
       .from("live_coordinates")
       .insert({
-        tenant_id: resolvedTenantId,
+        tenant_id: scope.tenantId,
         vehicle_id,
         route_id,
         coordinates: `POINT(${longitude} ${latitude})`,

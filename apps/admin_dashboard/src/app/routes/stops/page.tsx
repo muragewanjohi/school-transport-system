@@ -13,10 +13,12 @@ import {
   Navigation,
   Globe,
   Radio,
-  Eye
+  Eye,
+  CheckCircle2
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
+import { noticeFromStopsSearch, STOPS_STAGES_PATH } from "@/lib/stopEditorNavigation";
 
 interface DBStop {
   id: string;
@@ -46,6 +48,7 @@ export default function StopsManagement() {
   const [searchQuery, setSearchQuery] = useState("");
   const [routeFilter, setRouteFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
+  const [notice, setNotice] = useState<string | null>(null);
 
   const fetchData = async () => {
     setIsLoading(true);
@@ -74,6 +77,13 @@ export default function StopsManagement() {
   useEffect(() => {
     fetchData();
   }, []);
+
+  useEffect(() => {
+    const message = noticeFromStopsSearch(window.location.search);
+    if (!message) return;
+    setNotice(message);
+    router.replace(STOPS_STAGES_PATH, { scroll: false });
+  }, [router]);
 
   const handleDeleteStop = async (id: string) => {
     if (!confirm("Are you sure you want to delete this stop? This action cannot be undone.")) return;
@@ -124,6 +134,26 @@ export default function StopsManagement() {
         </header>
 
         <div className="content-body" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          {notice && (
+            <div
+              role="status"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                padding: "12px 16px",
+                borderRadius: "12px",
+                background: "rgba(4, 120, 87, 0.12)",
+                border: "1px solid rgba(4, 120, 87, 0.35)",
+                color: "var(--accent-primary-ink)",
+                fontWeight: 600,
+                fontSize: "0.9rem",
+              }}
+            >
+              <CheckCircle2 size={18} />
+              {notice}
+            </div>
+          )}
           {/* Controls Bar */}
           <div style={{
             display: "flex",

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { resolveRequestDb } from "@/lib/driverSession";
-import { extractBearerToken } from "@/lib/authApi";
+import { getCallerProfile } from "@/lib/authApi";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const mockConfig = {
   school_name: "Safaricom Track School",
@@ -35,41 +35,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: mockConfig });
     }
 
-    const db = await resolveRequestDb(request);
-    if (!db) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-    const client = db.client;
-
-    // Fetch tenant from active user's profile or driver session
-    let tenantId: string | null = db.driver?.tenant_id ?? null;
-    if (!tenantId) {
-      const token = extractBearerToken(request);
-      const userClient = getSupabaseClient(token);
-      const { data: { user } } = await userClient.auth.getUser();
-      if (user) {
-        const { data: profile } = await db.client
-          .from("profiles")
-          .select("tenant_id")
-          .eq("id", user.id)
-          .single();
-        tenantId = profile?.tenant_id || null;
-      }
-    }
-
-    // Fallback to first tenant if not explicitly authenticated (e.g. sandbox API call)
-    if (!tenantId) {
-      const { data: firstTenant } = await db.client
-        .from("tenants")
-        .select("id")
-        .limit(1)
-        .single();
-      tenantId = firstTenant?.id || null;
-    }
-
-    if (!tenantId) {
-      return NextResponse.json({ success: true, source: "fallback_no_tenant", data: mockConfig });
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     // Fetch config details for the tenant
     let { data: config, error } = await client
@@ -128,31 +97,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: body });
     }
 
-    const client = getSupabaseClient(token);
-
-    // Fetch tenant from active user's profile
-    let tenantId: string | null = null;
-    let adminRole: string | null = null;
-    const { data: { user } } = await client.auth.getUser();
-    if (user) {
-      const { data: profile } = await client
-        .from("profiles")
-        .select("tenant_id, admin_role")
-        .eq("id", user.id)
-        .single();
-      tenantId = profile?.tenant_id || null;
-      adminRole = profile?.admin_role || null;
-    }
-
-    if (!tenantId) {
-      // Fallback to first tenant if not explicitly authenticated (e.g. sandbox API call)
-      const { data: firstTenant } = await client
-        .from("tenants")
-        .select("id")
-        .limit(1)
-        .single();
-      tenantId = firstTenant?.id || null;
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
+    const caller = await getCallerProfile(request);
+    const adminRole = caller?.admin_role || null;
 
     if (!tenantId) {
       return NextResponse.json({ success: false, error: "No active tenant found" }, { status: 400 });

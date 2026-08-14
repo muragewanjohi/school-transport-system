@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { resolveRequestDb } from "@/lib/driverSession";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { verifyDriverSession } from "@/lib/driverSession";
 import { z } from "zod";
 import { getLocalStudents, saveLocalStudents } from "@/lib/jsonDb";
 import {
@@ -8,6 +8,7 @@ import {
   getCallerProfile,
   isDemoReadonly,
 } from "@/lib/authApi";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { haversineDistanceMeters, parseGeoPoint } from "@/lib/geoUtils";
 
 const guardianSchema = z.object({
@@ -112,21 +113,18 @@ export async function GET(
       return NextResponse.json({ success: true, source: "mock", data: student });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
 
-    const { data: student, error } = await client
+    const { data: student, error } = await scope.client
       .from("students")
       .select("id, name, route_id, nfc_card_hash, pickup_stop_id, dropoff_stop_id, schedule_ids, guardians, status, grade, class_name")
       .eq("id", id)
+      .eq("tenant_id", scope.tenantId)
       .single();
 
-    if (error) {
-      console.warn(`Supabase student fetch error for ${id}:`, error.message);
-      const student = getLocalStudents().find(s => s.id === id);
-      if (!student) {
-        return NextResponse.json({ success: false, error: error.message }, { status: 404 });
-      }
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: student });
+    if (error || !student) {
+      return NextResponse.json({ success: false, error: "Student not found" }, { status: 404 });
     }
 
     let parsedGuardians = [];
@@ -182,14 +180,13 @@ export async function PUT(
       return NextResponse.json({ success: false, error: "Student not found in mock list" }, { status: 404 });
     }
 
-    const db = await resolveRequestDb(request);
-    if (!db) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-    const client = db.client;
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const isDriver = Boolean(verifyDriverSession(token || ""));
 
     // Drivers may only flip attendance status
-    if (db.mode === "driver") {
+    if (isDriver) {
       const allowedKeys = Object.keys(result.data);
       if (allowedKeys.some((k) => k !== "status")) {
         return NextResponse.json(
@@ -204,6 +201,7 @@ export async function PUT(
           .from("students")
           .select("id, route_id, pickup_stop_id, dropoff_stop_id")
           .eq("id", id)
+          .eq("tenant_id", scope.tenantId)
           .single();
 
         if (existingError || !existingStudent) {
@@ -223,6 +221,7 @@ export async function PUT(
             .from("stops")
             .select("id, name, location, geofence_radius_meters")
             .eq("id", requiredStopId)
+            .eq("tenant_id", scope.tenantId)
             .single();
 
           if (stopError || !stopRow) {
@@ -316,6 +315,7 @@ export async function PUT(
       .from("students")
       .update(updatePayload)
       .eq("id", id)
+      .eq("tenant_id", scope.tenantId)
       .select()
       .single();
 
@@ -343,7 +343,8 @@ export async function PUT(
         .select("id")
         .eq("route_id", studentUpdate.route_id)
         .eq("trip_date", todayStr)
-        .eq("status", "in_progress");
+        .eq("status", "in_progress")
+        .eq("tenant_id", scope.tenantId);
 
       if (activeTrips && activeTrips.length > 0) {
         const tripIds = activeTrips.map(t => t.id);
@@ -358,7 +359,8 @@ export async function PUT(
           .from("trip_manifests")
           .update(updateData)
           .in("trip_id", tripIds)
-          .eq("student_id", id);
+          .eq("student_id", id)
+          .eq("tenant_id", scope.tenantId);
       }
     }
 
@@ -391,12 +393,14 @@ export async function DELETE(
       return NextResponse.json({ success: true, source: "mock" });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
 
-    const { error } = await client
+    const { error } = await scope.client
       .from("students")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("tenant_id", scope.tenantId);
 
     if (error) {
       console.warn(`Supabase student delete error for ${id}, falling back to mock:`, error.message);

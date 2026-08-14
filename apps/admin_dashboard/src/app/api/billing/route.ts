@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { getCallerProfile } from "@/lib/authApi";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 // Default Mock billing data
 const mockBilling = {
@@ -22,33 +24,10 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: mockBilling });
     }
 
-    const client = getSupabaseClient(token);
-
-    // Fetch tenant from active user's profile
-    let tenantId: string | null = null;
-    const { data: { user } } = await client.auth.getUser();
-    if (user) {
-      const { data: profile } = await client
-        .from("profiles")
-        .select("tenant_id")
-        .eq("id", user.id)
-        .single();
-      tenantId = profile?.tenant_id || null;
-    }
-
-    // If no authenticated tenant found, fallback to first tenant in db
-    if (!tenantId) {
-      const { data: firstTenant } = await client
-        .from("tenants")
-        .select("id")
-        .limit(1)
-        .single();
-      tenantId = firstTenant?.id || null;
-    }
-
-    if (!tenantId) {
-      return NextResponse.json({ success: true, source: "fallback_no_tenant", data: mockBilling });
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     // Fetch billing details for the tenant
     let { data: billing, error } = await client
@@ -164,31 +143,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: { is_paid } });
     }
 
-    const client = getSupabaseClient(token);
-
-    // Fetch tenant and admin role from active user's profile
-    let tenantId: string | null = null;
-    let adminRole: string | null = null;
-    const { data: { user } } = await client.auth.getUser();
-    if (user) {
-      const { data: profile } = await client
-        .from("profiles")
-        .select("tenant_id, admin_role")
-        .eq("id", user.id)
-        .single();
-      tenantId = profile?.tenant_id || null;
-      adminRole = profile?.admin_role || null;
-    }
-
-    // Fallback to first tenant if not explicitly authenticated (e.g. sandbox API call)
-    if (!tenantId) {
-      const { data: firstTenant } = await client
-        .from("tenants")
-        .select("id")
-        .limit(1)
-        .single();
-      tenantId = firstTenant?.id || null;
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
+    const caller = await getCallerProfile(request);
+    const adminRole = caller?.admin_role || null;
 
     if (!tenantId) {
       return NextResponse.json({ success: false, error: "No active tenant found" }, { status: 400 });

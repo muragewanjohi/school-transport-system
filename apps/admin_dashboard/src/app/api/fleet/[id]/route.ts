@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
 import { getLocalVehicles, saveLocalVehicles } from "@/lib/jsonDb";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const vehicleUpdateSchema = z.object({
   license_plate: z.string().min(3).optional(),
@@ -29,9 +30,6 @@ export async function PUT(
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
     }
 
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
       const vehicles = getLocalVehicles();
       const updatedVehicles = vehicles.map(v => {
@@ -49,7 +47,9 @@ export async function PUT(
       });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
 
     // Clean payload of undefined fields
     const payload = Object.fromEntries(
@@ -60,27 +60,19 @@ export async function PUT(
       .from("vehicles")
       .update(payload)
       .eq("id", id)
+      .eq("tenant_id", scope.tenantId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       if (error.code === "42501" || error.message.includes("violates row-level security")) {
-        const vehicles = getLocalVehicles();
-        const updatedVehicles = vehicles.map(v => {
-          if (v.id === id) {
-            return { ...v, ...result.data };
-          }
-          return v;
-        });
-        saveLocalVehicles(updatedVehicles);
-        const updated = updatedVehicles.find(v => v.id === id) || { id, ...result.data };
-        return NextResponse.json({
-          success: true,
-          source: "supabase_rls_mock_fallback",
-          data: updated
-        });
+        return NextResponse.json({ success: false, error: "Not allowed to update this vehicle" }, { status: 403 });
       }
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
+
+    if (!vehicleUpdate) {
+      return NextResponse.json({ success: false, error: "Vehicle not found" }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, source: "supabase", data: vehicleUpdate });
@@ -97,8 +89,6 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
       const vehicles = getLocalVehicles();
@@ -111,12 +101,16 @@ export async function DELETE(
       });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
 
-    const { error } = await client
+    const { data: deleted, error } = await scope.client
       .from("vehicles")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("tenant_id", scope.tenantId)
+      .select("id")
+      .maybeSingle();
 
     if (error) {
       if (error.code === "42501" || error.message.includes("violates row-level security")) {
@@ -130,6 +124,10 @@ export async function DELETE(
         });
       }
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+    }
+
+    if (!deleted) {
+      return NextResponse.json({ success: false, error: "Vehicle not found" }, { status: 404 });
     }
 
     return NextResponse.json({

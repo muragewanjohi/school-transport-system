@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const mockParents = [
   { id: "prt-1", name: "James Mwangi", phone: "+254 700 111 222", email: "james.mwangi@parent.com" },
@@ -10,27 +11,25 @@ const mockParents = [
 
 export async function GET(request: Request) {
   try {
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
       return NextResponse.json({ success: true, source: "mock", data: mockParents });
     }
 
-    const client = getSupabaseClient(token);
-    
-    const { data: parents, error } = await client
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+
+    const { data: parents, error } = await scope.client
       .from("profiles")
       .select("id, name, phone, email")
-      .eq("role", "parent");
+      .eq("role", "parent")
+      .eq("tenant_id", scope.tenantId);
 
     if (error) {
       console.warn("Supabase parents fetch error:", error.message);
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: mockParents });
+      return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     }
 
-    const parentsList = parents && parents.length > 0 ? parents : mockParents;
-    return NextResponse.json({ success: true, source: "supabase", data: parentsList });
+    return NextResponse.json({ success: true, source: "supabase", data: parents ?? [] });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";

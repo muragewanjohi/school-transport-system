@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
 import {
   demoReadonlyForbiddenResponse,
   getCallerProfile,
   isDemoReadonly,
 } from "@/lib/authApi";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const schoolLocationSchema = z.object({
   name: z.string().min(2),
@@ -53,16 +54,17 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       });
     }
 
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
 
     const { data: routeUpdate, error } = await client
       .from("routes")
       .update({ name: result.data.name })
       .eq("id", routeId)
+      .eq("tenant_id", scope.tenantId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.warn("Supabase route update error, falling back to mock save:", error.message);
@@ -77,11 +79,16 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
       });
     }
 
+    if (!routeUpdate) {
+      return NextResponse.json({ success: false, error: "Route not found" }, { status: 404 });
+    }
+
     if (result.data.schoolStart || result.data.schoolEnd) {
       const { data: stops } = await client
         .from("stops")
         .select("id, sequence_no")
         .eq("route_id", routeId)
+        .eq("tenant_id", scope.tenantId)
         .order("sequence_no", { ascending: true });
 
       const ordered = (stops ?? []) as StopRow[];
@@ -95,7 +102,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
             name: result.data.schoolStart.name,
             location: `POINT(${result.data.schoolStart.longitude} ${result.data.schoolStart.latitude})`,
           })
-          .eq("id", first.id);
+          .eq("id", first.id)
+          .eq("tenant_id", scope.tenantId)
+          .eq("route_id", routeId);
       }
       if (result.data.schoolEnd && last && last.id !== first?.id) {
         await client
@@ -104,7 +113,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
             name: result.data.schoolEnd.name,
             location: `POINT(${result.data.schoolEnd.longitude} ${result.data.schoolEnd.latitude})`,
           })
-          .eq("id", last.id);
+          .eq("id", last.id)
+          .eq("tenant_id", scope.tenantId)
+          .eq("route_id", routeId);
       }
     }
 
@@ -135,14 +146,16 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
       });
     }
 
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
 
-    const { error } = await client
+    const { data: deleted, error } = await scope.client
       .from("routes")
       .delete()
-      .eq("id", routeId);
+      .eq("id", routeId)
+      .eq("tenant_id", scope.tenantId)
+      .select("id")
+      .maybeSingle();
 
     if (error) {
       console.warn("Supabase route delete error, falling back to mock save:", error.message);
@@ -150,6 +163,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
         success: true,
         source: "supabase_error_fallback"
       });
+    }
+
+    if (!deleted) {
+      return NextResponse.json({ success: false, error: "Route not found" }, { status: 404 });
     }
 
     return NextResponse.json({

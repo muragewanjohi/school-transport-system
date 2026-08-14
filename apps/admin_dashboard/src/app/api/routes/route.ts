@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { z } from "zod";
 import {
   demoReadonlyForbiddenResponse,
@@ -86,13 +87,16 @@ export async function GET(request: Request) {
       });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
     
     // Fetch routes from Supabase. PostGIS geometry column "path" is automatically
     // returned as a GeoJSON LineString object by PostgREST.
     const { data: routes, error } = await client
       .from("routes")
-      .select("id, name, path");
+      .select("id, name, path")
+      .eq("tenant_id", scope.tenantId);
 
     if (error) {
       console.warn("Supabase routes fetch error, falling back to mock:", error.message);
@@ -103,7 +107,7 @@ export async function GET(request: Request) {
       });
     }
 
-    const routesList = routes && routes.length > 0 ? routes : mockRoutes;
+    const routesList = routes ?? [];
 
     return NextResponse.json({
       success: true,
@@ -178,14 +182,10 @@ export async function POST(request: Request) {
       });
     }
 
-    const client = getSupabaseClient(token);
-
-    // Fetch tenant ID
-    let tenantId = "8c9ad841-f762-4217-a021-9876251b5bcf";
-    const { data: tenants } = await client.from("tenants").select("id").limit(1);
-    if (tenants && tenants.length > 0) {
-      tenantId = tenants[0].id;
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     const routeId = crypto.randomUUID();
     const routePayload = {

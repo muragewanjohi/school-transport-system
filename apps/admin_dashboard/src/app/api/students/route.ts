@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { resolveRequestDb } from "@/lib/driverSession";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
 import { getLocalStudents, saveLocalStudents } from "@/lib/jsonDb";
 import {
@@ -8,6 +7,7 @@ import {
   getCallerProfile,
   isDemoReadonly,
 } from "@/lib/authApi";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -107,33 +107,26 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: getLocalStudents() });
     }
 
-    const db = await resolveRequestDb(request);
-    if (!db) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-    const client = db.client;
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
     
-    // Fetch students from database
-    let studentsQuery = client
+    const { data: students, error: studentsError } = await client
       .from("students")
-      .select("id, name, route_id, nfc_card_hash, pickup_stop_id, dropoff_stop_id, schedule_ids, guardians, status, grade, class_name");
-    if (db.driver?.tenant_id) {
-      studentsQuery = studentsQuery.eq("tenant_id", db.driver.tenant_id);
-    }
-    const { data: students, error: studentsError } = await studentsQuery;
+      .select("id, name, route_id, nfc_card_hash, pickup_stop_id, dropoff_stop_id, schedule_ids, guardians, status, grade, class_name")
+      .eq("tenant_id", scope.tenantId);
 
     if (studentsError) {
       console.warn("Supabase students fetch error:", studentsError.message);
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: getLocalStudents() });
+      return NextResponse.json({ success: false, error: "Failed to load students" }, { status: 500 });
     }
 
-    const studentsList = students && students.length > 0 ? students : [];
-    if (studentsList.length === 0) {
-      return NextResponse.json({ success: true, source: "supabase_empty_fallback", data: getLocalStudents() });
-    }
+    const studentsList = students ?? [];
 
-    // Fetch routes in parallel for manual client-side mapping
-    const { data: routesData } = await client.from("routes").select("id, name");
+    const { data: routesData } = await client
+      .from("routes")
+      .select("id, name")
+      .eq("tenant_id", scope.tenantId);
     const routesMap = new Map((routesData || []).map(r => [r.id, r]));
 
     const mappedStudents = studentsList.map(student => {
@@ -201,14 +194,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: newMockStudent });
     }
 
-    const client = getSupabaseClient(token);
-
-    // Get tenant ID
-    let tenantId = "8c9ad841-f762-4217-a021-9876251b5bcf";
-    const { data: tenants } = await client.from("tenants").select("id").limit(1);
-    if (tenants && tenants.length > 0) {
-      tenantId = tenants[0].id;
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     const lat = result.data.latitude;
     const lng = result.data.longitude;

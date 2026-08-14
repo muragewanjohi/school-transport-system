@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const conductorUpdateSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters").optional(),
@@ -24,29 +25,33 @@ export async function PUT(
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
     }
 
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
       return NextResponse.json({ success: true, source: "mock", data: { id, ...result.data } });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
 
-    const { data: conductorUpdate, error } = await client
+    const { data: conductorUpdate, error } = await scope.client
       .from("profiles")
       .update(result.data)
       .eq("id", id)
+      .eq("tenant_id", scope.tenantId)
+      .eq("role", "conductor")
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.warn("Supabase conductor update error, falling back to mock:", error.message);
-      return NextResponse.json({ 
-        success: true, 
-        source: "supabase_error_fallback", 
-        data: { id, ...result.data } 
+      return NextResponse.json({
+        success: true,
+        source: "supabase_error_fallback",
+        data: { id, ...result.data },
       });
+    }
+
+    if (!conductorUpdate) {
+      return NextResponse.json({ success: false, error: "Conductor not found" }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, source: "supabase", data: conductorUpdate });
@@ -63,23 +68,30 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
       return NextResponse.json({ success: true, source: "mock", data: { id } });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
 
-    const { error } = await client
+    const { data: deleted, error } = await scope.client
       .from("profiles")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("tenant_id", scope.tenantId)
+      .eq("role", "conductor")
+      .select("id")
+      .maybeSingle();
 
     if (error) {
       console.warn("Supabase conductor delete error, falling back to mock:", error.message);
       return NextResponse.json({ success: true, source: "supabase_error_fallback", data: { id } });
+    }
+
+    if (!deleted) {
+      return NextResponse.json({ success: false, error: "Conductor not found" }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, source: "supabase", data: { id } });

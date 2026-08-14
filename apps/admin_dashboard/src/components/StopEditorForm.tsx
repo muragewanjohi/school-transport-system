@@ -2,10 +2,11 @@
 
 import React, { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, MapPin, Save } from "lucide-react";
+import { ArrowLeft, CircleAlert, MapPin, Save } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import HomeLocationMapPicker from "@/components/HomeLocationMapPicker";
+import { friendlyStopSaveError, stopsPageAfterSave } from "@/lib/stopEditorNavigation";
 
 const NAIROBI_LAT = -1.2921;
 const NAIROBI_LNG = 36.8219;
@@ -201,10 +202,17 @@ function StopEditorFormInner({ mode, stopId }: StopEditorFormProps) {
           errors?: Record<string, string[]>;
         };
         if (!json.success) {
-          setErrorMsg(json.error || json.errors?.name?.[0] || "Failed to create stop");
+          setErrorMsg(
+            friendlyStopSaveError(json.error || json.errors?.name?.[0] || "Failed to create stop"),
+          );
+          setIsSubmitLoading(false);
           return;
         }
-      } else if (stopId) {
+        router.push(stopsPageAfterSave("created"));
+        return;
+      }
+
+      if (stopId) {
         const res = await fetch(`/api/stops/${stopId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
@@ -212,14 +220,17 @@ function StopEditorFormInner({ mode, stopId }: StopEditorFormProps) {
         });
         const json = (await res.json()) as { success?: boolean; error?: string };
         if (!json.success) {
-          setErrorMsg(json.error || "Failed to update stop");
+          setErrorMsg(friendlyStopSaveError(json.error || "Failed to update stop"));
+          setIsSubmitLoading(false);
           return;
         }
+        router.push(stopsPageAfterSave("updated"));
+        return;
       }
-      router.push(returnTo);
+
+      setIsSubmitLoading(false);
     } catch {
       setErrorMsg(mode === "create" ? "Failed to create stop." : "Failed to update stop.");
-    } finally {
       setIsSubmitLoading(false);
     }
   };
@@ -312,6 +323,48 @@ function StopEditorFormInner({ mode, stopId }: StopEditorFormProps) {
           grid-template-columns: 1fr 1fr;
           gap: 12px;
         }
+        .error-dialog-backdrop {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.45);
+          backdrop-filter: blur(6px);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          z-index: 9999;
+          padding: 20px;
+        }
+        .error-dialog {
+          background: var(--bg-surface);
+          border: 1px solid var(--border-default);
+          box-shadow: var(--shadow-xl);
+          border-radius: 16px;
+          width: 100%;
+          max-width: 440px;
+          padding: 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .error-dialog-title {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin: 0;
+          font-size: 1.05rem;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+        .error-dialog-title svg {
+          color: var(--state-error-ink);
+          flex-shrink: 0;
+        }
+        .error-dialog-body {
+          margin: 0;
+          color: var(--text-primary);
+          font-size: 0.92rem;
+          line-height: 1.45;
+        }
       `}</style>
 
       <main className="main-content">
@@ -344,12 +397,6 @@ function StopEditorFormInner({ mode, stopId }: StopEditorFormProps) {
             <p style={{ color: "var(--text-muted)" }}>Loading stop…</p>
           ) : (
             <form className="form-card" onSubmit={handleSubmit}>
-              {errorMsg && (
-                <p className="form-error-text" role="alert">
-                  {errorMsg}
-                </p>
-              )}
-
               <div>
                 <h3 className="form-section-title">
                   <MapPin size={16} style={{ display: "inline", marginRight: 8 }} />
@@ -502,6 +549,36 @@ function StopEditorFormInner({ mode, stopId }: StopEditorFormProps) {
           )}
         </div>
       </main>
+
+      {errorMsg && (
+        <div className="error-dialog-backdrop" onClick={() => setErrorMsg(null)}>
+          <div
+            className="error-dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="stop-save-error-title"
+            aria-describedby="stop-save-error-body"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="stop-save-error-title" className="error-dialog-title">
+              <CircleAlert size={22} />
+              Could not save stop
+            </h2>
+            <p id="stop-save-error-body" className="error-dialog-body">
+              {errorMsg}
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="btn-action primary"
+                onClick={() => setErrorMsg(null)}
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

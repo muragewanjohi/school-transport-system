@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
-import { resolveRequestDb } from "@/lib/driverSession";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const telemetryIngestSchema = z.object({
   tenant_id: z.string().uuid("Invalid tenant ID"),
@@ -35,22 +35,35 @@ export async function POST(request: Request) {
       });
     }
 
-    const db = await resolveRequestDb(request);
-    if (!db) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+
+    if (payload.tenant_id !== scope.tenantId) {
+      return NextResponse.json({ success: false, error: "Tenant mismatch" }, { status: 403 });
     }
 
-    if (db.mode === "driver") {
-      if (db.driver?.tenant_id !== payload.tenant_id) {
-        return NextResponse.json({ success: false, error: "Tenant mismatch" }, { status: 403 });
-      }
-      if (db.driver.vehicle_id && db.driver.vehicle_id !== payload.vehicle_id) {
-        return NextResponse.json({ success: false, error: "Vehicle not assigned to driver" }, { status: 403 });
-      }
+    const { data: ownedVehicle } = await scope.client
+      .from("vehicles")
+      .select("id")
+      .eq("id", payload.vehicle_id)
+      .eq("tenant_id", scope.tenantId)
+      .maybeSingle();
+    if (!ownedVehicle) {
+      return NextResponse.json({ success: false, error: "Vehicle not found" }, { status: 404 });
     }
 
-    const { error } = await db.client.from("live_coordinates").insert({
-      tenant_id: payload.tenant_id,
+    const { data: ownedRoute } = await scope.client
+      .from("routes")
+      .select("id")
+      .eq("id", payload.route_id)
+      .eq("tenant_id", scope.tenantId)
+      .maybeSingle();
+    if (!ownedRoute) {
+      return NextResponse.json({ success: false, error: "Route not found" }, { status: 404 });
+    }
+
+    const { error } = await scope.client.from("live_coordinates").insert({
+      tenant_id: scope.tenantId,
       vehicle_id: payload.vehicle_id,
       route_id: payload.route_id,
       coordinates: `POINT(${payload.longitude} ${payload.latitude})`,

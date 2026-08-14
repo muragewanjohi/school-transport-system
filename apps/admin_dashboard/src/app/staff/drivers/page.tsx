@@ -55,6 +55,7 @@ export default function DriversManagement() {
     national_id: "",
     status: "Available" as "Available" | "Unavailable",
     avatar_url: "",
+    vehicle_id: "",
   });
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
@@ -173,31 +174,24 @@ export default function DriversManagement() {
   // Assign Driver to Bus
   const handleAssignBus = async (driverId: string, vehicleId: string) => {
     try {
-      // 1. Find the vehicle currently assigned to this driver and set it to null
-      const previousVehicle = vehicles.find(v => v.active_driver_id === driverId);
-      
-      if (previousVehicle) {
-        await fetch(`/api/fleet/${previousVehicle.id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ active_driver_id: null })
-        });
-      }
-
-      // 2. If assigning to a new vehicle
-      if (vehicleId) {
-        await fetch(`/api/fleet/${vehicleId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ active_driver_id: driverId })
-        });
+      const res = await fetch(`/api/drivers/${driverId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vehicle_id: vehicleId || null }),
+      });
+      const json = await res.json() as { success?: boolean; error?: string };
+      if (!json.success) {
+        alert(`Failed to save bus assignment: ${json.error || "Unknown error"}`);
+        await fetchInitialData();
+        return;
       }
 
       await fetchInitialData();
       alert("Driver vehicle assignment updated successfully!");
-
     } catch (err) {
       console.error("Failed to update driver assignment:", err);
+      alert("Failed to save bus assignment.");
+      await fetchInitialData();
     }
   };
 
@@ -231,14 +225,25 @@ export default function DriversManagement() {
         const res = await fetch("/api/drivers", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formValues)
+          body: JSON.stringify({
+            name: formValues.name,
+            phone: formValues.phone,
+            email: formValues.email,
+            national_id: formValues.national_id,
+            status: formValues.status,
+            avatar_url: formValues.avatar_url || null,
+            vehicle_id: formValues.vehicle_id || null,
+          })
         });
         const json = await res.json();
         if (json.success) {
-          await fetchDrivers();
+          await fetchInitialData();
           setShowDrawer(false);
           const otpMessage = json.sandbox_otp ? `\n\n[SANDBOX OTP FOR MOBILE LOGIN]: ${json.sandbox_otp}` : "";
-          alert(`Driver registered successfully! An OTP has been dispatched to their phone.${otpMessage}`);
+          const assignmentNote = json.assignment_error
+            ? `\n\nDriver was saved but the bus could not be assigned: ${json.assignment_error}`
+            : "";
+          alert(`Driver registered successfully! An OTP has been dispatched to their phone.${otpMessage}${assignmentNote}`);
         } else {
           const errorMsg = json.error || (json.errors ? Object.entries(json.errors).map(([k, v]) => `${k}: ${v}`).join(", ") : "Unknown validation error");
           alert(`Failed to register driver: ${errorMsg}`);
@@ -247,7 +252,14 @@ export default function DriversManagement() {
         const res = await fetch(`/api/drivers/${currentEditId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formValues)
+          body: JSON.stringify({
+            name: formValues.name,
+            phone: formValues.phone,
+            email: formValues.email,
+            national_id: formValues.national_id,
+            status: formValues.status,
+            avatar_url: formValues.avatar_url || null,
+          })
         });
         const json = await res.json();
         if (json.success) {
@@ -521,7 +533,7 @@ export default function DriversManagement() {
                 onClick={() => {
                   setDrawerMode("add");
                   setCurrentEditId(null);
-                  setFormValues({ name: "", phone: "", email: "", national_id: "", status: "Available", avatar_url: "" });
+                  setFormValues({ name: "", phone: "", email: "", national_id: "", status: "Available", avatar_url: "", vehicle_id: "" });
                   setFormErrors({});
                   setShowDrawer(true);
                 }}
@@ -600,7 +612,8 @@ export default function DriversManagement() {
                                 email: driver.email,
                                 national_id: driver.national_id || "",
                                 status: driver.status || "Available",
-                                avatar_url: driver.avatar_url || ""
+                                avatar_url: driver.avatar_url || "",
+                                vehicle_id: vehicles.find(v => v.active_driver_id === driver.id)?.id || ""
                               });
                               setShowDrawer(true);
                             }}
@@ -880,6 +893,30 @@ export default function DriversManagement() {
                   <option value="Unavailable">Unavailable (Off Duty / Sick)</option>
                 </select>
               </div>
+
+              {drawerMode === "add" && (
+                <div className="form-group">
+                  <label className="form-label">Allocated bus</label>
+                  <select
+                    name="vehicle_id"
+                    className="form-input"
+                    value={formValues.vehicle_id}
+                    onChange={handleInputChange}
+                  >
+                    <option value="">Standby (Unallocated / Parked)</option>
+                    {vehicles.map((vehicle) => (
+                      <option
+                        key={vehicle.id}
+                        value={vehicle.id}
+                        disabled={vehicle.active_driver_id !== null}
+                      >
+                        {vehicle.license_plate} - {vehicle.model}
+                        {vehicle.active_driver_id !== null ? " (Allocated)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
 
               <div style={{ display: "flex", gap: "12px", marginTop: "auto", paddingTop: "16px", borderTop: "1px solid var(--border-default)" }}>
                 <button

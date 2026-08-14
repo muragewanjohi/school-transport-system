@@ -2,19 +2,25 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Compass, Save } from "lucide-react";
+import { ArrowLeft, Compass, MapPin, Save } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import HomeLocationMapPicker from "@/components/HomeLocationMapPicker";
+import {
+  defaultSchoolId,
+  inferEndpointFromStop,
+  isMapVisible,
+  mergeSchoolOptions,
+  needsSchoolDropdown,
+  parseLocalSchoolLocations,
+  resolveEndpointPayload,
+  type EndpointDraft,
+  type LocationSource,
+  type SchoolOption,
+} from "@/lib/routeEndpointSelection";
 
 const NAIROBI_LAT = -1.2921;
 const NAIROBI_LNG = 36.8219;
-
-interface RouteStopLocation {
-  name: string;
-  latitude: number;
-  longitude: number;
-}
 
 interface RouteEditorFormProps {
   mode: "create" | "edit";
@@ -38,58 +44,108 @@ function parseStopPoint(stop: ApiStop | undefined): { lat: number; lng: number }
   return { lng: coords[0], lat: coords[1] };
 }
 
+function emptyEndpoint(schoolId: string): EndpointDraft {
+  return {
+    source: "school",
+    schoolId,
+    searchLocation: "",
+    latitude: NAIROBI_LAT,
+    longitude: NAIROBI_LNG,
+  };
+}
+
 export default function RouteEditorForm({ mode, routeId }: RouteEditorFormProps) {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(mode === "edit");
+  const [isLoading, setIsLoading] = useState(true);
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
   const [routeName, setRouteName] = useState("");
-  const [schoolName, setSchoolName] = useState("");
-  const [searchLocation, setSearchLocation] = useState("");
-  const [latitude, setLatitude] = useState(NAIROBI_LAT);
-  const [longitude, setLongitude] = useState(NAIROBI_LNG);
+  const [schools, setSchools] = useState<SchoolOption[]>([]);
+  const [start, setStart] = useState<EndpointDraft>(emptyEndpoint(""));
+  const [end, setEnd] = useState<EndpointDraft>(emptyEndpoint(""));
 
   useEffect(() => {
-    if (mode !== "edit" || !routeId) return;
-
     const load = async () => {
       setIsLoading(true);
       setErrorMsg(null);
       try {
-        const [routesRes, stopsRes] = await Promise.all([
-          fetch("/api/routes"),
-          fetch("/api/stops"),
+        const [campusRes, configRes] = await Promise.all([
+          fetch("/api/campuses"),
+          fetch("/api/config"),
         ]);
-        const routesJson = (await routesRes.json()) as {
+        const campusJson = (await campusRes.json()) as { success?: boolean; data?: SchoolOption[] };
+        const configJson = (await configRes.json()) as {
           success?: boolean;
-          data?: Array<{ id: string; name: string }>;
+          data?: { school_name?: string };
         };
-        const stopsJson = (await stopsRes.json()) as { success?: boolean; data?: ApiStop[] };
 
-        const route = routesJson.data?.find((r) => r.id === routeId);
-        if (!route) {
-          setErrorMsg("Route not found.");
-          return;
+        const fromApi = campusJson.success ? campusJson.data ?? [] : [];
+        const fromLocal = parseLocalSchoolLocations(
+          typeof window !== "undefined" ? localStorage.getItem("safaricom_school_locations") : null,
+        );
+        let nextSchools = mergeSchoolOptions(fromApi, fromLocal);
+        if (nextSchools.length === 0) {
+          const configName = configJson.data?.school_name?.trim();
+          nextSchools = [
+            {
+              id: "config-school",
+              name: configName && configName.length >= 2 ? configName : "School",
+              latitude: NAIROBI_LAT,
+              longitude: NAIROBI_LNG,
+            },
+          ];
         }
-        setRouteName(route.name);
+        setSchools(nextSchools);
+        const autoId = defaultSchoolId(nextSchools);
+        let nextStart = emptyEndpoint(autoId);
+        let nextEnd = emptyEndpoint(autoId);
 
-        const stops = [...(stopsJson.data ?? [])]
-          .filter((s) => s.route_id === routeId)
-          .sort((a, b) => a.sequence_no - b.sequence_no);
-        const first = stops[0];
-        const point = parseStopPoint(first);
-        if (first) {
-          setSchoolName(first.name);
-          setSearchLocation(first.name);
+        if (mode === "edit" && routeId) {
+          const [routesRes, stopsRes] = await Promise.all([
+            fetch("/api/routes"),
+            fetch("/api/stops"),
+          ]);
+          const routesJson = (await routesRes.json()) as {
+            success?: boolean;
+            data?: Array<{ id: string; name: string }>;
+          };
+          const stopsJson = (await stopsRes.json()) as { success?: boolean; data?: ApiStop[] };
+          const route = routesJson.data?.find((r) => r.id === routeId);
+          if (!route) {
+            setErrorMsg("Route not found.");
+            return;
+          }
+          setRouteName(route.name);
+
+          const stops = [...(stopsJson.data ?? [])]
+            .filter((s) => s.route_id === routeId)
+            .sort((a, b) => a.sequence_no - b.sequence_no);
+          const first = stops[0];
+          const last = stops[stops.length - 1];
+          const firstPoint = parseStopPoint(first);
+          const lastPoint = parseStopPoint(last);
+          nextStart = inferEndpointFromStop(
+            first && firstPoint
+              ? { name: first.name, latitude: firstPoint.lat, longitude: firstPoint.lng }
+              : null,
+            nextSchools,
+            nextStart,
+          );
+          nextEnd = inferEndpointFromStop(
+            last && lastPoint
+              ? { name: last.name, latitude: lastPoint.lat, longitude: lastPoint.lng }
+              : null,
+            nextSchools,
+            nextEnd,
+          );
         }
-        if (point) {
-          setLatitude(point.lat);
-          setLongitude(point.lng);
-        }
+
+        setStart(nextStart);
+        setEnd(nextEnd);
       } catch {
-        setErrorMsg("Failed to load route details.");
+        setErrorMsg(mode === "edit" ? "Failed to load route details." : "Failed to load school locations.");
       } finally {
         setIsLoading(false);
       }
@@ -98,20 +154,13 @@ export default function RouteEditorForm({ mode, routeId }: RouteEditorFormProps)
     void load();
   }, [mode, routeId]);
 
-  const schoolPayload = (): RouteStopLocation => ({
-    name: (schoolName.trim() || searchLocation.trim() || routeName.trim()),
-    latitude,
-    longitude,
-  });
-
   const validate = (): boolean => {
     const errors: Record<string, string> = {};
     if (routeName.trim().length < 2) errors.routeName = "Route name must be at least 2 characters";
-    const locName = schoolName.trim() || searchLocation.trim();
-    if (locName.length < 2) errors.schoolName = "School location name is required";
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      errors.location = "Pick a location on the map";
-    }
+    const startResult = resolveEndpointPayload(start, schools, "Start location");
+    const endResult = resolveEndpointPayload(end, schools, "End location");
+    if (!startResult.ok) errors.start = startResult.error;
+    if (!endResult.ok) errors.end = endResult.error;
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -119,10 +168,13 @@ export default function RouteEditorForm({ mode, routeId }: RouteEditorFormProps)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!validate()) return;
+    const startResult = resolveEndpointPayload(start, schools, "Start location");
+    const endResult = resolveEndpointPayload(end, schools, "End location");
+    if (!startResult.ok || !endResult.ok) return;
+
     setIsSubmitLoading(true);
     setErrorMsg(null);
 
-    const school = schoolPayload();
     try {
       if (mode === "create") {
         const res = await fetch("/api/routes", {
@@ -130,13 +182,14 @@ export default function RouteEditorForm({ mode, routeId }: RouteEditorFormProps)
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: routeName.trim(),
-            schoolStart: school,
-            schoolEnd: school,
+            schoolStart: startResult.value,
+            schoolEnd: endResult.value,
           }),
         });
-        const json = (await res.json()) as { success?: boolean; error?: string; errors?: Record<string, string[]> };
+        const json = (await res.json()) as { success?: boolean; error?: string };
         if (!json.success) {
           setErrorMsg(json.error || "Failed to create route");
+          setIsSubmitLoading(false);
           return;
         }
       } else if (routeId) {
@@ -145,20 +198,20 @@ export default function RouteEditorForm({ mode, routeId }: RouteEditorFormProps)
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: routeName.trim(),
-            schoolStart: school,
-            schoolEnd: school,
+            schoolStart: startResult.value,
+            schoolEnd: endResult.value,
           }),
         });
         const json = (await res.json()) as { success?: boolean; error?: string };
         if (!json.success) {
           setErrorMsg(json.error || "Failed to update route");
+          setIsSubmitLoading(false);
           return;
         }
       }
       router.push("/routes");
     } catch {
       setErrorMsg(mode === "create" ? "Failed to create route." : "Failed to update route.");
-    } finally {
       setIsSubmitLoading(false);
     }
   };
@@ -226,6 +279,10 @@ export default function RouteEditorForm({ mode, routeId }: RouteEditorFormProps)
           font-size: 0.75rem;
           color: var(--state-error);
         }
+        .form-hint-text {
+          font-size: 0.85rem;
+          color: var(--text-muted);
+        }
         .btn-action {
           display: flex;
           align-items: center;
@@ -245,6 +302,26 @@ export default function RouteEditorForm({ mode, routeId }: RouteEditorFormProps)
           background: transparent;
           border: 1px solid var(--border-default);
           color: var(--text-primary);
+        }
+        .location-source-toggle {
+          display: flex;
+          gap: 8px;
+        }
+        .location-source-toggle button {
+          flex: 1;
+          padding: 10px 12px;
+          border-radius: 12px;
+          border: 1px solid var(--border-default);
+          background: var(--input-bg);
+          color: var(--text-primary);
+          font-size: 0.85rem;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .location-source-toggle button.active {
+          border-color: var(--accent-primary);
+          background: rgba(4, 120, 87, 0.12);
+          color: var(--accent-primary-ink);
         }
       `}</style>
 
@@ -305,53 +382,27 @@ export default function RouteEditorForm({ mode, routeId }: RouteEditorFormProps)
                     <span className="form-error-text">{formErrors.routeName}</span>
                   )}
                 </div>
-                <div className="form-group" style={{ marginTop: 16 }}>
-                  <label className="form-label" htmlFor="school-name">
-                    School location name *
-                  </label>
-                  <input
-                    id="school-name"
-                    className="form-input"
-                    value={schoolName}
-                    onChange={(e) => setSchoolName(e.target.value)}
-                    placeholder="e.g. St. Mary's Academy"
-                    required
-                  />
-                  {formErrors.schoolName && (
-                    <span className="form-error-text">{formErrors.schoolName}</span>
-                  )}
-                </div>
               </div>
 
-              <div>
-                <h3 className="form-section-title">Map location</h3>
-                <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: 12 }}>
-                  Search a place, then click or drag the pin to set the exact coordinates.
-                </p>
-                <HomeLocationMapPicker
-                  address={searchLocation}
-                  latitude={latitude}
-                  longitude={longitude}
-                  searchLabel="Search location"
-                  searchPlaceholder="Search Google Maps for a school or landmark…"
-                  searchRequired={false}
-                  onAddressChange={(addr) => {
-                    setSearchLocation(addr);
-                    if (!schoolName.trim()) setSchoolName(addr);
-                  }}
-                  onLocationChange={(lat, lng, addr) => {
-                    setLatitude(lat);
-                    setLongitude(lng);
-                    if (addr) {
-                      setSearchLocation(addr);
-                      if (!schoolName.trim()) setSchoolName(addr);
-                    }
-                  }}
-                />
-                {formErrors.location && (
-                  <span className="form-error-text">{formErrors.location}</span>
-                )}
-              </div>
+              <RouteEndpointFields
+                heading="Start location"
+                schoolSelectId="start-school"
+                endpoint={start}
+                schools={schools}
+                error={formErrors.start}
+                fallbackName="Start location"
+                onChange={setStart}
+              />
+
+              <RouteEndpointFields
+                heading="End location"
+                schoolSelectId="end-school"
+                endpoint={end}
+                schools={schools}
+                error={formErrors.end}
+                fallbackName="End location"
+                onChange={setEnd}
+              />
 
               <div style={{ display: "flex", gap: 12, justifyContent: "flex-end" }}>
                 <button
@@ -376,6 +427,139 @@ export default function RouteEditorForm({ mode, routeId }: RouteEditorFormProps)
           )}
         </div>
       </main>
+    </div>
+  );
+}
+
+function RouteEndpointFields({
+  heading,
+  schoolSelectId,
+  endpoint,
+  schools,
+  error,
+  fallbackName,
+  onChange,
+}: {
+  heading: string;
+  schoolSelectId: string;
+  endpoint: EndpointDraft;
+  schools: SchoolOption[];
+  error?: string;
+  fallbackName: string;
+  onChange: (next: EndpointDraft) => void;
+}) {
+  const showDropdown = needsSchoolDropdown(schools);
+  const showMap = isMapVisible(endpoint.source);
+  const selectedSchool = schools.find((school) => school.id === endpoint.schoolId) ?? schools[0];
+
+  const setSource = (source: LocationSource) => {
+    if (source === "school" && selectedSchool) {
+      onChange({
+        ...endpoint,
+        source,
+        schoolId: endpoint.schoolId || selectedSchool.id,
+        searchLocation: selectedSchool.name,
+        latitude: selectedSchool.latitude,
+        longitude: selectedSchool.longitude,
+      });
+      return;
+    }
+    onChange({ ...endpoint, source });
+  };
+
+  return (
+    <div>
+      <h3 className="form-section-title">
+        <MapPin size={16} style={{ display: "inline", marginRight: 8 }} />
+        {heading} *
+      </h3>
+      <div className="form-group">
+        <div className="location-source-toggle" role="radiogroup" aria-label={`${heading} source`}>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={endpoint.source === "school"}
+            className={endpoint.source === "school" ? "active" : ""}
+            onClick={() => setSource("school")}
+          >
+            From school
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={endpoint.source === "custom"}
+            className={endpoint.source === "custom" ? "active" : ""}
+            onClick={() => setSource("custom")}
+          >
+            Choose location
+          </button>
+        </div>
+      </div>
+
+      {endpoint.source === "school" && showDropdown && (
+        <div className="form-group" style={{ marginTop: 12 }}>
+          <label className="form-label" htmlFor={schoolSelectId}>
+            School *
+          </label>
+          <select
+            id={schoolSelectId}
+            className="form-input"
+            value={endpoint.schoolId}
+            onChange={(e) => onChange({ ...endpoint, schoolId: e.target.value })}
+            required
+          >
+            <option value="" disabled>
+              -- Select school --
+            </option>
+            {schools.map((school) => (
+              <option key={school.id} value={school.id}>
+                {school.name}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {endpoint.source === "school" && !showDropdown && selectedSchool && (
+        <p className="form-hint-text" style={{ marginTop: 12 }}>
+          Using {selectedSchool.name}
+        </p>
+      )}
+
+      {endpoint.source === "school" && schools.length === 0 && (
+        <span className="form-error-text">No school location is configured.</span>
+      )}
+
+      {showMap && (
+        <div style={{ marginTop: 16 }}>
+          <p className="form-hint-text" style={{ marginBottom: 12 }}>
+            Search a place, then click or drag the pin. That point becomes the {fallbackName.toLowerCase()}.
+          </p>
+          <HomeLocationMapPicker
+            address={endpoint.searchLocation}
+            latitude={endpoint.latitude}
+            longitude={endpoint.longitude}
+            searchLabel="Search location"
+            searchPlaceholder="Search Google Maps for a landmark…"
+            searchRequired={false}
+            onAddressChange={(addr) => onChange({ ...endpoint, searchLocation: addr })}
+            onLocationChange={(lat, lng, addr) =>
+              onChange({
+                ...endpoint,
+                latitude: lat,
+                longitude: lng,
+                searchLocation: addr || endpoint.searchLocation,
+              })
+            }
+          />
+        </div>
+      )}
+
+      {error && (
+        <span className="form-error-text" style={{ marginTop: 8 }}>
+          {error}
+        </span>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const stopUpdateSchema = z.object({
   route_id: z.string().min(1).optional(),
@@ -27,16 +28,14 @@ export async function PUT(
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
     }
 
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
       return NextResponse.json({ success: true, source: "mock", data: { id, ...result.data } });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
 
-    const updatePayload: Record<string, any> = {};
+    const updatePayload: Record<string, unknown> = {};
     if (result.data.route_id !== undefined) updatePayload.route_id = result.data.route_id;
     if (result.data.name !== undefined) updatePayload.name = result.data.name;
     if (result.data.sequence_no !== undefined) updatePayload.sequence_no = result.data.sequence_no;
@@ -49,16 +48,33 @@ export async function PUT(
       updatePayload.location = `POINT(${result.data.longitude} ${result.data.latitude})`;
     }
 
-    const { data: stopUpdate, error } = await client
+    if (result.data.route_id) {
+      const { data: ownedRoute } = await scope.client
+        .from("routes")
+        .select("id")
+        .eq("id", result.data.route_id)
+        .eq("tenant_id", scope.tenantId)
+        .maybeSingle();
+      if (!ownedRoute) {
+        return NextResponse.json({ success: false, error: "Route not found" }, { status: 404 });
+      }
+    }
+
+    const { data: stopUpdate, error } = await scope.client
       .from("stops")
       .update(updatePayload)
       .eq("id", id)
+      .eq("tenant_id", scope.tenantId)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       console.error(`Supabase stop update error for ${id}:`, error.message);
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    if (!stopUpdate) {
+      return NextResponse.json({ success: false, error: "Stop not found" }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, source: "supabase", data: stopUpdate });
@@ -74,23 +90,29 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
       return NextResponse.json({ success: true, source: "mock" });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
 
-    const { error } = await client
+    const { data: deleted, error } = await scope.client
       .from("stops")
       .delete()
-      .eq("id", id);
+      .eq("id", id)
+      .eq("tenant_id", scope.tenantId)
+      .select("id")
+      .maybeSingle();
 
     if (error) {
       console.error(`Supabase stop delete error for ${id}:`, error.message);
       return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    }
+
+    if (!deleted) {
+      return NextResponse.json({ success: false, error: "Stop not found" }, { status: 404 });
     }
 
     return NextResponse.json({ success: true, source: "supabase" });

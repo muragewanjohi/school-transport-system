@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { z } from "zod";
 
 const adminCreateSchema = z.object({
@@ -9,36 +10,27 @@ const adminCreateSchema = z.object({
   admin_role: z.enum(["Super Admin", "Operations Admin", "Bursar", "Dispatcher", "Fleet Manager", "Roster Manager"]),
 });
 
-const mockAdmins = [
-  { id: "adm-1", name: "Sarah Jenkins", email: "sarah.jenkins@school.com", phone: "+254 700 111 222", role: "school_admin", admin_role: "Super Admin", national_id: "29402940", status: "Available" },
-  { id: "adm-2", name: "Robert Kiprop", email: "robert.kiprop@school.com", phone: "+254 700 333 444", role: "school_admin", admin_role: "Dispatcher", national_id: "28304910", status: "Available" },
-  { id: "adm-3", name: "Alice Koech", email: "alice.koech@school.com", phone: "+254 722 890 123", role: "school_admin", admin_role: "Fleet Manager", national_id: "28405911", status: "Available" },
-  { id: "adm-4", name: "David Ndwiga", email: "david.ndwiga@school.com", phone: "+254 755 123 456", role: "school_admin", admin_role: "Roster Manager", national_id: "29402941", status: "Available" }
-];
-
 export async function GET(request: Request) {
   try {
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
-      return NextResponse.json({ success: true, source: "mock", data: mockAdmins });
+      return NextResponse.json({ success: true, source: "mock", data: [] });
     }
 
-    const client = getSupabaseClient(token);
-    
-    const { data: admins, error } = await client
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+
+    const { data: admins, error } = await scope.client
       .from("profiles")
       .select("id, name, phone, email, role, admin_role, national_id, status")
-      .eq("role", "school_admin");
+      .eq("role", "school_admin")
+      .eq("tenant_id", scope.tenantId);
 
     if (error) {
       console.warn("Supabase administrators fetch error:", error.message);
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: mockAdmins });
+      return NextResponse.json({ success: false, error: "Failed to load administrators" }, { status: 500 });
     }
 
-    const adminsList = admins && admins.length > 0 ? admins : mockAdmins;
-    return NextResponse.json({ success: true, source: "supabase", data: adminsList });
+    return NextResponse.json({ success: true, source: "supabase", data: admins ?? [] });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
@@ -55,9 +47,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
     }
 
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
       const newMockAdmin = {
         id: `adm-${Math.floor(Math.random() * 1000)}`,
@@ -69,14 +58,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: newMockAdmin });
     }
 
-    const client = getSupabaseClient(token);
-
-    // Get first tenant ID
-    let tenantId = "8c9ad841-f762-4217-a021-9876251b5bcf";
-    const { data: tenants } = await client.from("tenants").select("id").limit(1);
-    if (tenants && tenants.length > 0) {
-      tenantId = tenants[0].id;
-    }
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
     const payload = {
       id: crypto.randomUUID(),

@@ -187,6 +187,13 @@ Before moving an item to **Completed**, confirm:
 - School-facing security brief (2026-08-10): [architecture-security.md](architecture-security.md) for IT/procurement answers (tenant isolation, roles, RLS, NFC, parent map privacy, demo SMS dry-run, hosting posture).
 - Admin console contrast (2026-08-14): form inputs use inset `--input-bg` (same as `--bg-base`) with `--text-primary` ink like dashboard Trip Summary rows; Today's Trips dropped hardcoded white-on-grey. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/themeTokens.test.ts`, `src/lib/tripStatusUi.test.ts`.
 - Admin WCAG roster contrast (2026-08-14): driver/conductor/administrator cards and other navy leftover tiles use `--bg-surface` with WCAG AA body/muted tokens (`--text-muted` `#475569`, `--accent-fill` `#047857`). BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/wcagContrast.test.ts`, `src/lib/themeTokens.test.ts`.
+- Create stop success redirect (2026-08-14): after a stop is created or updated, the operator is sent to Stops & Stages (`/routes/stops`) with a success banner so they do not resubmit the same sequence. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/stopEditorNavigation.test.ts`.
+- Route start and end location (2026-08-14): Add/Edit Route replaces school location name with Start location and End location. Default is From school (map hidden); multiple schools require a dropdown; Choose location reveals the map and uses the pin. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/routeEndpointSelection.test.ts`, `src/app/api/campuses/route.test.ts`.
+- Attach existing stops to a route (2026-08-14): Route planner **Add existing** copies selected stages from other routes onto the current route, placed before the end stop. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/attachStopsToRoute.test.ts`, `src/app/api/stops/attach/route.test.ts`.
+- Tenant-scoped school data (2026-08-14): Admin operational APIs (list + detail/mutate) filter by the school subdomain + caller tenant (no `tenants.limit(1)`, no unfiltered service-role lists). Platform operators on a school host see only that school. Driver/parent APIs use session `tenant_id`. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/tenantScope.test.ts`, `src/lib/tenantApiCoverage.test.ts`.
+- Empty staff roster (2026-08-14): Drivers, conductors, and administrators APIs return `[]` when none are registered — static demo names (John Kamau, Jane Wanjiku, Sarah Jenkins, …) are removed. BDD in [bdd.md](bdd.md) Status `passing` — `src/app/api/staffEmptyList.test.ts`.
+- Driver bus assignment (2026-08-14): Register Driver includes Allocated bus; card allocation writes `vehicles.active_driver_id` via the driver API and only toasts success after a confirmed save. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/assignDriverVehicle.test.ts`, `src/app/api/drivers/route.test.ts`.
+- Add Trip required-field messages (2026-08-14): Save Trip without required fields shows “Please fill in: …” (e.g. target grade classes) instead of “Failed to save schedule”. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/scheduleFormValidation.test.ts`, `src/app/api/schedules/route.test.ts`.
 
 ## In Progress
 
@@ -199,7 +206,6 @@ Before moving an item to **Completed**, confirm:
 - Add `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SITE_URL` to `.env.local` and Vercel (required for school invite emails).
 - Supabase Auth URL config (hosted): Site URL = `https://onthebusapp.com`; Redirect URLs include `https://*.onthebusapp.com/**`. Invite `redirectTo` must never be localhost — fixed via `getTenantInviteRedirectUrl`.
 - Sign out/in as `muragedev@gmail.com` and verify `/schools`.
-- Phase 2: Resolve `tenant_id` from JWT on all admin APIs (stop `tenants.limit(1)`); enforce null-tenant platform vs scoped school admin.
 - Phase 3: Tenant impersonation + PII masking for platform support.
 - Persist campus location usage in route builder (replace local-only School Locations state).
 - Attendance logs and alerts history consoles.

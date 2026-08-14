@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { resolveRequestDb } from "@/lib/driverSession";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
+import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 const tripCreateSchema = z.object({
   schedule_id: z.string().min(1, "Invalid Schedule selection"),
@@ -94,15 +94,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: filteredTrips });
     }
 
-    const db = await resolveRequestDb(request);
-    if (!db) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-    const client = db.client;
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
 
     if (tripId) {
       // Get detailed manifest of a trip
-      let manifestQuery = client
+      const { data: manifests, error: manifestError } = await client
         .from("trip_manifests")
         .select(`
           id,
@@ -120,11 +118,8 @@ export async function GET(request: Request) {
             dropoff_stop_id
           )
         `)
-        .eq("trip_id", tripId);
-      if (db.driver?.tenant_id) {
-        manifestQuery = manifestQuery.eq("tenant_id", db.driver.tenant_id);
-      }
-      const { data: manifests, error: manifestError } = await manifestQuery;
+        .eq("trip_id", tripId)
+        .eq("tenant_id", scope.tenantId);
 
       if (manifestError) {
         console.warn("Supabase fetch manifest error:", manifestError.message);
@@ -135,7 +130,7 @@ export async function GET(request: Request) {
     }
 
     // List all trips
-    let query = client.from("trips").select("id, tenant_id, schedule_id, route_id, vehicle_id, driver_id, conductor_1_id, trip_date, status, started_at, completed_at, created_at, status_override, description, custom_departure_time");
+    let query = client.from("trips").select("id, tenant_id, schedule_id, route_id, vehicle_id, driver_id, conductor_1_id, trip_date, status, started_at, completed_at, created_at, status_override, description, custom_departure_time").eq("tenant_id", scope.tenantId);
     
     if (scheduleId) {
       query = query.eq("schedule_id", scheduleId);
@@ -163,9 +158,6 @@ export async function POST(request: Request) {
     if (!result.success) {
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
     }
-
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
       const tripId = `trip-${Math.floor(Math.random() * 1000)}`;
@@ -213,13 +205,29 @@ export async function POST(request: Request) {
       });
     }
 
-    const client = getSupabaseClient(token);
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
+    const tenantId = scope.tenantId;
 
-    // Fetch tenant ID
-    let tenantId = "8c9ad841-f762-4217-a021-9876251b5bcf";
-    const { data: tenants } = await client.from("tenants").select("id").limit(1);
-    if (tenants && tenants.length > 0) {
-      tenantId = tenants[0].id;
+    const { data: ownedSchedule } = await client
+      .from("schedules")
+      .select("id")
+      .eq("id", result.data.schedule_id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (!ownedSchedule) {
+      return NextResponse.json({ success: false, error: "Schedule not found" }, { status: 404 });
+    }
+
+    const { data: ownedRoute } = await client
+      .from("routes")
+      .select("id")
+      .eq("id", result.data.route_id)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+    if (!ownedRoute) {
+      return NextResponse.json({ success: false, error: "Route not found" }, { status: 404 });
     }
 
     const tripId = crypto.randomUUID();
@@ -254,6 +262,7 @@ export async function POST(request: Request) {
     const { data: students, error: studentsError } = await client
       .from("students")
       .select("id, name, grade, class_name, pickup_stop_id, dropoff_stop_id")
+      .eq("tenant_id", tenantId)
       .contains("schedule_ids", [result.data.schedule_id]);
 
     if (studentsError) {
@@ -321,9 +330,6 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
     }
 
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
-
     if (!isSupabaseConfigured) {
       if (result.data.trip_id && result.data.status === "in_progress") {
         console.log(`[Notification Simulator] All parents of students on trip ${result.data.trip_id}'s route have been notified: Bus has left school.`);
@@ -331,11 +337,9 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: result.data });
     }
 
-    const db = await resolveRequestDb(request);
-    if (!db) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-    const client = db.client;
+    const scope = await requireOperationalTenant(request);
+    if (!scope.ok) return tenantScopeError(scope);
+    const client = scope.client;
 
     if (result.data.manifest_id && result.data.attendance) {
       const updateData: Record<string, any> = { attendance: result.data.attendance };
@@ -349,11 +353,16 @@ export async function PUT(request: Request) {
         .from("trip_manifests")
         .update(updateData)
         .eq("id", result.data.manifest_id)
+        .eq("tenant_id", scope.tenantId)
         .select()
-        .single();
+        .maybeSingle();
 
       if (manifestError) {
         return NextResponse.json({ success: false, error: manifestError.message }, { status: 400 });
+      }
+
+      if (!manifestUpdate) {
+        return NextResponse.json({ success: false, error: "Manifest not found" }, { status: 404 });
       }
 
       return NextResponse.json({ success: true, source: "supabase", data: manifestUpdate });
@@ -383,11 +392,16 @@ export async function PUT(request: Request) {
         .from("trips")
         .update(updateData)
         .eq("id", result.data.trip_id)
+        .eq("tenant_id", scope.tenantId)
         .select()
-        .single();
+        .maybeSingle();
 
       if (tripError) {
         return NextResponse.json({ success: false, error: tripError.message }, { status: 400 });
+      }
+
+      if (!tripUpdate) {
+        return NextResponse.json({ success: false, error: "Trip not found" }, { status: 404 });
       }
 
       await sendTripNotifications(client, tripUpdate);
@@ -456,7 +470,8 @@ async function sendTripNotifications(
     const { data: students } = await client
       .from("students")
       .select("id, name, parent_id")
-      .eq("route_id", trip.route_id);
+      .eq("route_id", trip.route_id)
+      .eq("tenant_id", trip.tenant_id);
 
     if (students && students.length > 0) {
       const alertPayloads = students
