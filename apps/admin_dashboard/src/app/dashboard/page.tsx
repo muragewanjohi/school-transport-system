@@ -4,15 +4,12 @@ import React, { useState, useEffect, useRef, useMemo } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
-  Plus,
-  Play,
   Users,
   Bus,
   Clock,
   Bell,
   CheckCircle2,
   Info,
-  Wrench,
   Building2,
   Route as RouteIcon,
 } from "lucide-react";
@@ -20,6 +17,13 @@ import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import { ThemeToggle } from "@/components/ThemeProvider";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
+import {
+  classifyTelemetry,
+  latestTelemetryByVehicle,
+  parseTelemetryLatLng,
+  type FleetTelemetryRow,
+} from "@/lib/fleetMapTelemetry";
+import { adminStopAlertMessage, type StopVisitOutcome } from "@/lib/stopVisitOutcome";
 
 declare global {
   interface Window {
@@ -78,6 +82,36 @@ interface DBStop {
   };
 }
 
+type StopVisitAlertRow = {
+  id: string;
+  outcome: StopVisitOutcome;
+  dwell_seconds: number;
+  created_at: string;
+  stop_name: string;
+  route_name: string;
+  vehicle_plate: string;
+};
+
+function stopVisitToEvent(row: StopVisitAlertRow): TelemetryEvent {
+  const created = new Date(row.created_at);
+  const time = Number.isNaN(created.getTime())
+    ? ""
+    : created.toLocaleTimeString("en-US", { hour12: true });
+  return {
+    id: row.id,
+    time,
+    route: row.vehicle_plate || row.route_name,
+    type: "error",
+    message:
+      adminStopAlertMessage({
+        outcome: row.outcome,
+        stopName: row.stop_name,
+        routeName: row.route_name,
+        vehiclePlate: row.vehicle_plate,
+      }) ?? `${row.vehicle_plate} stop update at ${row.stop_name}`,
+  };
+}
+
 const LIGHT_MAP_STYLES: unknown[] = [];
 const DARK_MAP_STYLES = [
   { elementType: "geometry", stylers: [{ color: "#1d2c4d" }] },
@@ -88,12 +122,10 @@ const DARK_MAP_STYLES = [
 ];
 
 export default function DashboardPage() {
-  const [busesActive, setBusesActive] = useState(3);
+  const [busesActive, setBusesActive] = useState(0);
   const [boardedCount, setBoardedCount] = useState(0);
-  const [alertCount, setAlertCount] = useState(48);
-  const [sosCount, setSosCount] = useState(0);
-  const [impersonating, setImpersonating] = useState(false);
-  const [opsOpen, setOpsOpen] = useState(false);
+  const [alertCount, setAlertCount] = useState(0);
+  const sosCount = 0;
   const [schoolName, setSchoolName] = useState("School Dashboard");
 
   const [students, setStudents] = useState<DBStudent[]>([]);
@@ -105,51 +137,93 @@ export default function DashboardPage() {
     scheduled: 0,
   });
 
-  const [events, setEvents] = useState<TelemetryEvent[]>([
-    {
-      id: "1",
-      time: "07:28:12 AM",
-      route: "Morning Route 2",
-      type: "success",
-      message: "SMS Alert Dispatched via Africa's Talking -> +254 703 *** 122",
-    },
-    {
-      id: "2",
-      time: "07:28:10 AM",
-      route: "Morning Route 2",
-      type: "info",
-      message: "Bus entered pickup geofence (Elsa's Home)",
-    },
-    {
-      id: "3",
-      time: "07:26:01 AM",
-      route: "Morning Route 4",
-      type: "success",
-      message: "Student (James Omondi) Boarded via NFC Card Tap",
-    },
-    {
-      id: "4",
-      time: "07:24:14 AM",
-      route: "Morning Route 4",
-      type: "error",
-      message: "Bus 7 exceeded speed limit",
-    },
-    {
-      id: "5",
-      time: "07:24:12 AM",
-      route: "Morning Route 4",
-      type: "info",
-      message: "Bus entered pickup geofence (James's Home)",
-    },
-  ]);
+  const [events, setEvents] = useState<TelemetryEvent[]>([]);
 
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const markersRef = useRef<{ [key: string]: any }>({});
-  const opsRef = useRef<HTMLDivElement>(null);
-  const simulationStopIndexRef = useRef<number>(0);
+  const vehicleLabelsRef = useRef<Record<string, string>>({});
+  const didFitBoundsRef = useRef(false);
+  const [mapReady, setMapReady] = useState(false);
+  const [fleetLegend, setFleetLegend] = useState({ moving: 0, stopped: 0, stale: 0 });
 
   const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
+
+  const upsertBusMarker = (vehicleId: string, lat: number, lng: number, title: string) => {
+    if (!mapRef.current || !window.google?.maps) return;
+    const existing = markersRef.current[vehicleId];
+    if (existing) {
+      existing.setPosition({ lat, lng });
+      existing.setTitle(title);
+      return;
+    }
+    const busMarker = new window.google.maps.Marker({
+      position: { lat, lng },
+      map: mapRef.current,
+      title,
+      icon: {
+        url: "/assets/bus-icon.png",
+        scaledSize: new window.google.maps.Size(46, 46),
+        origin: new window.google.maps.Point(0, 0),
+        anchor: new window.google.maps.Point(23, 23),
+      },
+    });
+    markersRef.current[vehicleId] = busMarker;
+  };
+
+  const applyTelemetryToMap = (rows: FleetTelemetryRow[], fitBounds: boolean) => {
+    if (!mapRef.current || !window.google?.maps) return;
+    const latest = latestTelemetryByVehicle(rows);
+    let moving = 0;
+    let stopped = 0;
+    let stale = 0;
+    const bounds = new window.google.maps.LatLngBounds();
+    let hasPoint = false;
+    for (const row of latest) {
+      const point = parseTelemetryLatLng(row.coordinates);
+      if (!point) continue;
+      const title = vehicleLabelsRef.current[row.vehicle_id] || "Bus";
+      upsertBusMarker(row.vehicle_id, point.lat, point.lng, title);
+      bounds.extend({ lat: point.lat, lng: point.lng });
+      hasPoint = true;
+      const kind = classifyTelemetry(row);
+      if (kind === "moving") moving += 1;
+      else if (kind === "stopped") stopped += 1;
+      else stale += 1;
+    }
+    setFleetLegend({ moving, stopped, stale });
+    setBusesActive(moving + stopped);
+    if (fitBounds && hasPoint && !didFitBoundsRef.current) {
+      mapRef.current.fitBounds(bounds, 80);
+      didFitBoundsRef.current = true;
+    }
+  };
+
+  const loadLiveFleet = async (fitBounds: boolean) => {
+    try {
+      const [fleetRes, teleRes] = await Promise.all([fetch("/api/fleet"), fetch("/api/telemetry")]);
+      const fleetJson = (await fleetRes.json()) as {
+        success?: boolean;
+        data?: Array<{ id: string; license_plate?: string }>;
+      };
+      if (fleetJson.success && Array.isArray(fleetJson.data)) {
+        const labels: Record<string, string> = {};
+        for (const v of fleetJson.data) {
+          labels[v.id] = v.license_plate || "Bus";
+        }
+        vehicleLabelsRef.current = labels;
+      }
+      const teleJson = (await teleRes.json()) as {
+        success?: boolean;
+        data?: FleetTelemetryRow[];
+      };
+      if (teleJson.success && Array.isArray(teleJson.data)) {
+        applyTelemetryToMap(teleJson.data, fitBounds);
+      }
+    } catch (err) {
+      console.error("Failed to load live fleet positions:", err);
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -200,76 +274,37 @@ export default function DashboardPage() {
         })
         .catch((err) => console.error("Error loading map routes:", err));
 
-      const savedSchools = localStorage.getItem("safaricom_school_locations");
-      let schoolLocations = [
-        {
-          id: "school-loc-1",
-          name: "School Campus",
-          latitude: -1.2921,
-          longitude: 36.8219,
-        },
-      ];
-      if (savedSchools) {
-        try {
-          const parsed = JSON.parse(savedSchools);
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            schoolLocations = parsed;
-          }
-        } catch (e) {
-          console.error("Failed to parse school locations:", e);
-        }
-      }
-
-      schoolLocations.forEach((loc) => {
-        if (!isMounted || !mapRef.current) return;
-
-        const schoolMarker = new window.google.maps.Marker({
-          position: { lat: loc.latitude, lng: loc.longitude },
-          map: map,
-          title: loc.name,
-          icon: {
-            url: "/assets/school-location-icon.png",
-            scaledSize: new window.google.maps.Size(42, 42),
-            origin: new window.google.maps.Point(0, 0),
-            anchor: new window.google.maps.Point(21, 21),
-          },
-        });
-
-        const infoWindow = new window.google.maps.InfoWindow({
-          content: `<div style="color:#0f172a; padding:4px; font-family:sans-serif;">
+      fetch("/api/campuses")
+        .then((res) => res.json())
+        .then((json: { success?: boolean; data?: Array<{ name: string; latitude: number; longitude: number }> }) => {
+          if (!isMounted || !mapRef.current || !json.success || !Array.isArray(json.data)) return;
+          json.data.forEach((loc) => {
+            const schoolMarker = new window.google.maps.Marker({
+              position: { lat: loc.latitude, lng: loc.longitude },
+              map: map,
+              title: loc.name,
+              icon: {
+                url: "/assets/school-location-icon.png",
+                scaledSize: new window.google.maps.Size(42, 42),
+                origin: new window.google.maps.Point(0, 0),
+                anchor: new window.google.maps.Point(21, 21),
+              },
+            });
+            const infoWindow = new window.google.maps.InfoWindow({
+              content: `<div style="color:#0f172a; padding:4px; font-family:sans-serif;">
             <h4 style="margin:0 0 4px 0; font-weight:600;">School: ${loc.name}</h4>
             <span style="font-size:0.75rem; color:#64748b;">Coordinates: ${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)}</span>
           </div>`,
-        });
+            });
+            schoolMarker.addListener("click", () => {
+              infoWindow.open(map, schoolMarker);
+            });
+          });
+        })
+        .catch((err) => console.error("Error loading campus markers:", err));
 
-        schoolMarker.addListener("click", () => {
-          infoWindow.open(map, schoolMarker);
-        });
-      });
-
-      const defaultBuses = [
-        { id: "bus-4", name: "KBZ 445B (Morning Run)", lat: -1.2721, lng: 36.7981 },
-        { id: "bus-2", name: "KCD 542A (Morning Run)", lat: -1.2699, lng: 36.8115 },
-        { id: "bus-1", name: "KBC 104D (Parked)", lat: -1.2612, lng: 36.8021 },
-      ];
-
-      defaultBuses.forEach((bus) => {
-        if (!isMounted || !mapRef.current) return;
-
-        const busMarker = new window.google.maps.Marker({
-          position: { lat: bus.lat, lng: bus.lng },
-          map: map,
-          title: bus.name,
-          icon: {
-            url: "/assets/bus-icon.png",
-            scaledSize: new window.google.maps.Size(46, 46),
-            origin: new window.google.maps.Point(0, 0),
-            anchor: new window.google.maps.Point(23, 23),
-          },
-        });
-
-        markersRef.current[bus.id] = busMarker;
-      });
+      void loadLiveFleet(true);
+      setMapReady(true);
     };
 
     if (window.google && window.google.maps) {
@@ -326,23 +361,40 @@ export default function DashboardPage() {
 
           const speedVal = record.speed ? `${record.speed} km/h` : "N/A";
           const newTime = new Date().toLocaleTimeString("en-US", { hour12: true });
+          const plate = vehicleLabelsRef.current[record.vehicle_id] || "Bus";
 
           const newEvent: TelemetryEvent = {
             id: record.id || Date.now().toString(),
             time: newTime,
-            route: `Route ${record.route_id?.slice(0, 4) || "Live"}`,
+            route: plate,
             type: "info",
-            message: `DB Live Feed: Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)} (${speedVal})`,
+            message: `Live GPS: Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)} (${speedVal})`,
           };
 
           setEvents((prev) => [newEvent, ...prev.slice(0, 15)]);
-          setAlertCount((prev) => prev + 1);
 
-          const key = record.vehicle_id || "bus-4";
-          if (markersRef.current[key] && mapRef.current) {
-            markersRef.current[key].setPosition({ lat, lng });
+          if (record.vehicle_id && mapRef.current) {
+            upsertBusMarker(record.vehicle_id, lat, lng, plate);
             mapRef.current.panTo({ lat, lng });
           }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "trip_stop_visits" },
+        () => {
+          void fetch("/api/alerts")
+            .then((res) => res.json())
+            .then((json: { success?: boolean; data?: StopVisitAlertRow[] }) => {
+              if (!json.success || !Array.isArray(json.data)) return;
+              const alertEvents = json.data.map(stopVisitToEvent);
+              setAlertCount(alertEvents.length);
+              setEvents((prev) => {
+                const ids = new Set(alertEvents.map((e) => e.id));
+                const rest = prev.filter((e) => !ids.has(e.id));
+                return [...alertEvents, ...rest].slice(0, 16);
+              });
+            });
         }
       )
       .subscribe();
@@ -353,14 +405,24 @@ export default function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    if (!mapReady) return;
+    void loadLiveFleet(true);
+    const timer = window.setInterval(() => {
+      void loadLiveFleet(false);
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [mapReady]);
+
+  useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const [stopsRes, routesRes, studentsRes, configRes, tripsRes] = await Promise.all([
+        const [stopsRes, routesRes, studentsRes, configRes, tripsRes, alertsRes] = await Promise.all([
           fetch("/api/stops"),
           fetch("/api/routes"),
           fetch("/api/students"),
           fetch("/api/config"),
           fetch("/api/trips"),
+          fetch("/api/alerts"),
         ]);
 
         const stopsJson = await stopsRes.json();
@@ -395,9 +457,18 @@ export default function DashboardPage() {
           setTripCounts({
             completed,
             ongoing,
-            scheduled: scheduled || trips.length,
+            scheduled,
           });
-          if (ongoing > 0) setBusesActive(ongoing);
+        }
+
+        const alertsJson = await alertsRes.json();
+        if (alertsJson.success && Array.isArray(alertsJson.data)) {
+          const alertEvents = (alertsJson.data as StopVisitAlertRow[]).map(stopVisitToEvent);
+          setAlertCount(alertEvents.length);
+          setEvents((prev) => {
+            const gps = prev.filter((e) => !e.id.startsWith("alert-") && !alertEvents.some((a) => a.id === e.id));
+            return [...alertEvents, ...gps].slice(0, 16);
+          });
         }
       } catch (err) {
         console.error("Failed to load dashboard overview data:", err);
@@ -405,154 +476,6 @@ export default function DashboardPage() {
     };
     fetchDashboardData();
   }, []);
-
-  useEffect(() => {
-    const onDocClick = (e: MouseEvent) => {
-      if (!opsRef.current?.contains(e.target as Node)) {
-        setOpsOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, []);
-
-  const handleSimulateGPS = async () => {
-    let lat = -1.2721;
-    let lng = 36.8045;
-    let stopName = "";
-    let smsEvents: TelemetryEvent[] = [];
-
-    const activeRouteId = stops.length > 0 ? stops[0].route_id : "route-4";
-    let chosenRouteName = "Morning Route 4";
-    const matchedRoute = routes.find((r) => r.id === activeRouteId);
-    if (matchedRoute) {
-      chosenRouteName = matchedRoute.name;
-    }
-
-    const routeStops = stops
-      .filter((s) => s.route_id === activeRouteId)
-      .sort((a, b) => a.sequence_no - b.sequence_no);
-
-    if (routeStops.length > 0) {
-      const idx = simulationStopIndexRef.current % routeStops.length;
-      simulationStopIndexRef.current += 1;
-
-      const targetStop = routeStops[idx];
-      lng = targetStop.location?.coordinates?.[0] ?? lng;
-      lat = targetStop.location?.coordinates?.[1] ?? lat;
-      stopName = targetStop.name;
-
-      const nextStop = routeStops[idx + 1];
-      if (nextStop) {
-        const nextStopStudents = students.filter(
-          (s) =>
-            s.route_id === activeRouteId &&
-            (s.pickup_stop_id === nextStop.id || s.dropoff_stop_id === nextStop.id)
-        );
-
-        nextStopStudents.forEach((student) => {
-          const parent = student.guardians && student.guardians[0];
-          const parentPhone = parent ? parent.phone : "+254703000122";
-
-          smsEvents.push({
-            id: `sms-${student.id}-${Date.now()}-${Math.random()}`,
-            time: new Date().toLocaleTimeString("en-US", { hour12: true }),
-            route: chosenRouteName,
-            type: "success",
-            message: `SMS alert sent to ${student.name}'s parent -> ${parentPhone}`,
-          });
-        });
-      }
-    } else {
-      lat = -1.2721 + (Math.random() * 0.02 - 0.01);
-      lng = 36.8045 + (Math.random() * 0.02 - 0.01);
-    }
-
-    const newTime = new Date().toLocaleTimeString("en-US", { hour12: true });
-
-    const geofenceEvent: TelemetryEvent = {
-      id: `geo-${Date.now()}`,
-      time: newTime,
-      route: chosenRouteName,
-      type: "info",
-      message: stopName
-        ? `Bus entered geofence: ${stopName}`
-        : `Telemetry ping: Lat ${lat.toFixed(5)}, Lng ${lng.toFixed(5)}`,
-    };
-
-    setEvents((prev) => [...smsEvents, geofenceEvent, ...prev].slice(0, 15));
-    setAlertCount((prev) => prev + smsEvents.length);
-
-    if (markersRef.current["bus-4"] && mapRef.current) {
-      markersRef.current["bus-4"].setPosition({ lat, lng });
-      mapRef.current.panTo({ lat, lng });
-    }
-
-    if (isSupabaseConfigured) {
-      try {
-        await fetch("/api/telemetry", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            vehicle_id: "8c9ad841-f762-4217-a021-9876251b5bcf",
-            route_id: activeRouteId,
-            latitude: lat,
-            longitude: lng,
-            speed: Math.floor(Math.random() * 25) + 20,
-            bearing: Math.floor(Math.random() * 360),
-          }),
-        });
-      } catch (err) {
-        console.error("Failed to post simulation telemetry payload:", err);
-      }
-    }
-    setOpsOpen(false);
-  };
-
-  const handleSimulateNFC = () => {
-    const newTime = new Date().toLocaleTimeString("en-US", { hour12: true });
-    const studentsList = ["Fatuma Ali", "Brian Koech", "Mary Mwangi", "James Omondi"];
-    const chosenStudent = studentsList[Math.floor(Math.random() * studentsList.length)];
-
-    setBoardedCount((prev) => prev + 1);
-
-    setEvents((prev) => [
-      {
-        id: Date.now().toString(),
-        time: newTime,
-        route: "Morning Route 4",
-        type: "success",
-        message: `Student (${chosenStudent}) Checked-In successfully via NFC tap`,
-      },
-      ...prev.slice(0, 15),
-    ]);
-    setOpsOpen(false);
-  };
-
-  const handleTriggerSOS = () => {
-    const newTime = new Date().toLocaleTimeString("en-US", { hour12: true });
-    setSosCount((prev) => prev + 1);
-
-    setEvents((prev) => [
-      {
-        id: Date.now().toString(),
-        time: newTime,
-        route: "Morning Route 2",
-        type: "error",
-        message: "CRITICAL: Driver triggered SOS Alert coordinates streamed!",
-      },
-      ...prev.slice(0, 15),
-    ]);
-
-    if (markersRef.current["bus-4"] && mapRef.current) {
-      const sosLat = -1.2652;
-      const sosLng = 36.8122;
-      markersRef.current["bus-4"].setPosition({ lat: sosLat, lng: sosLng });
-      mapRef.current.panTo({ lat: sosLat, lng: sosLng });
-      mapRef.current.setZoom(15);
-    }
-    setOpsOpen(false);
-  };
 
   const presentCount = useMemo(
     () => students.filter((s) => s.status === "Present").length || boardedCount,
@@ -593,10 +516,9 @@ export default function DashboardPage() {
     )`,
   };
 
-  const scheduledTrips =
-    tripCounts.scheduled || tripCounts.completed + tripCounts.ongoing || routes.length || 0;
-  const completedTrips = tripCounts.completed || Math.max(scheduledTrips - busesActive, 0);
-  const ongoingTrips = tripCounts.ongoing || busesActive;
+  const scheduledTrips = tripCounts.scheduled;
+  const completedTrips = tripCounts.completed;
+  const ongoingTrips = tripCounts.ongoing;
 
   return (
     <div className="app-container">
@@ -609,63 +531,17 @@ export default function DashboardPage() {
               <Building2 size={16} style={{ color: "var(--accent-primary)" }} />
               {schoolName}
             </span>
-            {impersonating && (
-              <span
-                style={{
-                  background: "rgba(244,63,94,0.1)",
-                  color: "var(--state-error)",
-                  padding: "3px 8px",
-                  borderRadius: "4px",
-                  fontSize: "0.75rem",
-                  fontWeight: 600,
-                  border: "1px solid rgba(244,63,94,0.2)",
-                }}
-              >
-                Impersonation Mode (Read-Only)
-              </span>
-            )}
           </div>
 
           <div className="top-bar-actions">
-            <div className="ops-tools" ref={opsRef}>
-              <button
-                type="button"
-                className="icon-btn"
-                onClick={() => setOpsOpen((v) => !v)}
-                aria-label="Ops tools"
-                title="Ops tools"
-              >
-                <Wrench size={16} />
-              </button>
-              {opsOpen && (
-                <div className="ops-tools-menu">
-                  <button type="button" onClick={handleSimulateGPS}>
-                    <Play size={14} /> Simulate GPS Ping
-                  </button>
-                  <button type="button" onClick={handleSimulateNFC}>
-                    <Plus size={14} /> Simulate NFC Tap
-                  </button>
-                  <button type="button" onClick={handleTriggerSOS}>
-                    <AlertCircle size={14} /> Trigger SOS
-                  </button>
-                  <button type="button" onClick={() => setImpersonating((p) => !p)}>
-                    <Users size={14} /> Toggle Support Mode
-                  </button>
-                </div>
-              )}
-            </div>
             <button type="button" className="icon-btn" aria-label="Notifications">
               <Bell size={16} />
-              {(alertCount > 0 || sosCount > 0) && (
-                <span className="icon-btn-badge">{Math.min(sosCount || 3, 99)}</span>
+              {(sosCount > 0 || alertCount > 0) && (
+                <span className="icon-btn-badge">{Math.min(sosCount || alertCount, 99)}</span>
               )}
             </button>
             <ThemeToggle className="theme-toggle-compact" />
-            <UserProfileBadge
-              nameOverride={impersonating ? "Platform Support Team" : undefined}
-              roleOverride={impersonating ? "Super Administrator" : undefined}
-              initialsOverride={impersonating ? "PS" : undefined}
-            />
+            <UserProfileBadge />
           </div>
         </header>
 
@@ -718,16 +594,13 @@ export default function DashboardPage() {
               <div ref={mapContainerRef} className="dash-map" />
               <div className="dash-legend">
                 <span className="dash-legend-item">
-                  <span className="dash-dot moving" /> Moving: {Math.max(busesActive - 1, 0)}
+                  <span className="dash-dot moving" /> Moving: {fleetLegend.moving}
                 </span>
                 <span className="dash-legend-item">
-                  <span className="dash-dot stopped" /> Stopped: 1
+                  <span className="dash-dot stopped" /> Stopped: {fleetLegend.stopped}
                 </span>
                 <span className="dash-legend-item">
-                  <span className="dash-dot idle" /> Idle: {Math.max(3 - busesActive, 0)}
-                </span>
-                <span className="dash-legend-item">
-                  <span className="dash-dot offline" /> Offline: 0
+                  <span className="dash-dot idle" /> Last seen: {fleetLegend.stale}
                 </span>
               </div>
             </div>
@@ -835,7 +708,12 @@ export default function DashboardPage() {
                 </Link>
               </div>
               <div className="dash-alert-list">
-                {events.slice(0, 6).map((event) => (
+                {events.length === 0 ? (
+                  <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", padding: "24px 0" }}>
+                    No stop or GPS alerts yet. Skipped or drive-through stops appear here.
+                  </div>
+                ) : (
+                  events.slice(0, 6).map((event) => (
                   <div className="dash-alert-item" key={event.id}>
                     <div className={`dash-alert-icon ${event.type}`}>
                       {event.type === "success" ? (
@@ -853,7 +731,8 @@ export default function DashboardPage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                ))
+                )}
               </div>
             </div>
           </section>

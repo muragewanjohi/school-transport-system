@@ -10,11 +10,9 @@ import {
   X, 
   Phone, 
   Mail, 
-  Compass, 
   Sparkles,
   UserCheck,
   CreditCard,
-  MapPin,
   Upload,
   FileSpreadsheet,
   Users,
@@ -22,6 +20,13 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
+import { assignmentForNewRoute } from "@/lib/studentStopAssignment";
+import {
+  mergeStudentTripIds,
+  studentMatchesRegistrySearch,
+  studentMatchesRouteFilter,
+  studentMatchesTripFilter,
+} from "@/lib/studentRegistryFilter";
 
 const PREDEFINED_LOCATIONS = [
   { id: "loc-1", name: "Kileleshwa stop (Githunguri Road)", coordinates: [36.7889, -1.2789] },
@@ -37,6 +42,21 @@ const PREDEFINED_LOCATIONS = [
 interface DBRoute {
   id: string;
   name: string;
+}
+
+interface DBStop {
+  id: string;
+  name: string;
+  route_id: string;
+  stop_type?: string;
+}
+
+interface DBSchedule {
+  id: string;
+  name: string;
+  route_id: string;
+  departure_time?: string;
+  direction?: "HOME_TO_SCHOOL" | "SCHOOL_TO_HOME";
 }
 
 interface Guardian {
@@ -65,12 +85,15 @@ export default function StudentsManagement() {
   const router = useRouter();
   const [students, setStudents] = useState<DBStudent[]>([]);
   const [routes, setRoutes] = useState<DBRoute[]>([]);
-  const [stops, setStops] = useState<any[]>([]);
-  const [schedules, setSchedules] = useState<any[]>([]);
+  const [stops, setStops] = useState<DBStop[]>([]);
+  const [schedules, setSchedules] = useState<DBSchedule[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitLoading, setIsSubmitLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [gradeFilter, setGradeFilter] = useState("All");
+  const [routeFilter, setRouteFilter] = useState("All");
+  const [tripFilter, setTripFilter] = useState("All");
+  const [savingStudentId, setSavingStudentId] = useState<string | null>(null);
 
   // Modal State
   const [showDrawer, setShowDrawer] = useState(false);
@@ -322,7 +345,82 @@ export default function StudentsManagement() {
   const findStopNameById = (stopId: string | null | undefined) => {
     if (!stopId) return "Standby stop (Unassigned)";
     const stop = stops.find(s => s.id === stopId);
-    return stop ? stop.name : "Unknown Stop";
+    return stop?.name || "Unknown Stop";
+  };
+
+  const persistStudentFields = async (
+    studentId: string,
+    fields: Record<string, string | string[] | null>
+  ) => {
+    setSavingStudentId(studentId);
+    try {
+      const res = await fetch(`/api/students/${studentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fields),
+      });
+      const json = await res.json();
+      if (!json.success) {
+        const errorMsg = json.error || "Unknown validation error";
+        alert(`Failed to update student: ${errorMsg}`);
+        return false;
+      }
+      await fetchStudents();
+      return true;
+    } catch (err) {
+      console.error("Failed to update student assignment:", err);
+      return false;
+    } finally {
+      setSavingStudentId(null);
+    }
+  };
+
+  const handleInlineRouteChange = async (student: DBStudent, routeId: string) => {
+    if (!routeId || routeId === student.route_id) return;
+    const routeStops = stops.filter((s) => s.route_id === routeId);
+    if (routeStops.length === 0) {
+      alert("Add stops to this route before assigning students.");
+      return;
+    }
+    const assignment = assignmentForNewRoute(
+      student.pickup_stop_id,
+      student.dropoff_stop_id,
+      routeStops
+    );
+    await persistStudentFields(student.id, {
+      route_id: routeId,
+      pickup_stop_id: assignment.pickup_stop_id,
+      dropoff_stop_id: assignment.dropoff_stop_id,
+      schedule_ids: assignment.schedule_ids,
+    });
+  };
+
+  const handleInlineTripChange = async (
+    student: DBStudent,
+    slot: "pickup" | "dropoff",
+    selectedId: string
+  ) => {
+    const routeSchedules = schedules.filter((s) => s.route_id === student.route_id);
+    const pickupScheduleIds = routeSchedules
+      .filter((s) => s.direction === "HOME_TO_SCHOOL")
+      .map((s) => s.id);
+    const dropoffScheduleIds = routeSchedules
+      .filter((s) => s.direction === "SCHOOL_TO_HOME")
+      .map((s) => s.id);
+    const schedule_ids = mergeStudentTripIds({
+      currentIds: student.schedule_ids || [],
+      pickupScheduleIds,
+      dropoffScheduleIds,
+      slot,
+      selectedId,
+    });
+    await persistStudentFields(student.id, { schedule_ids });
+  };
+
+  const tripLabel = (schedule: DBSchedule) => {
+    const kind = schedule.direction === "SCHOOL_TO_HOME" ? "Drop off" : "Pick up";
+    const time = schedule.departure_time ? ` · ${schedule.departure_time.slice(0, 5)}` : "";
+    return `${schedule.name} (${kind}${time})`;
   };
 
   // Client-side CSV Spreadsheet Importer
@@ -489,31 +587,28 @@ export default function StudentsManagement() {
 
   // Filtered Students List
   const filteredStudents = students.filter(student => {
-    const query = searchQuery.toLowerCase();
-    const pickupName = findStopNameById(student.pickup_stop_id).toLowerCase();
-    const dropoffName = findStopNameById(student.dropoff_stop_id).toLowerCase();
-    const routeName = (student.route?.name || "").toLowerCase();
-    const grade = (student.grade || "").toLowerCase();
-    const className = (student.class_name || "").toLowerCase();
-    
-    // Check grade filter
     if (gradeFilter !== "All" && student.grade !== gradeFilter) return false;
-    
-    const matchesGuardians = student.guardians?.some(g => 
-      g.name.toLowerCase().includes(query) || 
-      g.phone.includes(query)
+    if (!studentMatchesRouteFilter(student.route_id, routeFilter)) return false;
+    if (!studentMatchesTripFilter(student.schedule_ids, tripFilter)) return false;
+
+    const pickupName = findStopNameById(student.pickup_stop_id);
+    const dropoffName = findStopNameById(student.dropoff_stop_id);
+    const tripNames = (student.schedule_ids || []).map(
+      (id) => schedules.find((s) => s.id === id)?.name || id
     );
-    
-    return (
-      student.name.toLowerCase().includes(query) ||
-      routeName.includes(query) ||
-      pickupName.includes(query) ||
-      dropoffName.includes(query) ||
-      (student.nfc_card_hash || "").toLowerCase().includes(query) ||
-      matchesGuardians ||
-      grade.includes(query) ||
-      className.includes(query)
-    );
+
+    return studentMatchesRegistrySearch({
+      name: student.name,
+      routeName: student.route?.name || "",
+      pickupName,
+      dropoffName,
+      nfc: student.nfc_card_hash,
+      grade: student.grade,
+      className: student.class_name,
+      tripNames,
+      guardians: student.guardians || [],
+      query: searchQuery,
+    });
   });
 
   return (
@@ -968,6 +1063,70 @@ export default function StudentsManagement() {
                   ))}
                 </select>
               </div>
+
+              {/* Route Filter Dropdown */}
+              <div style={{ flex: 1, minWidth: "160px" }}>
+                <select
+                  value={routeFilter}
+                  onChange={(e) => {
+                    const next = e.target.value;
+                    setRouteFilter(next);
+                    if (next !== "All" && tripFilter !== "All" && tripFilter !== "none") {
+                      const selectedTrip = schedules.find((s) => s.id === tripFilter);
+                      if (next === "none" || (selectedTrip && selectedTrip.route_id !== next)) {
+                        setTripFilter("All");
+                      }
+                    }
+                  }}
+                  style={{
+                    background: "var(--input-bg)",
+                    border: "1px solid var(--border-default)",
+                    borderRadius: "12px",
+                    padding: "10px 12px",
+                    color: "var(--text-primary)",
+                    fontSize: "0.85rem",
+                    outline: "none",
+                    width: "100%",
+                    cursor: "pointer"
+                  }}
+                >
+                  <option value="All">All routes</option>
+                  <option value="none">No route assigned</option>
+                  {routes.map((route) => (
+                    <option key={route.id} value={route.id}>{route.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Trip Filter Dropdown */}
+              <div style={{ flex: 1, minWidth: "180px" }}>
+                <select
+                  value={tripFilter}
+                  onChange={(e) => setTripFilter(e.target.value)}
+                  style={{
+                    background: "var(--input-bg)",
+                    border: "1px solid var(--border-default)",
+                    borderRadius: "12px",
+                    padding: "10px 12px",
+                    color: "var(--text-primary)",
+                    fontSize: "0.85rem",
+                    outline: "none",
+                    width: "100%",
+                    cursor: "pointer"
+                  }}
+                >
+                  <option value="All">All trips</option>
+                  <option value="none">No trip assigned</option>
+                  {(routeFilter !== "All" && routeFilter !== "none"
+                    ? schedules.filter((schedule) => schedule.route_id === routeFilter)
+                    : schedules
+                  ).map((schedule) => (
+                    <option key={schedule.id} value={schedule.id}>
+                      {tripLabel(schedule)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             {isLoading ? (
@@ -976,7 +1135,7 @@ export default function StudentsManagement() {
               </div>
             ) : filteredStudents.length === 0 ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "200px", color: "var(--text-muted)", border: "1px dashed var(--border-default)", borderRadius: "12px" }}>
-                <span>No student profiles found matching "{searchQuery}".</span>
+                <span>No student profiles match the current search, route, or trip filter.</span>
               </div>
             ) : (
               <div style={{ overflowX: "auto" }}>
@@ -985,8 +1144,8 @@ export default function StudentsManagement() {
                     <tr>
                       <th>Student</th>
                       <th>Attendance Status</th>
-                      <th>Transit Route</th>
-                      <th>Pickup & Drop-off Stops</th>
+                      <th>Trips</th>
+                      <th>Route</th>
                       <th>Parents & Guardians</th>
                       <th>Grade</th>
                       <th style={{ textAlign: "right" }}>Actions</th>
@@ -995,8 +1154,12 @@ export default function StudentsManagement() {
                   <tbody>
                     {filteredStudents.map(student => {
                       const initials = student.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
-                      const pickupName = findStopNameById(student.pickup_stop_id);
-                      const dropoffName = findStopNameById(student.dropoff_stop_id);
+                      const routeSchedules = schedules.filter((s) => s.route_id === student.route_id);
+                      const pickupSchedules = routeSchedules.filter((s) => s.direction === "HOME_TO_SCHOOL");
+                      const dropoffSchedules = routeSchedules.filter((s) => s.direction === "SCHOOL_TO_HOME");
+                      const selectedPickupId = (student.schedule_ids || []).find((id) => pickupSchedules.some((s) => s.id === id)) || "";
+                      const selectedDropoffId = (student.schedule_ids || []).find((id) => dropoffSchedules.some((s) => s.id === id)) || "";
+                      const isSaving = savingStudentId === student.id;
 
                       return (
                         <tr key={student.id}>
@@ -1027,31 +1190,82 @@ export default function StudentsManagement() {
                             </div>
                           </td>
 
-                          {/* Route */}
+                          {/* Trips */}
                           <td>
-                            <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-primary)" }}>
-                              <Compass size={14} style={{ color: "var(--accent-secondary)" }} />
-                              <span style={{ fontWeight: 500 }}>{student.route?.name || "Unassigned"}</span>
+                            <div style={{ display: "flex", flexDirection: "column", gap: "8px", minWidth: "200px" }}>
+                              <select
+                                value={selectedPickupId}
+                                disabled={isSaving || !student.route_id}
+                                onChange={(e) => handleInlineTripChange(student, "pickup", e.target.value)}
+                                style={{
+                                  background: "var(--input-bg)",
+                                  border: "1px solid var(--border-default)",
+                                  borderRadius: "8px",
+                                  padding: "6px 8px",
+                                  color: "var(--text-primary)",
+                                  fontSize: "0.75rem",
+                                  outline: "none",
+                                  width: "100%",
+                                  cursor: isSaving ? "wait" : "pointer",
+                                }}
+                              >
+                                <option value="">Pick up trip: none</option>
+                                {pickupSchedules.map((schedule) => (
+                                  <option key={schedule.id} value={schedule.id}>
+                                    Pick up: {schedule.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <select
+                                value={selectedDropoffId}
+                                disabled={isSaving || !student.route_id}
+                                onChange={(e) => handleInlineTripChange(student, "dropoff", e.target.value)}
+                                style={{
+                                  background: "var(--input-bg)",
+                                  border: "1px solid var(--border-default)",
+                                  borderRadius: "8px",
+                                  padding: "6px 8px",
+                                  color: "var(--text-primary)",
+                                  fontSize: "0.75rem",
+                                  outline: "none",
+                                  width: "100%",
+                                  cursor: isSaving ? "wait" : "pointer",
+                                }}
+                              >
+                                <option value="">Drop off trip: none</option>
+                                {dropoffSchedules.map((schedule) => (
+                                  <option key={schedule.id} value={schedule.id}>
+                                    Drop off: {schedule.name}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                           </td>
 
-                          {/* Stops */}
+                          {/* Route */}
                           <td>
-                            <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem" }}>
-                                <MapPin size={12} style={{ color: "var(--state-success)" }} />
-                                <span style={{ color: "var(--text-primary)" }}>{pickupName}</span>
-                              </div>
-                              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.8rem" }}>
-                                <MapPin size={12} style={{ color: "var(--state-warning)" }} />
-                                <span style={{ color: "var(--text-primary)" }}>{dropoffName}</span>
-                              </div>
-                              {student.schedule_ids && student.schedule_ids.length > 0 && (
-                                <div style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px", borderTop: "1px solid rgba(255,255,255,0.05)", paddingTop: "2px" }}>
-                                  Schedules: {student.schedule_ids.map(id => schedules.find(s => s.id === id)?.name || id).join(", ")}
-                                </div>
-                              )}
-                            </div>
+                            <select
+                              value={student.route_id || ""}
+                              disabled={isSaving}
+                              onChange={(e) => handleInlineRouteChange(student, e.target.value)}
+                              style={{
+                                background: "var(--input-bg)",
+                                border: "1px solid var(--border-default)",
+                                borderRadius: "8px",
+                                padding: "6px 8px",
+                                color: "var(--text-primary)",
+                                fontSize: "0.8rem",
+                                outline: "none",
+                                minWidth: "180px",
+                                width: "100%",
+                                cursor: isSaving ? "wait" : "pointer",
+                              }}
+                            >
+                              <option value="">-- Select Route --</option>
+                              {routes.map((route) => (
+                                <option key={route.id} value={route.id}>{route.name}</option>
+                              ))}
+                            </select>
                           </td>
 
                           {/* Guardians */}

@@ -20,7 +20,7 @@
 
 ## Storage Model
 
-- **PostgreSQL Relational DB**: Dedicated database instance on Supabase. Stores multi-tenant assets (tenant records, student registry, user accounts, assigned NFC card mappings, static polyline route coordinates). Holds vehicle inventories (`vehicles` table, including capacity, status, odometer, fuel level, service, and insurance timers) and service history logs (`maintenance_logs` table).
+- **PostgreSQL Relational DB**: Dedicated database instance on Supabase. Stores multi-tenant assets (tenant records, student registry, user accounts, assigned NFC card mappings, static polyline route coordinates). Holds vehicle inventories (`vehicles` table, including capacity, status, odometer, fuel level, optional last/next service and insurance dates, and `notify_compliance_alerts`) and service history logs (`maintenance_logs` table). Year-2000 date-picker defaults are stored as null. When notify is on, the fleet console alerts at 1 month, 2 weeks, and 1 day before next service or insurance expiry.
 - **PostGIS Spatial Indexing**: Spatial tables managing student pickup coordinates, route geofence boundaries, and transient coordinate logs. Uses `GIST` indexes for fast geometric intersection calculations.
 
 ## Auth and Access Model
@@ -75,7 +75,7 @@ Platform (super_admin, tenant_id null)
 
 - **Tenant** = commercial / legal school organization (billing, SMS sender branding, subscription).
 - **Campus** = one physical school site under that org. Never treat a campus as its own tenant (that breaks shared billing and cross-campus admins).
-- **Operational tenant wall:** School console APIs resolve `tenant_id` from the signed-in profile **and** the school subdomain (`x-tenant-slug` / Host) via `requireOperationalTenant`. They never use `tenants.limit(1)`. Platform `super_admin` on `{slug}.onthebusapp.com` is scoped to that slug only. A school admin on another school's host is denied. Empty tenant lists return `[]`, not mock data from another school or static demo staff. Covered routes: students, routes, stops (including attach/reorder), schedules, fleet + maintenance, drivers, conductors, school admins, parents, campuses, trips, billing, config, telemetry, uploads. Driver/parent mobile APIs scope by session `tenant_id` (not Host). Platform-only routes (`/api/tenants`, demo-requests, platform purge/settings) stay cross-tenant for `super_admin`. Cron `trips/predeparture-check` remains all-tenant by design.
+- **Operational tenant wall:** School console APIs resolve `tenant_id` from the signed-in profile **and** the school subdomain (`x-tenant-slug` / Host) via `requireOperationalTenant`. They never use `tenants.limit(1)`. Platform `super_admin` on `{slug}.onthebusapp.com` is scoped to that slug only. A school admin on another school's host is denied. Empty tenant lists return `[]`, not mock data from another school or static demo staff. Covered routes: students, routes, stops (including attach/reorder), schedules, fleet + maintenance, drivers, conductors, school admins, parents, campuses, trips, billing, config, telemetry, uploads, alerts. Driver/parent mobile APIs scope by session `tenant_id` (not Host). Platform-only routes (`/api/tenants`, demo-requests, platform purge/settings) stay cross-tenant for `super_admin`. Cron `trips/predeparture-check` remains all-tenant by design. Driver stop outcomes persist via `POST /api/driver/stop-visits`.
 
 ### Target tables (introduce `campuses` in Phase 1)
 
@@ -203,6 +203,25 @@ Trips that never start transmitting are caught by Vercel Cron → `GET /api/trip
 ### Out of scope (v1)
 
 - Traffic-aware delay math (Google Distance Matrix); v1 uses stored leg durations + geometric progress.
+
+## Driver Stop Visit Outcomes
+
+While a trip is `in_progress`, each route stop is resolved once into **`trip_stop_visits`** (`UNIQUE (trip_id, stop_id)`). Rows store `arrived_at`, `departed_at`, and `dwell_seconds` (how long the bus stayed inside the stop geofence). No student names, phones, or exact coordinates.
+
+| Outcome | How it is set | Map marker | Admin alert |
+| :--- | :--- | :--- | :--- |
+| `completed` | Driver taps **Complete Stop** in the boarding drawer (or leaves after at least one student was picked/dropped at that stop) | Completed (green) | No |
+| `visited` | Bus entered the geofence then left without Complete Stop and without any student action at that stop | Visited (amber) | Yes |
+| `skipped` | Driver taps **Skip Stop** | Not visited (red) | Yes |
+
+Rules:
+
+1. Entering the next unresolved stop geofence auto-opens the pickup/drop-off drawer (~70–80% height). The driver may dismiss it; it does not auto-reopen for the same arrival.
+2. **Complete Stop** marks remaining Pending students at that stop Absent, writes `completed`, records dwell, and advances the next stop.
+3. **Skip Stop** writes `skipped` (not visited), records dwell if the bus had arrived (else 0), and advances the next stop.
+4. Leaving the geofence (radius + 15 m hysteresis) without Complete/Skip: `visited` + alert when no students were actioned; otherwise treat as `completed` (implicit complete after boarding).
+5. Alerts are tenant-scoped ops rows (`trip_stop_visits.alerted`) plus `notifications` for that school’s `school_admin` profiles. Messages use stop name, route name, and vehicle plate only — no student PII. Demo SMS dry-run is unchanged (these alerts are dashboard/in-app, not parent SMS).
+6. Writes go through `POST /api/driver/stop-visits` (driver HMAC session → service role). School console reads `GET /api/alerts`. RLS: `tenant_id = jwt_tenant_id()`. Completed outcomes are not overwritten by a later visited/skipped event.
 
 ## Student & Parent Data Protection Model
 

@@ -898,46 +898,6 @@ code, pre {
   margin-top: 2px;
 }
 
-.ops-tools {
-  position: relative;
-}
-
-.ops-tools-menu {
-  position: absolute;
-  right: 0;
-  top: calc(100% + 6px);
-  z-index: 20;
-  min-width: 200px;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  box-shadow: var(--shadow-md);
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.ops-tools-menu button {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 0.85rem;
-  font-family: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.ops-tools-menu button:hover {
-  background: var(--bg-surface-hover);
-}
-
 .top-bar-actions {
   display: flex;
   align-items: center;

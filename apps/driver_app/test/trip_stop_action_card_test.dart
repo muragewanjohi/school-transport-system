@@ -72,4 +72,31 @@ void main() {
     await tester.pump();
     expect(navigated, isTrue);
   });
+
+  testWidgets('expanded next stop Skip Stop callback fires', (tester) async {
+    var skipped = false;
+    await tester.pumpWidget(
+      wrap(
+        TripStopActionCard(
+          stopName: 'Westlands Gate',
+          studentsAtStop: 3,
+          etaMinutes: 5,
+          distanceKm: 1.2,
+          canBoard: true,
+          runType: 'PICKUP',
+          onNavigate: () {},
+          onBoardStudents: () {},
+          onSkipStop: () => skipped = true,
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Next stop: Westlands Gate'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Skip Stop'), findsOneWidget);
+    await tester.tap(find.text('Skip Stop'));
+    await tester.pump();
+    expect(skipped, isTrue);
+  });
 }

@@ -34,6 +34,8 @@ const operationalRoutes = [
   "src/app/api/upload/route.ts",
   "src/app/api/driver/trips/route.ts",
   "src/app/api/driver/telemetry/route.ts",
+  "src/app/api/driver/stop-visits/route.ts",
+  "src/app/api/alerts/route.ts",
 ];
 
 describe("operational school APIs are tenant-scoped", () => {

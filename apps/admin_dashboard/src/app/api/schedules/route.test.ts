@@ -47,4 +47,16 @@ describe("POST /api/schedules", () => {
     const json = (await res.json()) as { success: boolean };
     expect(json.success).toBe(true);
   });
+
+  it("missing direction › returns 400", async () => {
+    const res = await POST(
+      jsonRequest({
+        ...validSchedule,
+        direction: undefined,
+      })
+    );
+    expect(res.status).toBe(400);
+    const json = (await res.json()) as { success: boolean };
+    expect(json.success).toBe(false);
+  });
 });

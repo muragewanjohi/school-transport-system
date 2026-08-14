@@ -14,6 +14,7 @@ import 'package:driver_app/screens/trip_screen.dart';
 import 'package:driver_app/config/api_config.dart';
 import 'package:driver_app/widgets/route_map_widget.dart';
 import 'package:driver_app/utils/geo_utils.dart';
+import 'package:driver_app/utils/stop_visit_logic.dart';
 import 'package:driver_app/utils/trip_ui_logic.dart';
 import 'package:driver_app/providers/trip_providers.dart';
 import 'package:driver_app/services/stop_navigation_service.dart';
@@ -151,9 +152,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   dynamic _nextTrip;
   dynamic _lastCompletedTrip;
 
-  final Set<String> _visitedStopIds = {};
+  final Map<String, StopVisitOutcome> _stopOutcomes = {};
   DateTime? _arrivedAt;
   String? _lastArrivedStopId;
+  int _studentsActionedAtCurrentStop = 0;
 
   @override
   void initState() {
@@ -323,23 +325,128 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       timestamp: timestamp ?? DateTime.now().toIso8601String(),
     );
 
-    final arrived = findArrivedStop(
-      latitude: latitude,
-      longitude: longitude,
-      stops: _stopsList,
-    );
-    if (arrived == null) {
-      if (_lastArrivedStopId != null) {
+    final next = firstUnresolvedStop(stops: _stopsList, outcomes: _stopOutcomes);
+    final nextId = next?['id']?.toString();
+
+    if (_lastArrivedStopId != null) {
+      final currentStop = _stopById(_lastArrivedStopId!);
+      final leftCurrent = currentStop == null ||
+          hasLeftStopGeofence(
+            latitude: latitude,
+            longitude: longitude,
+            stop: currentStop,
+          );
+      if (leftCurrent) {
+        final leftId = _lastArrivedStopId!;
+        _handleLeftStop(leftId);
+      }
+    }
+
+    if (_lastArrivedStopId == null) {
+      final arrived = findArrivedStop(
+        latitude: latitude,
+        longitude: longitude,
+        stops: _stopsList,
+      );
+      if (arrived != null &&
+          arrived.id == nextId &&
+          !_stopOutcomes.containsKey(arrived.id)) {
         setState(() {
-          _lastArrivedStopId = null;
-          _arrivedAt = null;
+          _lastArrivedStopId = arrived.id;
+          _arrivedAt = DateTime.now();
+          _studentsActionedAtCurrentStop = 0;
         });
       }
-    } else if (arrived.id != _lastArrivedStopId) {
+    }
+  }
+
+  Map<String, dynamic>? _stopById(String stopId) {
+    for (final s in _stopsList) {
+      if (s is Map && s['id']?.toString() == stopId) {
+        return Map<String, dynamic>.from(s);
+      }
+    }
+    return null;
+  }
+
+  void _handleLeftStop(String stopId) {
+    if (!shouldOverwriteOutcome(_stopOutcomes[stopId], StopVisitOutcome.visited) &&
+        !shouldOverwriteOutcome(_stopOutcomes[stopId], StopVisitOutcome.completed)) {
       setState(() {
-        _lastArrivedStopId = arrived.id;
-        _arrivedAt = DateTime.now();
+        if (_lastArrivedStopId == stopId) {
+          _lastArrivedStopId = null;
+          _arrivedAt = null;
+        }
       });
+      return;
+    }
+    if (_stopOutcomes.containsKey(stopId)) {
+      setState(() {
+        if (_lastArrivedStopId == stopId) {
+          _lastArrivedStopId = null;
+          _arrivedAt = null;
+        }
+      });
+      return;
+    }
+    final arrivedAt = _arrivedAt;
+    setState(() {
+      _lastArrivedStopId = null;
+      _arrivedAt = null;
+    });
+    final resolution = resolveStopExit(
+      reason: StopExitReason.leftGeofence,
+      studentsActioned: _studentsActionedAtCurrentStop,
+    );
+    _recordStopVisit(
+      stopId: stopId,
+      outcome: resolution.outcome,
+      dwellSeconds: dwellSeconds(arrivedAt: arrivedAt, departedAt: DateTime.now()),
+      studentsActioned: _studentsActionedAtCurrentStop,
+      arrivedAt: arrivedAt,
+    );
+  }
+
+  Future<void> _recordStopVisit({
+    required String stopId,
+    required StopVisitOutcome outcome,
+    required int dwellSeconds,
+    required int studentsActioned,
+    DateTime? arrivedAt,
+  }) async {
+    if (!shouldOverwriteOutcome(_stopOutcomes[stopId], outcome)) return;
+    setState(() {
+      _stopOutcomes[stopId] = outcome;
+      if (_lastArrivedStopId == stopId) {
+        _lastArrivedStopId = null;
+        _arrivedAt = null;
+      }
+    });
+
+    final tripId = _activeTrip is Map ? _activeTrip['id']?.toString() : _selectedTripRunId;
+    if (tripId == null || tripId.isEmpty) return;
+
+    try {
+      final baseUrl = _getApiBaseUrl();
+      await http
+          .post(
+            Uri.parse('$baseUrl/api/driver/stop-visits'),
+            headers: await DriverApiAuth.headers(),
+            body: json.encode({
+              'trip_id': tripId,
+              'stop_id': stopId,
+              if (_selectedRouteId != null) 'route_id': _selectedRouteId,
+              'outcome': outcome.name,
+              if (arrivedAt != null) 'arrived_at': arrivedAt.toUtc().toIso8601String(),
+              'departed_at': DateTime.now().toUtc().toIso8601String(),
+              'dwell_seconds': dwellSeconds,
+              'students_actioned': studentsActioned,
+              'alerted': outcome == StopVisitOutcome.visited || outcome == StopVisitOutcome.skipped,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+    } catch (e) {
+      debugPrint('Error recording stop visit');
     }
   }
 
@@ -956,9 +1063,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     ref.read(tripActiveProvider.notifier).state = true;
     setState(() {
       _currentTab = 1; // Switch to active trip tracking tab
-      _visitedStopIds.clear();
+      _stopOutcomes.clear();
       _arrivedAt = null;
       _lastArrivedStopId = null;
+      _studentsActionedAtCurrentStop = 0;
     });
   }
 
@@ -978,9 +1086,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       ref.read(telemetryCoordsProvider.notifier).state = null;
       setState(() {
         _currentTab = 0; // Switch back to Home tab
-        _visitedStopIds.clear();
+        _stopOutcomes.clear();
         _arrivedAt = null;
         _lastArrivedStopId = null;
+        _studentsActionedAtCurrentStop = 0;
       });
     }
   }
@@ -1024,6 +1133,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         _studentsList[idx]['status'] = newStatus;
         _studentsList[idx]['attendance'] = newAttendance;
       }
+      if (_lastArrivedStopId != null &&
+          (newAttendance == 'boarded' || newAttendance == 'dropped_off')) {
+        _studentsActionedAtCurrentStop += 1;
+      }
     });
 
     try {
@@ -1044,6 +1157,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             _studentsList[idx]['status'] = oldStatus;
             _studentsList[idx]['attendance'] = oldAttendance;
           }
+          if (_lastArrivedStopId != null &&
+              (newAttendance == 'boarded' || newAttendance == 'dropped_off') &&
+              _studentsActionedAtCurrentStop > 0) {
+            _studentsActionedAtCurrentStop -= 1;
+          }
         });
         return false;
       }
@@ -1057,6 +1175,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         if (idx != -1) {
           _studentsList[idx]['status'] = oldStatus;
           _studentsList[idx]['attendance'] = oldAttendance;
+        }
+        if (_lastArrivedStopId != null &&
+            (newAttendance == 'boarded' || newAttendance == 'dropped_off') &&
+            _studentsActionedAtCurrentStop > 0) {
+          _studentsActionedAtCurrentStop -= 1;
         }
       });
       return false;
@@ -1806,14 +1929,23 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       runType: _selectedRunType,
       stops: _stopsList,
       students: _studentsList,
-      visitedStopIds: Set<String>.from(_visitedStopIds),
+      stopOutcomes: Map<String, StopVisitOutcome>.from(_stopOutcomes),
       arrivedAt: _arrivedAt,
       scheduleDurationMinutes: scheduleDuration,
       telemetry: telemetry,
-      onStopCompleted: (stopId) {
-        setState(() {
-          _visitedStopIds.add(stopId);
-        });
+      onStopResolved: ({
+        required stopId,
+        required outcome,
+        required dwellSeconds,
+        required studentsActioned,
+      }) {
+        _recordStopVisit(
+          stopId: stopId,
+          outcome: outcome,
+          dwellSeconds: dwellSeconds,
+          studentsActioned: studentsActioned,
+          arrivedAt: _arrivedAt,
+        );
       },
       onUpdateStudentStatus: (student, status) => _updateStudentStatus(student, status),
       onViewStudents: () => setState(() => _currentTab = 2),

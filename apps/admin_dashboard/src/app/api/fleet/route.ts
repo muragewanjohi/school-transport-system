@@ -8,6 +8,7 @@ import {
   isDemoReadonly,
 } from "@/lib/authApi";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
+import { normalizeVehicleDate } from "@/lib/vehicleCompliance";
 
 const vehicleSchema = z.object({
   license_plate: z.string().min(3, "License plate must be at least 3 characters"),
@@ -17,6 +18,7 @@ const vehicleSchema = z.object({
   last_service_date: z.string().nullable().optional(),
   next_service_date: z.string().nullable().optional(),
   insurance_expiry: z.string().nullable().optional(),
+  notify_compliance_alerts: z.boolean().optional().default(false),
   active_driver_id: z.string().nullable().optional(),
   conductor_1_id: z.string().nullable().optional(),
   conductor_2_id: z.string().nullable().optional(),
@@ -35,6 +37,7 @@ const mockVehicles = [
     last_service_date: "2026-05-12",
     next_service_date: "2026-08-12",
     insurance_expiry: "2027-01-15",
+    notify_compliance_alerts: false,
     active_driver_id: "drv-1",
     conductor_1_id: "cnd-1",
     conductor_2_id: "cnd-2",
@@ -143,6 +146,7 @@ export async function GET(request: Request) {
         last_service_date,
         next_service_date,
         insurance_expiry,
+        notify_compliance_alerts,
         active_driver_id,
         conductor_1_id,
         conductor_2_id
@@ -203,6 +207,10 @@ export async function POST(request: Request) {
     if (!isSupabaseConfigured) {
       const newMockVehicle = {
         ...result.data,
+        last_service_date: normalizeVehicleDate(result.data.last_service_date),
+        next_service_date: normalizeVehicleDate(result.data.next_service_date),
+        insurance_expiry: normalizeVehicleDate(result.data.insurance_expiry),
+        notify_compliance_alerts: result.data.notify_compliance_alerts ?? false,
         id: `bus-${Math.floor(Math.random() * 1000)}`,
         driver: result.data.active_driver_id ? { id: result.data.active_driver_id, name: "Assigned Driver", phone: "" } : null,
         conductor_1: result.data.conductor_1_id ? { id: result.data.conductor_1_id, name: "Assigned Conductor 1", phone: "" } : null,
@@ -224,9 +232,10 @@ export async function POST(request: Request) {
       model: result.data.model,
       capacity: result.data.capacity,
       status: result.data.status,
-      last_service_date: result.data.last_service_date || null,
-      next_service_date: result.data.next_service_date || null,
-      insurance_expiry: result.data.insurance_expiry || null,
+      last_service_date: normalizeVehicleDate(result.data.last_service_date),
+      next_service_date: normalizeVehicleDate(result.data.next_service_date),
+      insurance_expiry: normalizeVehicleDate(result.data.insurance_expiry),
+      notify_compliance_alerts: result.data.notify_compliance_alerts ?? false,
       active_driver_id: result.data.active_driver_id || null,
       conductor_1_id: result.data.conductor_1_id || null,
       conductor_2_id: result.data.conductor_2_id || null,

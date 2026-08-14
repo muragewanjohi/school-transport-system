@@ -3,6 +3,7 @@ import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
 import { getLocalVehicles, saveLocalVehicles } from "@/lib/jsonDb";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
+import { normalizeVehicleDate } from "@/lib/vehicleCompliance";
 
 const vehicleUpdateSchema = z.object({
   license_plate: z.string().min(3).optional(),
@@ -12,6 +13,7 @@ const vehicleUpdateSchema = z.object({
   last_service_date: z.string().nullable().optional(),
   next_service_date: z.string().nullable().optional(),
   insurance_expiry: z.string().nullable().optional(),
+  notify_compliance_alerts: z.boolean().optional(),
   active_driver_id: z.string().nullable().optional(),
   conductor_1_id: z.string().nullable().optional(),
   conductor_2_id: z.string().nullable().optional(),
@@ -30,16 +32,32 @@ export async function PUT(
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
     }
 
+    const normalized = {
+      ...result.data,
+      last_service_date:
+        result.data.last_service_date !== undefined
+          ? normalizeVehicleDate(result.data.last_service_date)
+          : undefined,
+      next_service_date:
+        result.data.next_service_date !== undefined
+          ? normalizeVehicleDate(result.data.next_service_date)
+          : undefined,
+      insurance_expiry:
+        result.data.insurance_expiry !== undefined
+          ? normalizeVehicleDate(result.data.insurance_expiry)
+          : undefined,
+    };
+
     if (!isSupabaseConfigured) {
       const vehicles = getLocalVehicles();
       const updatedVehicles = vehicles.map(v => {
         if (v.id === id) {
-          return { ...v, ...result.data };
+          return { ...v, ...normalized };
         }
         return v;
       });
       saveLocalVehicles(updatedVehicles);
-      const updated = updatedVehicles.find(v => v.id === id) || { id, ...result.data };
+      const updated = updatedVehicles.find(v => v.id === id) || { id, ...normalized };
       return NextResponse.json({
         success: true,
         source: "mock",
@@ -53,7 +71,7 @@ export async function PUT(
 
     // Clean payload of undefined fields
     const payload = Object.fromEntries(
-      Object.entries(result.data).filter(([_, v]) => v !== undefined)
+      Object.entries(normalized).filter(([_, v]) => v !== undefined)
     );
 
     const { data: vehicleUpdate, error } = await client

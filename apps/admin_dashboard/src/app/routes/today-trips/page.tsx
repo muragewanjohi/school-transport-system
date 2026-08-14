@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
+import { tripTypeLabel } from "@/lib/scheduleFormValidation";
 import { tripStatusIconColor, tripStatusStyles } from "@/lib/tripStatusUi";
 
 interface DBRoute {
@@ -562,7 +563,7 @@ export default function TodayTrips() {
 
                         <td style={{ padding: "16px" }}>
                           <div style={{ fontSize: "0.85rem", color: "var(--text-primary)" }}>
-                            {item.schedule.name} • <strong>{item.schedule.direction === "HOME_TO_SCHOOL" ? "Pick Up" : "Drop Off"}</strong>
+                            {item.schedule.name} • <strong>{tripTypeLabel(item.schedule.direction)}</strong>
                           </div>
                         </td>
 
@@ -709,7 +710,7 @@ export default function TodayTrips() {
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: "var(--text-muted)" }}>Run Name:</span>
-                  <strong style={{ color: "var(--text-primary)" }}>{selectedRun.schedule.name} ({selectedRun.schedule.direction === "HOME_TO_SCHOOL" ? "AM" : "PM"})</strong>
+                  <strong style={{ color: "var(--text-primary)" }}>{selectedRun.schedule.name} ({tripTypeLabel(selectedRun.schedule.direction)})</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: "var(--text-muted)" }}>Scheduled Depart:</span>

@@ -25,6 +25,7 @@ class TripMapLegend extends StatelessWidget {
           _LegendRow(color: Color(0xFF3B82F6), label: 'Next Stop'),
           _LegendRow(color: Color(0xFF94A3B8), label: 'Upcoming'),
           _LegendRow(color: Color(0xFF10B981), label: 'Completed', icon: Icons.check_circle),
+          _LegendRow(color: Color(0xFFF59E0B), label: 'Visited'),
           _LegendRow(color: Color(0xFFEF4444), label: 'Not Visited'),
         ],
       ),

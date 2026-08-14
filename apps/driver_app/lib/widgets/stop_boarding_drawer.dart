@@ -1,22 +1,34 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:driver_app/theme/app_colors.dart';
+import 'package:driver_app/utils/stop_visit_logic.dart';
 
 enum BoardingIntent { pending, present, absent }
 
-/// Result returned when Complete Stop succeeds.
-class StopBoardingCompleteResult {
+enum StopBoardingAction { completed, skipped }
+
+/// Result returned when the driver completes or skips a stop.
+class StopBoardingSheetResult {
   final String stopId;
+  final StopBoardingAction action;
+  final int dwellSeconds;
+  final int studentsActioned;
   final List<String> presentStudentIds;
   final List<String> absentStudentIds;
 
-  const StopBoardingCompleteResult({
+  const StopBoardingSheetResult({
     required this.stopId,
-    required this.presentStudentIds,
-    required this.absentStudentIds,
+    required this.action,
+    required this.dwellSeconds,
+    required this.studentsActioned,
+    this.presentStudentIds = const [],
+    this.absentStudentIds = const [],
   });
 }
 
-Future<StopBoardingCompleteResult?> showStopBoardingDrawer({
+typedef StopBoardingCompleteResult = StopBoardingSheetResult;
+
+Future<StopBoardingSheetResult?> showStopBoardingDrawer({
   required BuildContext context,
   required String stopId,
   required String stopName,
@@ -28,7 +40,7 @@ Future<StopBoardingCompleteResult?> showStopBoardingDrawer({
   DateTime? arrivedAt,
   required Future<bool> Function(Map<String, dynamic> student, String status) onUpdateStatus,
 }) {
-  return showModalBottomSheet<StopBoardingCompleteResult>(
+  return showModalBottomSheet<StopBoardingSheetResult>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
@@ -88,6 +100,8 @@ class _StopBoardingDrawerBody extends StatefulWidget {
 class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
   late Map<String, BoardingIntent> _intents;
   bool _completing = false;
+  Timer? _dwellTimer;
+  int _dwellSeconds = 0;
 
   @override
   void initState() {
@@ -104,6 +118,21 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
         _intents[id] = status == 'Absent' ? BoardingIntent.present : BoardingIntent.pending;
       }
     }
+    _refreshDwell();
+    _dwellTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      setState(_refreshDwell);
+    });
+  }
+
+  @override
+  void dispose() {
+    _dwellTimer?.cancel();
+    super.dispose();
+  }
+
+  void _refreshDwell() {
+    _dwellSeconds = dwellSeconds(arrivedAt: widget.arrivedAt, departedAt: DateTime.now());
   }
 
   int get _picked => _intents.values.where((v) => v == BoardingIntent.present).length;
@@ -165,8 +194,11 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
       }
       if (!mounted) return;
       Navigator.of(context).pop(
-        StopBoardingCompleteResult(
+        StopBoardingSheetResult(
           stopId: widget.stopId,
+          action: StopBoardingAction.completed,
+          dwellSeconds: dwellSeconds(arrivedAt: widget.arrivedAt, departedAt: DateTime.now()),
+          studentsActioned: presentIds.length,
           presentStudentIds: presentIds,
           absentStudentIds: absentIds,
         ),
@@ -174,6 +206,35 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
     } finally {
       if (mounted) setState(() => _completing = false);
     }
+  }
+
+  Future<void> _skipStop() async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Skip this stop?'),
+        content: const Text(
+          'This marks the stop as not visited. School admins will be alerted.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFB91C1C)),
+            child: const Text('Skip Stop'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    Navigator.of(context).pop(
+      StopBoardingSheetResult(
+        stopId: widget.stopId,
+        action: StopBoardingAction.skipped,
+        dwellSeconds: dwellSeconds(arrivedAt: widget.arrivedAt, departedAt: DateTime.now()),
+        studentsActioned: _picked,
+      ),
+    );
   }
 
   String _formatTime(DateTime? t) {
@@ -249,11 +310,17 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 8,
+                    runSpacing: 6,
                     children: [
                       _Pill(
                         label: 'Arrived ${_formatTime(widget.arrivedAt)}',
                         bg: AppColors.softGreen,
                         fg: AppColors.primaryGreen,
+                      ),
+                      _Pill(
+                        label: 'Time at stop ${formatDwell(_dwellSeconds)}',
+                        bg: const Color(0xFFFEF3C7),
+                        fg: const Color(0xFF92400E),
                       ),
                     ],
                   ),
@@ -353,14 +420,14 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _completing ? null : () => Navigator.of(context).pop(),
+                      onPressed: _completing ? null : _skipStop,
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.actionGreen,
-                        side: const BorderSide(color: AppColors.actionGreen, width: 1.5),
+                        foregroundColor: const Color(0xFFB91C1C),
+                        side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
                         minimumSize: const Size(0, 52),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       ),
-                      child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.bold)),
+                      child: const Text('Skip Stop', style: TextStyle(fontWeight: FontWeight.bold)),
                     ),
                   ),
                   const SizedBox(width: 10),

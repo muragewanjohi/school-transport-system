@@ -19,6 +19,13 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
+import {
+  UNSET_VEHICLE_DATE,
+  complianceAlertTone,
+  dateToFormValue,
+  normalizeVehicleDate,
+  vehicleComplianceAlerts,
+} from "@/lib/vehicleCompliance";
 
 interface DBVehicle {
   id: string;
@@ -31,6 +38,7 @@ interface DBVehicle {
   last_service_date: string | null;
   next_service_date: string | null;
   insurance_expiry: string | null;
+  notify_compliance_alerts: boolean;
 }
 
 interface DBMaintenanceLog {
@@ -63,9 +71,10 @@ export default function FleetManagement() {
     model: "",
     capacity: 30,
     status: "Active" as "Active" | "Maintenance" | "Out of Service",
-    last_service_date: "",
-    next_service_date: "",
-    insurance_expiry: "",
+    last_service_date: UNSET_VEHICLE_DATE,
+    next_service_date: UNSET_VEHICLE_DATE,
+    insurance_expiry: UNSET_VEHICLE_DATE,
+    notify_compliance_alerts: false,
   });
 
   // Maintenance Log Form State
@@ -84,7 +93,12 @@ export default function FleetManagement() {
       const fleetJson = await fleetRes.json();
       
       if (fleetJson.success) {
-        setVehicles(fleetJson.data);
+        setVehicles(
+          (fleetJson.data as DBVehicle[]).map((vehicle) => ({
+            ...vehicle,
+            notify_compliance_alerts: Boolean(vehicle.notify_compliance_alerts),
+          }))
+        );
       }
     } catch (err) {
       console.error("Failed to load fleet data:", err);
@@ -122,7 +136,13 @@ export default function FleetManagement() {
 
   // Handle Form Change
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    if (e.target instanceof HTMLInputElement && e.target.type === "checkbox") {
+      const checked = e.target.checked;
+      setFormValues(prev => ({ ...prev, notify_compliance_alerts: checked }));
+      return;
+    }
+    const { value } = e.target;
     setFormValues(prev => ({
       ...prev,
       [name]: name === "capacity"
@@ -143,9 +163,10 @@ export default function FleetManagement() {
       model: "",
       capacity: 33,
       status: "Active",
-      last_service_date: new Date().toISOString().split("T")[0],
-      next_service_date: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString().split("T")[0], // +90 days
-      insurance_expiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split("T")[0], // +1 year
+      last_service_date: UNSET_VEHICLE_DATE,
+      next_service_date: UNSET_VEHICLE_DATE,
+      insurance_expiry: UNSET_VEHICLE_DATE,
+      notify_compliance_alerts: false,
     });
     setFormErrors({});
     setShowDrawer(true);
@@ -160,9 +181,10 @@ export default function FleetManagement() {
       model: vehicle.model,
       capacity: vehicle.capacity,
       status: vehicle.status,
-      last_service_date: vehicle.last_service_date || "",
-      next_service_date: vehicle.next_service_date || "",
-      insurance_expiry: vehicle.insurance_expiry || "",
+      last_service_date: dateToFormValue(vehicle.last_service_date),
+      next_service_date: dateToFormValue(vehicle.next_service_date),
+      insurance_expiry: dateToFormValue(vehicle.insurance_expiry),
+      notify_compliance_alerts: Boolean(vehicle.notify_compliance_alerts),
     });
     setFormErrors({});
     setShowDrawer(true);
@@ -195,12 +217,19 @@ export default function FleetManagement() {
 
     setIsSubmitLoading(true);
 
+    const payload = {
+      ...formValues,
+      last_service_date: normalizeVehicleDate(formValues.last_service_date),
+      next_service_date: normalizeVehicleDate(formValues.next_service_date),
+      insurance_expiry: normalizeVehicleDate(formValues.insurance_expiry),
+    };
+
     try {
       if (drawerMode === "add") {
         const res = await fetch("/api/fleet", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formValues)
+          body: JSON.stringify(payload)
         });
         const json = await res.json();
         
@@ -215,14 +244,14 @@ export default function FleetManagement() {
         const res = await fetch(`/api/fleet/${currentEditId}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(formValues)
+          body: JSON.stringify(payload)
         });
         const json = await res.json();
 
         if (json.success) {
           await fetchFleetData();
           if (selectedVehicle?.id === currentEditId) {
-            setSelectedVehicle({ ...selectedVehicle, ...formValues });
+            setSelectedVehicle({ ...selectedVehicle, ...payload });
           }
           setShowDrawer(false);
         } else {
@@ -630,10 +659,13 @@ export default function FleetManagement() {
                   if (fuelPercent <= 15) fuelColor = "var(--state-error)";
                   else if (fuelPercent <= 45) fuelColor = "var(--state-warning)";
 
-                  // Check compliance statuses
-                  const today = new Date();
-                  const insuranceExpired = vehicle.insurance_expiry ? new Date(vehicle.insurance_expiry) < today : false;
-                  const serviceOverdue = vehicle.next_service_date ? new Date(vehicle.next_service_date) < today : false;
+                  const complianceAlerts = vehicleComplianceAlerts(vehicle);
+                  const worstTone = complianceAlerts.reduce<"error" | "warning" | null>((tone, alert) => {
+                    const next = complianceAlertTone(alert.band);
+                    if (tone === "error" || next === "error") return "error";
+                    return "warning";
+                  }, null);
+                  const alertColor = worstTone === "error" ? "var(--state-error)" : "var(--state-warning)";
 
                   return (
                     <div 
@@ -701,29 +733,26 @@ export default function FleetManagement() {
                       <div style={{ paddingBottom: "1px" }} />
 
                       {/* Expiry Checks Alerts */}
-                      {(insuranceExpired || serviceOverdue) && (
+                      {complianceAlerts.length > 0 && (
                         <div style={{
                           display: "flex",
                           flexDirection: "column",
                           gap: "4px",
                           marginTop: "12px",
-                          background: "rgba(244,63,94,0.06)",
-                          border: "1px solid rgba(244,63,94,0.15)",
+                          background: worstTone === "error" ? "rgba(244,63,94,0.06)" : "rgba(245,158,11,0.08)",
+                          border: `1px solid ${worstTone === "error" ? "rgba(244,63,94,0.15)" : "rgba(245,158,11,0.2)"}`,
                           borderRadius: "6px",
                           padding: "6px 10px"
                         }}>
-                          {insuranceExpired && (
-                            <div style={{ fontSize: "0.7rem", color: "var(--state-error)", display: "flex", alignItems: "center", gap: "4px" }}>
+                          {complianceAlerts.map((alert) => (
+                            <div
+                              key={alert.field}
+                              style={{ fontSize: "0.7rem", color: alertColor, display: "flex", alignItems: "center", gap: "4px" }}
+                            >
                               <AlertTriangle size={10} />
-                              Insurance Expired! ({vehicle.insurance_expiry})
+                              {alert.message}
                             </div>
-                          )}
-                          {serviceOverdue && (
-                            <div style={{ fontSize: "0.7rem", color: "var(--state-error)", display: "flex", alignItems: "center", gap: "4px" }}>
-                              <AlertTriangle size={10} />
-                              Maintenance Service Overdue! ({vehicle.next_service_date})
-                            </div>
-                          )}
+                          ))}
                         </div>
                       )}
                     </div>
@@ -1047,7 +1076,7 @@ export default function FleetManagement() {
               {/* Compliance & Servicing Fields */}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <div className="form-group">
-                  <label className="form-label">Last Service Date</label>
+                  <label className="form-label">Last Service Date (optional)</label>
                   <input
                     type="date"
                     name="last_service_date"
@@ -1057,7 +1086,7 @@ export default function FleetManagement() {
                   />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Next Service Date</label>
+                  <label className="form-label">Next Service Date (optional)</label>
                   <input
                     type="date"
                     name="next_service_date"
@@ -1069,7 +1098,7 @@ export default function FleetManagement() {
               </div>
 
               <div className="form-group">
-                <label className="form-label">Insurance Expiry Date</label>
+                <label className="form-label">Insurance Expiry Date (optional)</label>
                 <input
                   type="date"
                   name="insurance_expiry"
@@ -1078,6 +1107,36 @@ export default function FleetManagement() {
                   onChange={handleInputChange}
                 />
               </div>
+
+              <label
+                className="checkbox-row"
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "12px",
+                  background: formValues.notify_compliance_alerts ? "rgba(16, 185, 129, 0.03)" : "transparent",
+                  border: formValues.notify_compliance_alerts ? "1px solid var(--accent-primary)" : "1px solid var(--border-default)",
+                  borderRadius: "8px",
+                  padding: "12px 16px",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  name="notify_compliance_alerts"
+                  checked={formValues.notify_compliance_alerts}
+                  onChange={handleInputChange}
+                  style={{ width: "16px", height: "16px", marginTop: "2px", accentColor: "var(--accent-primary)", cursor: "pointer" }}
+                />
+                <div>
+                  <span style={{ display: "block", fontSize: "0.85rem", fontWeight: 600, color: "var(--text-primary)" }}>
+                    Notify me when service or insurance is due
+                  </span>
+                  <p style={{ margin: "4px 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
+                    Alerts show on this vehicle 1 month, 2 weeks, and 1 day before next service or insurance expiry.
+                  </p>
+                </div>
+              </label>
 
               {/* Compliance & Servicing Fields border separator */}
 

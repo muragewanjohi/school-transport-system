@@ -1,3 +1,5 @@
+export type TripDirection = "HOME_TO_SCHOOL" | "SCHOOL_TO_HOME";
+
 export type ScheduleFormInput = {
   name: string;
   departure_time: string;
@@ -10,12 +12,18 @@ export type ScheduleFormInput = {
 export const SCHEDULE_FIELD_LABELS: Record<string, string> = {
   name: "Trip name",
   departure_time: "Departure time",
-  direction: "Transit direction",
+  direction: "Trip type",
   target_grades: "Target grade classes",
   days_of_week: "Operating days",
   route_id: "Route",
   vehicle_id: "Assigned bus",
 };
+
+export function tripTypeLabel(direction: string): string {
+  if (direction === "HOME_TO_SCHOOL") return "Pick up";
+  if (direction === "SCHOOL_TO_HOME") return "Drop off";
+  return direction;
+}
 
 export function validateScheduleForm(input: ScheduleFormInput): Record<string, string> {
   const errors: Record<string, string> = {};
@@ -31,7 +39,7 @@ export function validateScheduleForm(input: ScheduleFormInput): Record<string, s
   }
 
   if (input.direction !== "HOME_TO_SCHOOL" && input.direction !== "SCHOOL_TO_HOME") {
-    errors.direction = "Transit direction is required";
+    errors.direction = "Select pick up or drop off";
   }
 
   if (input.target_grades.length === 0) {

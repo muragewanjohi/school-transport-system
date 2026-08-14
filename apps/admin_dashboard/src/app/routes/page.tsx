@@ -25,6 +25,7 @@ import {
 import {
   formatScheduleApiErrors,
   summarizeMissingScheduleFields,
+  tripTypeLabel,
   validateScheduleForm,
 } from "@/lib/scheduleFormValidation";
 
@@ -224,7 +225,7 @@ function RoutesManagement() {
   const [scheduleForm, setScheduleForm] = useState({
     name: "",
     departure_time: "07:00",
-    direction: "HOME_TO_SCHOOL" as "HOME_TO_SCHOOL" | "SCHOOL_TO_HOME",
+    direction: "" as "" | "HOME_TO_SCHOOL" | "SCHOOL_TO_HOME",
     target_grades: [] as string[],
     days_of_week: [1, 2, 3, 4, 5],
     vehicle_id: ""
@@ -1104,11 +1105,13 @@ function RoutesManagement() {
       ? `${scheduleForm.departure_time}:00` 
       : scheduleForm.departure_time;
 
+    const tripDirection = scheduleForm.direction as "HOME_TO_SCHOOL" | "SCHOOL_TO_HOME";
+
     const payload = {
       route_id: selectedRouteId,
       name: scheduleForm.name,
       departure_time: departureTime,
-      direction: scheduleForm.direction,
+      direction: tripDirection,
       target_grades: scheduleForm.target_grades,
       days_of_week: scheduleForm.days_of_week,
       vehicle_id: scheduleForm.vehicle_id || null
@@ -1146,7 +1149,7 @@ function RoutesManagement() {
         setScheduleForm({
           name: "",
           departure_time: "07:00",
-          direction: "HOME_TO_SCHOOL",
+          direction: "",
           target_grades: [],
           days_of_week: [1, 2, 3, 4, 5],
           vehicle_id: ""
@@ -1266,10 +1269,6 @@ function RoutesManagement() {
     return stop.name.toLowerCase().includes(query) || routeName.toLowerCase().includes(query);
   });
   const attachableGroups = groupStopsByRoute(attachableStops, routes);
-
-  const getDirectionText = (dir: string) => {
-    return dir === "HOME_TO_SCHOOL" ? "AM Route (Home to School)" : "PM Route (School to Home)";
-  };
 
   const getDaysText = (days: number[]) => {
     const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -1648,7 +1647,7 @@ function RoutesManagement() {
                       setScheduleForm({
                         name: "",
                         departure_time: "07:00",
-                        direction: "HOME_TO_SCHOOL",
+                        direction: "",
                         target_grades: [],
                         days_of_week: [1, 2, 3, 4, 5],
                         vehicle_id: ""
@@ -1826,7 +1825,7 @@ function RoutesManagement() {
                         <tr style={{ borderBottom: "1px solid var(--border-default)" }}>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Trip Name</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Dep. Time</th>
-                          <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Direction</th>
+                          <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Trip type</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Assigned Bus</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Target Grades</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Operating Days</th>
@@ -1843,7 +1842,7 @@ function RoutesManagement() {
                                 <Clock size={12} style={{ display: "inline", marginRight: "4px" }} />
                                 {sched.departure_time.slice(0, 5)}
                               </td>
-                              <td style={{ padding: "12px 10px", fontSize: "0.8rem", color: "var(--text-primary)" }}>{getDirectionText(sched.direction)}</td>
+                              <td style={{ padding: "12px 10px", fontSize: "0.8rem", color: "var(--text-primary)" }}>{tripTypeLabel(sched.direction)}</td>
                               <td style={{ padding: "12px 10px", fontSize: "0.8rem", color: "var(--text-primary)" }}>
                                 {assignedVehicle ? (
                                   <span style={{ color: "var(--accent-secondary)", fontWeight: 600 }}>
@@ -2021,21 +2020,52 @@ function RoutesManagement() {
                   )}
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Transit Direction *</label>
-                  <select 
-                    className="form-input"
-                    value={scheduleForm.direction}
-                    onChange={(e) => {
-                      clearScheduleFieldError("direction");
-                      setScheduleForm(prev => ({ ...prev, direction: e.target.value as "HOME_TO_SCHOOL" | "SCHOOL_TO_HOME" }));
+                  <label className="form-label">Trip type *</label>
+                  <div
+                    role="radiogroup"
+                    aria-label="Trip type"
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      padding: "8px",
+                      borderRadius: "6px",
+                      border: scheduleFormErrors.direction ? "1px solid var(--state-error)" : "1px solid var(--border-default)",
+                      background: "var(--input-bg)",
                     }}
                   >
-                    <option value="HOME_TO_SCHOOL">Home to School (AM)</option>
-                    <option value="SCHOOL_TO_HOME">School to Home (PM)</option>
-                  </select>
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer", flex: 1 }}>
+                      <input
+                        type="radio"
+                        name="trip_type"
+                        value="HOME_TO_SCHOOL"
+                        checked={scheduleForm.direction === "HOME_TO_SCHOOL"}
+                        onChange={() => {
+                          clearScheduleFieldError("direction");
+                          setScheduleForm(prev => ({ ...prev, direction: "HOME_TO_SCHOOL" }));
+                        }}
+                      />
+                      Pick up
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer", flex: 1 }}>
+                      <input
+                        type="radio"
+                        name="trip_type"
+                        value="SCHOOL_TO_HOME"
+                        checked={scheduleForm.direction === "SCHOOL_TO_HOME"}
+                        onChange={() => {
+                          clearScheduleFieldError("direction");
+                          setScheduleForm(prev => ({ ...prev, direction: "SCHOOL_TO_HOME" }));
+                        }}
+                      />
+                      Drop off
+                    </label>
+                  </div>
                   {scheduleFormErrors.direction && (
                     <span style={{ fontSize: "0.75rem", color: "var(--state-error)" }}>{scheduleFormErrors.direction}</span>
                   )}
+                  <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "2px" }}>
+                    Pick up is home to school. Drop off is school to home.
+                  </span>
                 </div>
               </div>
 

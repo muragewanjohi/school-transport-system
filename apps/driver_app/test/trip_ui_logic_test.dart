@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:driver_app/utils/stop_visit_logic.dart';
 import 'package:driver_app/utils/trip_ui_logic.dart';
 
 void main() {
@@ -129,6 +130,20 @@ void main() {
           orderedStopIds: ordered,
         ),
         StopMarkerState.upcoming,
+      );
+    });
+
+    test('visited outcome is visited marker', () {
+      expect(
+        stopMarkerState(
+          sequenceIndex: 0,
+          stopId: 'a',
+          visitedStopIds: {},
+          nextStopId: 'b',
+          orderedStopIds: ordered,
+          stopOutcomes: {'a': StopVisitOutcome.visited},
+        ),
+        StopMarkerState.visited,
       );
     });
 

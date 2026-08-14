@@ -1,10 +1,11 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:driver_app/providers/trip_providers.dart';
 import 'package:driver_app/services/stop_navigation_service.dart';
 import 'package:driver_app/theme/app_colors.dart';
 import 'package:driver_app/utils/geo_utils.dart';
+import 'package:driver_app/utils/stop_visit_logic.dart';
 import 'package:driver_app/utils/trip_ui_logic.dart';
 import 'package:driver_app/widgets/route_map_widget.dart';
 import 'package:driver_app/widgets/stop_boarding_drawer.dart';
@@ -40,7 +41,7 @@ class TripSosAction extends ConsumerWidget {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('SOS active — emergency telemetry streaming'),
+          content: Text('SOS active â€” emergency telemetry streaming'),
           backgroundColor: Colors.red,
         ),
       );
@@ -95,18 +96,23 @@ class TripSosAction extends ConsumerWidget {
   }
 }
 
-class TripScreen extends ConsumerWidget {
+class TripScreen extends ConsumerStatefulWidget {
   final bool isTripActive;
   final String vehiclePlate;
   final String? routeId;
   final String runType;
   final List<dynamic> stops;
   final List<dynamic> students;
-  final Set<String> visitedStopIds;
+  final Map<String, StopVisitOutcome> stopOutcomes;
   final DateTime? arrivedAt;
   final int? scheduleDurationMinutes;
   final TelemetryCoords? telemetry;
-  final ValueChanged<String> onStopCompleted;
+  final void Function({
+    required String stopId,
+    required StopVisitOutcome outcome,
+    required int dwellSeconds,
+    required int studentsActioned,
+  }) onStopResolved;
   final Future<bool> Function(Map<String, dynamic> student, String status) onUpdateStudentStatus;
   final VoidCallback onViewStudents;
   final VoidCallback onGoHome;
@@ -121,11 +127,11 @@ class TripScreen extends ConsumerWidget {
     required this.runType,
     required this.stops,
     required this.students,
-    required this.visitedStopIds,
+    required this.stopOutcomes,
     this.arrivedAt,
     this.scheduleDurationMinutes,
     required this.telemetry,
-    required this.onStopCompleted,
+    required this.onStopResolved,
     required this.onUpdateStudentStatus,
     required this.onViewStudents,
     required this.onGoHome,
@@ -133,43 +139,88 @@ class TripScreen extends ConsumerWidget {
     this.onMapRefresh,
   });
 
-  bool get _isPickup => isPickupRunType(runType);
+  @override
+  ConsumerState<TripScreen> createState() => _TripScreenState();
+}
+
+class _TripScreenState extends ConsumerState<TripScreen> {
+  bool _drawerOpen = false;
+  String? _openedForStopId;
+
+  bool get _isPickup => isPickupRunType(widget.runType);
+
+  Set<String> get _resolvedStopIds => widget.stopOutcomes.keys.toSet();
 
   ArrivedStop? get _arrived {
-    if (telemetry == null || stops.isEmpty) return null;
+    if (widget.telemetry == null || widget.stops.isEmpty) return null;
     return findArrivedStop(
-      latitude: telemetry!.latitude,
-      longitude: telemetry!.longitude,
-      stops: stops,
+      latitude: widget.telemetry!.latitude,
+      longitude: widget.telemetry!.longitude,
+      stops: widget.stops,
     );
   }
 
   Map<String, dynamic>? get _nextStop {
-    // Prefer first incomplete stop in sequence as "active" stop for boarding.
-    final ordered = sortedStopsBySequence(stops);
-    for (final s in ordered) {
-      if (s is! Map) continue;
-      final id = s['id']?.toString() ?? '';
-      if (id.isEmpty) continue;
-      if (!visitedStopIds.contains(id)) {
-        return Map<String, dynamic>.from(s);
-      }
-    }
-    return nextNavigationStop(
-      stops: stops,
-      latitude: telemetry?.latitude,
-      longitude: telemetry?.longitude,
-    );
+    return firstUnresolvedStop(stops: widget.stops, outcomes: widget.stopOutcomes) ??
+        nextNavigationStop(
+          stops: widget.stops,
+          latitude: widget.telemetry?.latitude,
+          longitude: widget.telemetry?.longitude,
+        );
   }
 
-  Future<void> _openBoardingDrawer(BuildContext context) async {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _maybeAutoOpenDrawer();
+    });
+  }
+
+  @override
+  void didUpdateWidget(TripScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _maybeAutoOpenDrawer();
+      _maybeDismissDrawerAfterLeave();
+    });
+  }
+
+  void _maybeAutoOpenDrawer() {
+    final arrived = _arrived;
+    final next = _nextStop;
+    final nextId = next?['id']?.toString();
+    if (!shouldAutoOpenBoardingDrawer(
+      arrivedStopId: arrived?.id,
+      nextStopId: nextId,
+      alreadyOpenedStopId: _openedForStopId,
+      drawerOpen: _drawerOpen,
+    )) {
+      return;
+    }
+    _openBoardingDrawer();
+  }
+
+  void _maybeDismissDrawerAfterLeave() {
+    if (!_drawerOpen) return;
+    final arrived = _arrived;
+    final nextId = _nextStop?['id']?.toString();
+    if (arrived == null || (nextId != null && arrived.id != nextId && arrived.id != _openedForStopId)) {
+      Navigator.of(context, rootNavigator: true).maybePop();
+    }
+  }
+
+  Future<void> _openBoardingDrawer({bool requireArrival = true}) async {
     final stop = _nextStop;
     if (stop == null) return;
     final stopId = stop['id']?.toString() ?? '';
     if (stopId.isEmpty) return;
     final arrived = _arrived;
     final atStop = arrived != null && arrived.id == stopId;
-    if (!atStop) {
+    if (requireArrival && !atStop) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Arrive at this stop geofence before boarding.'),
@@ -178,14 +229,20 @@ class TripScreen extends ConsumerWidget {
       );
       return;
     }
+    if (_drawerOpen) return;
 
-    final orderedIds = orderedStopIdsFrom(stops);
+    final orderedIds = orderedStopIdsFrom(widget.stops);
     final idx = orderedIds.indexOf(stopId);
     final stopStudents = studentsForStop(
-      students: students,
+      students: widget.students,
       stopId: stopId,
       isPickup: _isPickup,
     );
+
+    setState(() {
+      _drawerOpen = true;
+      _openedForStopId = stopId;
+    });
 
     final result = await showStopBoardingDrawer(
       context: context,
@@ -195,19 +252,61 @@ class TripScreen extends ConsumerWidget {
       stopCount: orderedIds.length,
       students: stopStudents,
       isPickup: _isPickup,
-      arrived: true,
-      arrivedAt: arrivedAt,
-      onUpdateStatus: onUpdateStudentStatus,
+      arrived: atStop,
+      arrivedAt: widget.arrivedAt,
+      onUpdateStatus: widget.onUpdateStudentStatus,
     );
 
-    if (result != null) {
-      onStopCompleted(result.stopId);
-    }
+    if (!mounted) return;
+    setState(() => _drawerOpen = false);
+
+    if (result == null) return;
+    final outcome = result.action == StopBoardingAction.skipped
+        ? StopVisitOutcome.skipped
+        : StopVisitOutcome.completed;
+    widget.onStopResolved(
+      stopId: result.stopId,
+      outcome: outcome,
+      dwellSeconds: result.dwellSeconds,
+      studentsActioned: result.studentsActioned,
+    );
   }
 
-  Future<void> _navigateToNextStop(BuildContext context) async {
+  Future<void> _skipCurrentStop() async {
+    final stop = _nextStop;
+    if (stop == null) return;
+    final stopId = stop['id']?.toString() ?? '';
+    if (stopId.isEmpty) return;
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Skip this stop?'),
+        content: const Text(
+          'This marks the stop as not visited. School admins will be alerted.',
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: const Color(0xFFB91C1C)),
+            child: const Text('Skip Stop'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+    widget.onStopResolved(
+      stopId: stopId,
+      outcome: StopVisitOutcome.skipped,
+      dwellSeconds: dwellSeconds(arrivedAt: widget.arrivedAt, departedAt: DateTime.now()),
+      studentsActioned: 0,
+    );
+  }
+
+  Future<void> _navigateToNextStop() async {
     final stop = _nextStop;
     if (stop == null) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('No next stop available for navigation.'),
@@ -218,7 +317,7 @@ class TripScreen extends ConsumerWidget {
     }
 
     final ok = await StopNavigationService.navigateToStop(stop);
-    if (!context.mounted) return;
+    if (!mounted) return;
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -232,8 +331,8 @@ class TripScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    if (!isTripActive) {
+  Widget build(BuildContext context) {
+    if (!widget.isTripActive) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 8),
         child: Column(
@@ -253,7 +352,7 @@ class TripScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 24),
             ElevatedButton.icon(
-              onPressed: onGoHome,
+              onPressed: widget.onGoHome,
               icon: const Icon(Icons.home),
               label: const Text('Go to Home'),
               style: ElevatedButton.styleFrom(
@@ -268,26 +367,26 @@ class TripScreen extends ConsumerWidget {
     }
 
     final isSos = ref.watch(emergencyActiveProvider);
-    final progress = computeAttendanceProgress(students, isPickup: _isPickup);
+    final progress = computeAttendanceProgress(widget.students, isPickup: _isPickup);
     final next = _nextStop;
     final nextPoint = next == null ? null : stopLatLng(next);
     final nextId = next?['id']?.toString();
-    final remainingStops = orderedStopIdsFrom(stops).where((id) => !visitedStopIds.contains(id)).length;
-    final fallbackEta = (scheduleDurationMinutes != null && remainingStops > 0)
-        ? (scheduleDurationMinutes! / remainingStops).ceil()
-        : scheduleDurationMinutes;
+    final remainingStops = orderedStopIdsFrom(widget.stops).where((id) => !_resolvedStopIds.contains(id)).length;
+    final fallbackEta = (widget.scheduleDurationMinutes != null && remainingStops > 0)
+        ? (widget.scheduleDurationMinutes! / remainingStops).ceil()
+        : widget.scheduleDurationMinutes;
 
     final eta = estimateEtaMinutes(
-      busLat: telemetry?.latitude,
-      busLng: telemetry?.longitude,
+      busLat: widget.telemetry?.latitude,
+      busLng: widget.telemetry?.longitude,
       stopLat: nextPoint?.latitude,
       stopLng: nextPoint?.longitude,
-      speedMetersPerSec: telemetry?.speed ?? 0,
+      speedMetersPerSec: widget.telemetry?.speed ?? 0,
       fallbackMinutes: fallbackEta,
     );
     final distKm = distanceKmToStop(
-      busLat: telemetry?.latitude,
-      busLng: telemetry?.longitude,
+      busLat: widget.telemetry?.latitude,
+      busLng: widget.telemetry?.longitude,
       stopLat: nextPoint?.latitude,
       stopLng: nextPoint?.longitude,
     );
@@ -296,7 +395,7 @@ class TripScreen extends ConsumerWidget {
     final canBoard = nextId != null && arrived != null && arrived.id == nextId;
     final atStopStudents = nextId == null
         ? 0
-        : studentsForStop(students: students, stopId: nextId, isPickup: _isPickup).length;
+        : studentsForStop(students: widget.students, stopId: nextId, isPickup: _isPickup).length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -328,19 +427,20 @@ class TripScreen extends ConsumerWidget {
           progress: progress,
           isPickup: _isPickup,
         ),
-        if (routeId != null) ...[
+        if (widget.routeId != null) ...[
           const SizedBox(height: 12),
           RouteMapWidget(
-            routeId: routeId!,
-            liveLatitude: telemetry?.latitude,
-            liveLongitude: telemetry?.longitude,
-            liveBearing: telemetry?.bearing,
-            vehiclePlate: vehiclePlate,
+            routeId: widget.routeId!,
+            liveLatitude: widget.telemetry?.latitude,
+            liveLongitude: widget.telemetry?.longitude,
+            liveBearing: widget.telemetry?.bearing,
+            vehiclePlate: widget.vehiclePlate,
             arrivedStopId: arrived?.id,
             nextStopId: nextId,
-            visitedStopIds: visitedStopIds,
-            lastTelemetryIso: telemetry?.timestamp,
-            onRefresh: onMapRefresh,
+            visitedStopIds: _resolvedStopIds,
+            stopOutcomes: widget.stopOutcomes,
+            lastTelemetryIso: widget.telemetry?.timestamp,
+            onRefresh: widget.onMapRefresh,
             height: 450,
           ),
           const SizedBox(height: 12),
@@ -350,15 +450,16 @@ class TripScreen extends ConsumerWidget {
             etaMinutes: eta,
             distanceKm: distKm,
             canBoard: canBoard,
-            runType: runType,
-            onNavigate: next == null ? null : () => _navigateToNextStop(context),
-            onBoardStudents: () => _openBoardingDrawer(context),
-            onViewStudents: onViewStudents,
+            runType: widget.runType,
+            onNavigate: next == null ? null : _navigateToNextStop,
+            onBoardStudents: () => _openBoardingDrawer(),
+            onSkipStop: next == null ? null : _skipCurrentStop,
+            onViewStudents: widget.onViewStudents,
           ),
         ],
         const SizedBox(height: 16),
         OutlinedButton.icon(
-          onPressed: onEndTrip,
+          onPressed: widget.onEndTrip,
           icon: const Icon(Icons.stop_circle_outlined, color: Colors.red),
           label: const Text(
             'END TRIP',

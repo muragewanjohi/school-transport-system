@@ -10,6 +10,7 @@ import 'package:driver_app/services/google_directions_service.dart';
 import 'package:driver_app/config/api_config.dart';
 import 'package:driver_app/theme/app_colors.dart';
 import 'package:driver_app/utils/geo_utils.dart';
+import 'package:driver_app/utils/stop_visit_logic.dart';
 import 'package:driver_app/utils/trip_ui_logic.dart';
 import 'package:driver_app/widgets/trip_map_legend.dart';
 
@@ -22,6 +23,7 @@ class RouteMapWidget extends StatefulWidget {
   final String? arrivedStopId;
   final String? nextStopId;
   final Set<String> visitedStopIds;
+  final Map<String, StopVisitOutcome> stopOutcomes;
   final bool navMode;
   final String? lastTelemetryIso;
   final VoidCallback? onRefresh;
@@ -37,6 +39,7 @@ class RouteMapWidget extends StatefulWidget {
     this.arrivedStopId,
     this.nextStopId,
     this.visitedStopIds = const {},
+    this.stopOutcomes = const {},
     this.navMode = false,
     this.lastTelemetryIso,
     this.onRefresh,
@@ -106,6 +109,11 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
         border = const Color(0xFF047857);
         iconData = Icons.check;
         break;
+      case StopMarkerState.visited:
+        fill = const Color(0xFFF59E0B);
+        border = const Color(0xFFB45309);
+        text = '$number';
+        break;
       case StopMarkerState.next:
         fill = const Color(0xFF3B82F6);
         border = const Color(0xFF1D4ED8);
@@ -163,7 +171,8 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
       _fetchRouteStops();
     }
     final visitChanged = !setEquals(oldWidget.visitedStopIds, widget.visitedStopIds) ||
-        oldWidget.nextStopId != widget.nextStopId;
+        oldWidget.nextStopId != widget.nextStopId ||
+        !mapEquals(oldWidget.stopOutcomes, widget.stopOutcomes);
     if (visitChanged && _stops.isNotEmpty) {
       _prefetchMarkerIcons(_stops);
     }
@@ -379,6 +388,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
         visitedStopIds: widget.visitedStopIds,
         nextStopId: widget.nextStopId,
         orderedStopIds: ordered,
+        stopOutcomes: widget.stopOutcomes,
       );
       final key = '${state.name}-$number';
       final icon = _numberedMarkers[key] ??

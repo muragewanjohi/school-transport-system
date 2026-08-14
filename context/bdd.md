@@ -4,41 +4,48 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Driver bus assignment |
-| **Stack** | `next` (admin dashboard) |
-| **Owner path(s)** | `apps/admin_dashboard/src/lib/assignDriverVehicle.ts`, `apps/admin_dashboard/src/app/api/drivers/route.ts`, `apps/admin_dashboard/src/app/staff/drivers/page.tsx` |
+| **Name** | Student registry route + trip filter |
+| **Stack** | `next.js` (admin dashboard) |
+| **Owner path(s)** | `apps/admin_dashboard/src/lib/studentRegistryFilter.ts`, `apps/admin_dashboard/src/lib/studentStopAssignment.ts`, `apps/admin_dashboard/src/app/students/page.tsx` |
 | **Started** | 2026-08-14 |
 | **Status** | `passing` |
 
 ## Goal
 
-School admins can pick a bus when registering a driver. Changing Allocated Vehicle on Staff Drivers persists on the vehicle (`active_driver_id`) and only reports success when the write succeeds.
+On Student Manifests Registry, operators can change a student’s route and pick-up/drop-off trips in the table, then filter the list by route or trip.
 
 ## Scenarios
 
 ```gherkin
-Feature: Driver bus assignment
+Feature: Student registry trip assignment
 
-  Scenario: Register driver with a bus
-    Given a school has at least one unallocated vehicle
-    When an admin registers a driver and selects that bus
-    Then the new driver is stored as that vehicle's active_driver_id
+  Scenario: Changing route clears trips and remaps stops
+    Given a student on route A with assigned trips
+    When the operator selects route B
+    Then pickup and drop-off stops are remapped to route B
+    And schedule_ids are cleared
 
-  Scenario: Allocate bus on the drivers page
-    Given an existing driver with no bus
-    When the admin chooses a vehicle in Allocated Vehicle Assignment
-    Then the vehicle's active_driver_id is set to that driver and the UI reloads the saved value
+  Scenario: Filter by trip shows only assigned students
+    Given students assigned to different trips
+    When the operator filters by one trip
+    Then only students with that schedule id are listed
 
-  Scenario: Failed allocation is not reported as saved
-    Given the assignment write fails
-    When the admin chooses a vehicle
-    Then they see an error and the previous assignment remains
+  Scenario: Filter by route shows only students on that route
+    Given students assigned to different routes
+    When the operator filters by one route
+    Then only students with that route id are listed
+
+  Scenario: Merge pick-up trip keeps drop-off trip
+    Given a student with a pick-up and drop-off schedule
+    When the operator changes only the pick-up trip
+    Then the drop-off schedule id is unchanged
 ```
 
 ## Automation map
 
 | Scenario title | Test / verification | Status |
 | :--- | :--- | :--- |
-| Register driver with a bus | `src/lib/assignDriverVehicle.test.ts` | `passing` |
-| Allocate bus on the drivers page | `src/lib/assignDriverVehicle.test.ts` | `passing` |
-| Failed allocation is not reported as saved | `src/lib/assignDriverVehicle.test.ts` | `passing` |
+| Changing route clears trips and remaps stops | `src/lib/studentStopAssignment.test.ts` | `passing` |
+| Filter by trip shows only assigned students | `src/lib/studentRegistryFilter.test.ts` | `passing` |
+| Filter by route shows only students on that route | `src/lib/studentRegistryFilter.test.ts` | `passing` |
+| Merge pick-up trip keeps drop-off trip | `src/lib/studentRegistryFilter.test.ts` | `passing` |

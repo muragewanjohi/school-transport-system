@@ -15,6 +15,13 @@ import {
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import HomeLocationMapPicker from "@/components/HomeLocationMapPicker";
+import StudentStopAssignmentFields from "@/components/StudentStopAssignmentFields";
+import {
+  defaultDifferentStopIds,
+  defaultSameStopId,
+  sameStageIds,
+  type StudentStopMode,
+} from "@/lib/studentStopAssignment";
 
 interface DBRoute {
   id: string;
@@ -59,6 +66,7 @@ export default function RegisterStudentPage() {
     { name: "", phone: "" }
   ]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [stopMode, setStopMode] = useState<StudentStopMode>("same");
 
   useEffect(() => {
     fetchInitialData();
@@ -107,8 +115,10 @@ export default function RegisterStudentPage() {
 
   const handleRouteIdChange = (newRouteId: string) => {
     const routeStops = stops.filter(s => s.route_id === newRouteId);
-    const defaultPickup = routeStops.find(s => s.stop_type === "PICKUP" || s.stop_type === "BOTH")?.id || routeStops[0]?.id || "";
-    const defaultDropoff = routeStops.find(s => s.stop_type === "DROPOFF" || s.stop_type === "BOTH")?.id || routeStops[0]?.id || "";
+    const stageIds =
+      stopMode === "same"
+        ? sameStageIds(defaultSameStopId(routeStops))
+        : defaultDifferentStopIds(routeStops);
 
     const routeSchedules = schedules.filter(s => s.route_id === newRouteId);
     const pickupSched = routeSchedules.find(s => s.direction === "HOME_TO_SCHOOL");
@@ -121,8 +131,8 @@ export default function RegisterStudentPage() {
     setFormValues(prev => ({
       ...prev,
       route_id: newRouteId,
-      pickup_stop_id: defaultPickup,
-      dropoff_stop_id: defaultDropoff,
+      pickup_stop_id: stageIds.pickup_stop_id,
+      dropoff_stop_id: stageIds.dropoff_stop_id,
       schedule_ids: initialScheduleIds
     }));
 
@@ -659,45 +669,42 @@ export default function RegisterStudentPage() {
                     {formErrors.route_id && <span className="form-error-text">{formErrors.route_id}</span>}
                   </div>
 
-                  <div className="form-group">
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                      <div className="form-group">
-                        <label className="form-label">Pickup Location *</label>
-                        <select
-                          name="pickup_stop_id"
-                          className="form-input"
-                          value={formValues.pickup_stop_id}
-                          onChange={handleInputChange}
-                          disabled={!formValues.route_id}
-                        >
-                          {!formValues.route_id && <option value="">-- Assign route --</option>}
-                          {stops.filter(s => s.route_id === formValues.route_id).map(stop => (
-                            <option key={stop.id} value={stop.id}>
-                              {stop.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="form-group">
-                        <label className="form-label">Drop-off Location *</label>
-                        <select
-                          name="dropoff_stop_id"
-                          className="form-input"
-                          value={formValues.dropoff_stop_id}
-                          onChange={handleInputChange}
-                          disabled={!formValues.route_id}
-                        >
-                          {!formValues.route_id && <option value="">-- Assign route --</option>}
-                          {stops.filter(s => s.route_id === formValues.route_id).map(stop => (
-                            <option key={stop.id} value={stop.id}>
-                              {stop.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
+                  <StudentStopAssignmentFields
+                    routeId={formValues.route_id}
+                    stops={stops}
+                    mode={stopMode}
+                    pickupStopId={formValues.pickup_stop_id}
+                    dropoffStopId={formValues.dropoff_stop_id}
+                    pickupError={formErrors.pickup_stop_id}
+                    dropoffError={formErrors.dropoff_stop_id}
+                    onModeChange={(mode) => {
+                      setStopMode(mode);
+                      if (mode === "same") {
+                        setFormValues((prev) => ({
+                          ...prev,
+                          ...sameStageIds(prev.pickup_stop_id || prev.dropoff_stop_id),
+                        }));
+                      }
+                    }}
+                    onSameStageChange={(stopId) => {
+                      setFormValues((prev) => ({ ...prev, ...sameStageIds(stopId) }));
+                      if (formErrors.pickup_stop_id || formErrors.dropoff_stop_id) {
+                        setFormErrors((prev) => ({ ...prev, pickup_stop_id: "", dropoff_stop_id: "" }));
+                      }
+                    }}
+                    onPickupChange={(stopId) => {
+                      setFormValues((prev) => ({ ...prev, pickup_stop_id: stopId }));
+                      if (formErrors.pickup_stop_id) {
+                        setFormErrors((prev) => ({ ...prev, pickup_stop_id: "" }));
+                      }
+                    }}
+                    onDropoffChange={(stopId) => {
+                      setFormValues((prev) => ({ ...prev, dropoff_stop_id: stopId }));
+                      if (formErrors.dropoff_stop_id) {
+                        setFormErrors((prev) => ({ ...prev, dropoff_stop_id: "" }));
+                      }
+                    }}
+                  />
                 </div>
 
                 {/* Resolve selected pickup & dropoff IDs for the radio button states */}

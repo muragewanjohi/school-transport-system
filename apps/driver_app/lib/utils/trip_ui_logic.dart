@@ -1,4 +1,5 @@
 import 'package:driver_app/utils/geo_utils.dart';
+import 'package:driver_app/utils/stop_visit_logic.dart';
 
 /// Attendance progress for the active trip roster.
 class TripAttendanceProgress {
@@ -65,7 +66,7 @@ String tripBoardingCtaLabel(String runType) {
 
 bool isPickupRunType(String runType) => runType.toUpperCase() != 'DROPOFF';
 
-enum StopMarkerState { completed, next, upcoming, notVisited }
+enum StopMarkerState { completed, visited, next, upcoming, notVisited }
 
 /// Assign marker state for a stop in sequence order.
 StopMarkerState stopMarkerState({
@@ -74,8 +75,15 @@ StopMarkerState stopMarkerState({
   required Set<String> visitedStopIds,
   required String? nextStopId,
   required List<String> orderedStopIds,
+  Map<String, StopVisitOutcome>? stopOutcomes,
 }) {
-  if (visitedStopIds.contains(stopId)) return StopMarkerState.completed;
+  final outcome = stopOutcomes?[stopId];
+  if (outcome == StopVisitOutcome.completed ||
+      (outcome == null && visitedStopIds.contains(stopId))) {
+    return StopMarkerState.completed;
+  }
+  if (outcome == StopVisitOutcome.visited) return StopMarkerState.visited;
+  if (outcome == StopVisitOutcome.skipped) return StopMarkerState.notVisited;
   if (nextStopId != null && stopId == nextStopId) return StopMarkerState.next;
 
   final nextIdx = nextStopId == null

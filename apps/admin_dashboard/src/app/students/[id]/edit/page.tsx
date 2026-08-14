@@ -15,6 +15,14 @@ import {
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import HomeLocationMapPicker from "@/components/HomeLocationMapPicker";
+import StudentStopAssignmentFields from "@/components/StudentStopAssignmentFields";
+import {
+  defaultDifferentStopIds,
+  defaultSameStopId,
+  inferStudentStopMode,
+  sameStageIds,
+  type StudentStopMode,
+} from "@/lib/studentStopAssignment";
 
 interface DBRoute {
   id: string;
@@ -59,6 +67,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
     { name: "", phone: "" }
   ]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
+  const [stopMode, setStopMode] = useState<StudentStopMode>("same");
 
   useEffect(() => {
     fetchInitialData();
@@ -120,6 +129,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
           latitude: lat,
           longitude: lng,
         });
+        setStopMode(inferStudentStopMode(student.pickup_stop_id || "", student.dropoff_stop_id || ""));
         setFormGuardians(student.guardians && student.guardians.length > 0 
           ? student.guardians.map((g: any) => ({ ...g }))
           : [{ name: "", phone: "" }]
@@ -148,14 +158,16 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
 
   const handleRouteIdChange = (routeId: string) => {
     const routeStops = stops.filter(s => s.route_id === routeId);
-    const firstStopId = routeStops[0]?.id || "";
-    const secondStopId = routeStops[1]?.id || firstStopId || "";
+    const stageIds =
+      stopMode === "same"
+        ? sameStageIds(defaultSameStopId(routeStops))
+        : defaultDifferentStopIds(routeStops);
 
     setFormValues(prev => ({
       ...prev,
       route_id: routeId,
-      pickup_stop_id: firstStopId,
-      dropoff_stop_id: secondStopId,
+      pickup_stop_id: stageIds.pickup_stop_id,
+      dropoff_stop_id: stageIds.dropoff_stop_id,
       schedule_ids: []
     }));
 
@@ -647,45 +659,42 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                     {formErrors.route_id && <span className="form-error-text">{formErrors.route_id}</span>}
                   </div>
 
-                  <div className="form-group">
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                      <div className="form-group">
-                        <label className="form-label">Pickup Location *</label>
-                        <select
-                          name="pickup_stop_id"
-                          className="form-input"
-                          value={formValues.pickup_stop_id}
-                          onChange={handleInputChange}
-                          disabled={!formValues.route_id}
-                        >
-                          {!formValues.route_id && <option value="">-- Assign route --</option>}
-                          {stops.filter(s => s.route_id === formValues.route_id).map(stop => (
-                            <option key={stop.id} value={stop.id}>
-                              {stop.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div className="form-group">
-                        <label className="form-label">Drop-off Location *</label>
-                        <select
-                          name="dropoff_stop_id"
-                          className="form-input"
-                          value={formValues.dropoff_stop_id}
-                          onChange={handleInputChange}
-                          disabled={!formValues.route_id}
-                        >
-                          {!formValues.route_id && <option value="">-- Assign route --</option>}
-                          {stops.filter(s => s.route_id === formValues.route_id).map(stop => (
-                            <option key={stop.id} value={stop.id}>
-                              {stop.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
+                  <StudentStopAssignmentFields
+                    routeId={formValues.route_id}
+                    stops={stops}
+                    mode={stopMode}
+                    pickupStopId={formValues.pickup_stop_id}
+                    dropoffStopId={formValues.dropoff_stop_id}
+                    pickupError={formErrors.pickup_stop_id}
+                    dropoffError={formErrors.dropoff_stop_id}
+                    onModeChange={(mode) => {
+                      setStopMode(mode);
+                      if (mode === "same") {
+                        setFormValues((prev) => ({
+                          ...prev,
+                          ...sameStageIds(prev.pickup_stop_id || prev.dropoff_stop_id),
+                        }));
+                      }
+                    }}
+                    onSameStageChange={(stopId) => {
+                      setFormValues((prev) => ({ ...prev, ...sameStageIds(stopId) }));
+                      if (formErrors.pickup_stop_id || formErrors.dropoff_stop_id) {
+                        setFormErrors((prev) => ({ ...prev, pickup_stop_id: "", dropoff_stop_id: "" }));
+                      }
+                    }}
+                    onPickupChange={(stopId) => {
+                      setFormValues((prev) => ({ ...prev, pickup_stop_id: stopId }));
+                      if (formErrors.pickup_stop_id) {
+                        setFormErrors((prev) => ({ ...prev, pickup_stop_id: "" }));
+                      }
+                    }}
+                    onDropoffChange={(stopId) => {
+                      setFormValues((prev) => ({ ...prev, dropoff_stop_id: stopId }));
+                      if (formErrors.dropoff_stop_id) {
+                        setFormErrors((prev) => ({ ...prev, dropoff_stop_id: "" }));
+                      }
+                    }}
+                  />
                 </div>
 
                 {/* Resolve selected pickup & dropoff IDs for the radio button states */}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatScheduleApiErrors,
   summarizeMissingScheduleFields,
+  tripTypeLabel,
   validateScheduleForm,
 } from "@/lib/scheduleFormValidation";
 
@@ -34,8 +35,20 @@ describe("validateScheduleForm", () => {
     );
   });
 
-  it("valid payload › returns no field errors", () => {
-    expect(validateScheduleForm(valid)).toEqual({});
+  it("missing trip type › names Trip type instead of a generic save failure", () => {
+    const errors = validateScheduleForm({ ...valid, direction: "" });
+    expect(errors.direction).toBe("Select pick up or drop off");
+    expect(summarizeMissingScheduleFields(errors)).toBe("Please fill in: Trip type");
+  });
+
+  it("pick up › maps to HOME_TO_SCHOOL label Pick up", () => {
+    expect(tripTypeLabel("HOME_TO_SCHOOL")).toBe("Pick up");
+    expect(validateScheduleForm({ ...valid, direction: "HOME_TO_SCHOOL" })).toEqual({});
+  });
+
+  it("drop off › maps to SCHOOL_TO_HOME label Drop off", () => {
+    expect(tripTypeLabel("SCHOOL_TO_HOME")).toBe("Drop off");
+    expect(validateScheduleForm({ ...valid, direction: "SCHOOL_TO_HOME" })).toEqual({});
   });
 });
 

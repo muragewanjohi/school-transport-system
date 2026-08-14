@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { MapPin, Search, Compass, Home, Navigation, Building, Loader2, X } from "lucide-react";
+import { MapPin, Search, Home, Navigation, Building, Loader2, X } from "lucide-react";
 
 interface HomeLocationMapPickerProps {
   address: string;
@@ -703,63 +703,7 @@ export default function HomeLocationMapPicker({
         </div>
       </div>
 
-      {/* 3. Nairobi Famous Landmark Quick Pins */}
-      <div style={{ marginBottom: "12px", width: "100%" }}>
-        <label
-          className="form-label"
-          style={{
-            fontSize: "0.75rem",
-            color: "var(--text-muted)",
-            marginBottom: "6px",
-            display: "block",
-          }}
-        >
-          GOOGLE MAPS LANDMARK QUICK PINS (NAIROBI):
-        </label>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "8px", width: "100%" }}>
-          {[
-            { name: "KICC Tower", lat: -1.288628, lng: 36.823185, fullAddr: "KICC Tower, Harambee Avenue, Nairobi" },
-            { name: "Afya Centre", lat: -1.2858, lng: 36.8277, fullAddr: "Afya Centre, Tom Mboya Street, Nairobi" },
-            { name: "Nation Centre", lat: -1.283179, lng: 36.822451, fullAddr: "Nation Centre, Kimathi Street, Nairobi" },
-            { name: "Britam Tower", lat: -1.300016, lng: 36.813216, fullAddr: "Britam Tower, Hospital Road, Upper Hill, Nairobi" },
-            { name: "Kiambu Road", lat: -1.2185, lng: 36.8335, fullAddr: "Kiambu Road Stage, Nairobi" },
-            { name: "Westlands", lat: -1.2676, lng: 36.8121, fullAddr: "Westlands, Nairobi" },
-          ].map((preset) => (
-            <button
-              key={preset.name}
-              type="button"
-              onClick={() => {
-                const addr = preset.fullAddr;
-                setSearchQuery(addr);
-                onAddressChange(addr);
-                onLocationChange(preset.lat, preset.lng, addr);
-              }}
-              style={{
-                background:
-                  latitude === preset.lat ? "rgba(37,99,235,0.18)" : "rgba(255,255,255,0.04)",
-                border:
-                  latitude === preset.lat
-                    ? "1px solid #2563EB"
-                    : "1px solid var(--border-default, rgba(255,255,255,0.1))",
-                color: latitude === preset.lat ? "#2563EB" : "var(--text-primary)",
-                padding: "6px 12px",
-                borderRadius: "6px",
-                fontSize: "0.75rem",
-                fontWeight: 600,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-              }}
-            >
-              <Compass size={12} />
-              {preset.name}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* 4. Google Maps Container */}
+      {/* 3. Google Maps Container */}
       <div
         style={{
           position: "relative",

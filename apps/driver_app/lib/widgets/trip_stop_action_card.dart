@@ -11,6 +11,7 @@ class TripStopActionCard extends StatefulWidget {
   final String runType;
   final VoidCallback? onNavigate;
   final VoidCallback? onBoardStudents;
+  final VoidCallback? onSkipStop;
   final VoidCallback? onViewStudents;
 
   const TripStopActionCard({
@@ -23,6 +24,7 @@ class TripStopActionCard extends StatefulWidget {
     required this.runType,
     this.onNavigate,
     this.onBoardStudents,
+    this.onSkipStop,
     this.onViewStudents,
   });
 
@@ -176,6 +178,19 @@ class _TripStopActionCardState extends State<TripStopActionCard> {
                       ),
                     ],
                   ),
+                  if (widget.onSkipStop != null && widget.stopName != null) ...[
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: widget.onSkipStop,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFFB91C1C),
+                        side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+                        minimumSize: const Size(double.infinity, 48),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      child: const Text('Skip Stop', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ),
+                  ],
                 ],
               ),
             ),
