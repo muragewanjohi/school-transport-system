@@ -176,18 +176,7 @@ function RoutesManagement() {
   const [currentEditScheduleId, setCurrentEditScheduleId] = useState<string | null>(null);
 
   const handleStartEditStop = (stop: DBStop) => {
-    setStopForm({
-      name: stop.name,
-      longitude: stop.location.coordinates[0],
-      latitude: stop.location.coordinates[1],
-      sequence_no: stop.sequence_no,
-      geofence_radius_meters: stop.geofence_radius_meters,
-      stop_type: stop.stop_type
-    });
-    setSearchLocation(stop.name);
-    setStopDrawerMode("edit");
-    setCurrentEditStopId(stop.id);
-    setShowStopDrawer(true);
+    router.push(`/routes/stops/${stop.id}/edit?return=/routes`);
   };
 
   const handleStartEditSchedule = (sched: DBSchedule) => {
@@ -1017,74 +1006,6 @@ function RoutesManagement() {
     }
   };
 
-  // Stops handlers
-  const handleAddStop = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!stopForm.name.trim()) return;
-    setIsSubmitLoading(true);
-
-    const payload = {
-      route_id: selectedRouteId,
-      name: stopForm.name,
-      longitude: parseFloat(stopForm.longitude as any),
-      latitude: parseFloat(stopForm.latitude as any),
-      sequence_no: parseInt(stopForm.sequence_no as any),
-      geofence_radius_meters: parseInt(stopForm.geofence_radius_meters as any),
-      stop_type: stopForm.stop_type
-    };
-
-    try {
-      const url = stopDrawerMode === "edit" ? `/api/stops/${currentEditStopId}` : "/api/stops";
-      const method = stopDrawerMode === "edit" ? "PUT" : "POST";
-      const res = await fetch(url, {
-        method: method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const json = await res.json();
-      if (json.success) {
-        const savedStop: DBStop = {
-          id: stopDrawerMode === "edit" ? currentEditStopId! : (json.data.id || `stop-${Date.now()}`),
-          route_id: payload.route_id,
-          name: payload.name,
-          location: {
-            type: "Point",
-            coordinates: [payload.longitude, payload.latitude]
-          },
-          sequence_no: payload.sequence_no,
-          geofence_radius_meters: payload.geofence_radius_meters,
-          stop_type: payload.stop_type
-        };
-        
-        let newRouteStops = [...routeStops];
-        if (stopDrawerMode === "edit") {
-          newRouteStops = newRouteStops.filter(s => s.id !== savedStop.id);
-        }
-        const insertIndex = Math.max(0, Math.min(newRouteStops.length, savedStop.sequence_no - 1));
-        newRouteStops.splice(insertIndex, 0, savedStop);
-
-        await resequenceRouteStops(selectedRouteId, newRouteStops);
-        
-        setShowStopDrawer(false);
-        setSearchLocation("");
-        setStopForm({
-          name: "",
-          longitude: 36.8045,
-          latitude: -1.2721,
-          sequence_no: newRouteStops.length + 1,
-          geofence_radius_meters: 50,
-          stop_type: "BOTH"
-        });
-      } else {
-        alert(json.error || "Failed to save stop");
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSubmitLoading(false);
-    }
-  };
-
   const handleDeleteStop = async (id: string) => {
     if (!confirm("Are you sure you want to delete this route stop? Any student assigned to this stop will revert to Standby status.")) return;
 
@@ -1581,18 +1502,10 @@ function RoutesManagement() {
                 {activeTab === "stops" ? (
                   <button 
                     onClick={() => {
-                      setStopForm({
-                        name: "",
-                        longitude: 36.8045,
-                        latitude: -1.2721,
-                        sequence_no: routeStops.length + 1,
-                        geofence_radius_meters: 50,
-                        stop_type: "BOTH"
-                      });
-                      setSearchLocation("");
-                      setStopDrawerMode("add");
-                      setCurrentEditStopId(null);
-                      setShowStopDrawer(true);
+                      const rid = selectedRouteId || currentRoute?.id || "";
+                      const qs = new URLSearchParams({ return: "/routes" });
+                      if (rid) qs.set("route_id", rid);
+                      router.push(`/routes/stops/new?${qs.toString()}`);
                     }}
                     style={{
                       background: "rgba(99, 102, 241, 0.1)",
@@ -1931,210 +1844,6 @@ function RoutesManagement() {
         </section>
       </main>
 
-      {/* Stop onboard drawer */}
-      {showStopDrawer && (
-        <div className="drawer-overlay" onClick={() => setShowStopDrawer(false)}>
-          <div className="drawer-content" onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid var(--border-default)", paddingBottom: "12px" }}>
-              <h2 style={{ fontSize: "1.1rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
-                <MapPin size={18} style={{ color: "var(--accent-primary)" }} />
-                {stopDrawerMode === "edit" ? "Edit Route Stop Point" : "Add Route Stop Point"}
-              </h2>
-              <button onClick={() => setShowStopDrawer(false)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
-                <X size={18} />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddStop} style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
-              {stopDrawerMode === "add" && (
-                <div className="form-group">
-                  <label className="form-label">Or Select Existing Stop</label>
-                  <select
-                    className="form-input"
-                    value=""
-                    onChange={(e) => {
-                      const selectedStopId = e.target.value;
-                      if (!selectedStopId) return;
-                      const existingStop = stops.find(s => s.id === selectedStopId);
-                      if (existingStop && existingStop.location && existingStop.location.coordinates) {
-                        setStopForm(prev => ({
-                          ...prev,
-                          name: existingStop.name,
-                          latitude: existingStop.location.coordinates[1],
-                          longitude: existingStop.location.coordinates[0],
-                          geofence_radius_meters: existingStop.geofence_radius_meters,
-                          stop_type: existingStop.stop_type
-                        }));
-                        setSearchLocation(existingStop.name);
-                        if (mapRef.current) {
-                          mapRef.current.flyTo({
-                            center: existingStop.location.coordinates,
-                            zoom: 15,
-                            essential: true
-                          });
-                        }
-                        if (draggableMarkerRef.current) {
-                          draggableMarkerRef.current.setLngLat(existingStop.location.coordinates);
-                        }
-                      }
-                    }}
-                  >
-                    <option value="">-- Choose an existing stop --</option>
-                    {Array.from(new Map(stops.map(s => [s.name, s])).values()).map(stop => (
-                      <option key={stop.id} value={stop.id}>
-                        {stop.name} ({stop.location.coordinates[1].toFixed(4)}, {stop.location.coordinates[0].toFixed(4)})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              <div className="form-group">
-                <label className="form-label">Search Location</label>
-                <input 
-                  type="text" 
-                  placeholder="Search for a location on the map..."
-                  className="form-input"
-                  value={searchLocation}
-                  onChange={(e) => handleSearchLocationChange(e.target.value)}
-                  onFocus={() => {
-                    if (stopSuggestions.length > 0) setShowSuggestionsList(true);
-                  }}
-                  onBlur={() => {
-                    setTimeout(() => setShowSuggestionsList(false), 200);
-                  }}
-                />
-                
-                {showSuggestionsList && stopSuggestions.length > 0 && (
-                  <div className="autocomplete-suggestions">
-                    {stopSuggestions.map(feat => (
-                      <div 
-                        key={feat.id} 
-                        className="suggestion-item"
-                        onMouseDown={() => handleSelectSuggestion(feat)}
-                      >
-                        <div style={{ fontWeight: 600, fontSize: "0.85rem", color: "var(--text-primary)" }}>{feat.text}</div>
-                        <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{feat.place_name}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Stop Name *</label>
-                <input 
-                  type="text" 
-                  required
-                  placeholder="e.g. Ruaka Joyland"
-                  className="form-input"
-                  value={stopForm.name}
-                  onChange={(e) => setStopForm(prev => ({ ...prev, name: e.target.value }))}
-                />
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <div className="form-group">
-                  <label className="form-label">Latitude *</label>
-                  <input 
-                    type="number" 
-                    step="0.000001"
-                    required
-                    className="form-input"
-                    value={isNaN(stopForm.latitude) ? "" : stopForm.latitude}
-                    onChange={(e) => handleLatitudeChange(parseFloat(e.target.value))}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Longitude *</label>
-                  <input 
-                    type="number" 
-                    step="0.000001"
-                    required
-                    className="form-input"
-                    value={isNaN(stopForm.longitude) ? "" : stopForm.longitude}
-                    onChange={(e) => handleLongitudeChange(parseFloat(e.target.value))}
-                  />
-                </div>
-              </div>
-
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
-                <div className="form-group">
-                  <label className="form-label">Sequence No *</label>
-                  <input 
-                    type="number" 
-                    required
-                    min="1"
-                    className="form-input"
-                    value={stopForm.sequence_no}
-                    onChange={(e) => setStopForm(prev => ({ ...prev, sequence_no: parseInt(e.target.value) }))}
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Geofence Radius (Meters) *</label>
-                  <input 
-                    type="number" 
-                    required
-                    min="10"
-                    className="form-input"
-                    value={stopForm.geofence_radius_meters}
-                    onChange={(e) => setStopForm(prev => ({ ...prev, geofence_radius_meters: parseInt(e.target.value) }))}
-                  />
-                </div>
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Stop Type *</label>
-                <select 
-                  className="form-input"
-                  value={stopForm.stop_type}
-                  onChange={(e) => setStopForm(prev => ({ ...prev, stop_type: e.target.value as any }))}
-                >
-                  <option value="BOTH">BOTH (Pickup and Dropoff)</option>
-                  <option value="PICKUP">PICKUP Only</option>
-                  <option value="DROPOFF">DROPOFF Only</option>
-                </select>
-              </div>
-
-              <div style={{ display: "flex", gap: "12px", marginTop: "20px", paddingTop: "16px", borderTop: "1px solid var(--border-default)" }}>
-                <button
-                  type="button"
-                  onClick={() => setShowStopDrawer(false)}
-                  style={{
-                    flex: 1,
-                    background: "rgba(255,255,255,0.02)",
-                    border: "1px solid var(--border-default)",
-                    color: "var(--text-muted)",
-                    padding: "10px 16px",
-                    borderRadius: "6px",
-                    cursor: "pointer",
-                    fontSize: "0.85rem"
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitLoading}
-                  style={{
-                    flex: 2,
-                    background: "var(--accent-primary)",
-                    color: "#ffffff",
-                    border: "none",
-                    padding: "10px 16px",
-                    borderRadius: "6px",
-                    fontWeight: 600,
-                    cursor: isSubmitLoading ? "default" : "pointer",
-                    fontSize: "0.85rem"
-                  }}
-                >
-                  {isSubmitLoading ? "Saving Stop..." : (stopDrawerMode === "edit" ? "Update Route Stop" : "Save Route Stop")}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {/* Schedule onboard drawer */}
       {showScheduleDrawer && (

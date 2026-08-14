@@ -102,6 +102,7 @@ Roster cards (drivers, conductors, administrators) and other console tiles use `
   4. **Stop action card** — collapsible (default collapsed). Collapsed: `Next stop: {name}`. Expanded: students at stop, geometric ETA + distance, **Navigate** (opens Google Maps turn-by-turn to the next stop) + primary CTA labeled **Pickup Students** or **DropOff Students** from schedule `direction`. CTA opens a **~70–80% height bottom drawer** (map peek remains) listing only students for the current stop. Tick = Present; **Complete Stop** marks remaining Pending as Absent, marks the stop completed, advances next. Geofence-gated. END TRIP remains a secondary control below the card.
 - **Mobile Parent Interface:** Bottom sheet overlay rendering child telemetry status cards that expands to show historical boarding logs.
 - **Admin Route editor:** Add Route and Edit Route open a full page (`/routes/new`, `/routes/[id]/edit`) — not a drawer. Fields: route name, school location name, **Search location** (Google Places), Google Map (click or drag pin for exact lat/lng). Create writes matching start/end school stops; edit updates name plus first/last stop coordinates.
+- **Admin Stop editor:** Add Route Stop and Edit Stop open a full page (`/routes/stops/new`, `/routes/stops/[id]/edit`) — not a drawer. Fields: route, stop name, sequence, geofence radius, stop type, **Search location** (Google Places), Google Map (click or drag pin for exact lat/lng). From the route builder, `?route_id=` preselects the current route.
 
 ## Icons
 
