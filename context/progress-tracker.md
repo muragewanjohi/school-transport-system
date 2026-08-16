@@ -200,6 +200,36 @@ Before moving an item to **Completed**, confirm:
 - Driver stop visit outcomes (2026-08-14): Arriving at a stop auto-opens the boarding drawer. Complete Stop records dwell and marks completed. Leaving without complete/pickup marks visited + admin alert. Skip Stop marks not visited + admin alert. BDD in [bdd.md](bdd.md) Status `passing` — Flutter `test/stop_visit_logic_test.dart`, `test/trip_stop_action_card_test.dart`; Vitest `src/lib/stopVisitOutcome.test.ts`, `src/app/api/driver/stop-visits/route.test.ts`.
 - Vehicle compliance dates (2026-08-14): Last/next service and insurance expiry are optional (date pickers default to 2000-01-01, stored as null). Notify checkbox enables 1-month / 2-week / 1-day due alerts. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/vehicleCompliance.test.ts`. Migration `vehicle_compliance_notify`.
 - Student registry trip filter (2026-08-14): Manifests Registry lists Route (editable, filterable) instead of pickup/drop-off stops; Trips stay as pick-up/drop-off dropdowns with a trip filter. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/studentRegistryFilter.test.ts`, `src/lib/studentStopAssignment.test.ts`.
+- Parent iOS App Store prep (2026-08-16): Public name **OnTheBus** (Android label + iOS `CFBundleDisplayName`/`CFBundleName`); iOS bundle ID aligned to `com.schooltrack.parent_app`; iPhone-only; camera/photo usage strings + `ITSAppUsesNonExemptEncryption`; dashboard **Delete my account** → `https://onthebusapp.com/delete-account`; Flutter `ios/Podfile`; root [codemagic.yaml](../codemagic.yaml) builds IPA to TestFlight. BDD in [bdd.md](bdd.md) Status `passing` — `apps/parent_app/test/store_identity_test.dart`, `apps/parent_app/test/delete_account_link_test.dart`.
+
+## iOS Parent publish runbook (Windows)
+
+Repo is ready. These steps are browser-only (Apple / Google / Codemagic). You cannot build an IPA on this PC.
+
+### A. Apple Developer + App Store Connect
+
+1. Enroll at [developer.apple.com/programs](https://developer.apple.com/programs/) ($99/year). Wait until status is Active.
+2. Identifiers → App IDs → Register **explicit** `com.schooltrack.parent_app` (no extra capabilities for v1).
+3. Users and Access → Integrations → App Store Connect API → create a key with **App Manager**. Download the `.p8` once. Note Key ID + Issuer ID.
+4. Apps → + → name **OnTheBus**, bundle ID `com.schooltrack.parent_app`, SKU `onthebus-parent`, English.
+5. Listing: privacy `https://onthebusapp.com/privacy`, support `https://onthebusapp.com`, category Navigation or Education (**not** Kids), include Kenya.
+6. App Review Information: phone `+254700000002`, OTP `123456` (`play-review` sandbox). Contact email you monitor.
+7. If Play listing still says “OnTheBus Parent”, change the Play Console store title to **OnTheBus** (launcher name updates with the next Android build).
+
+### B. Google Maps iOS key
+
+1. Google Cloud → Credentials → API key restricted to **Maps SDK for iOS**.
+2. iOS apps restriction: bundle ID `com.schooltrack.parent_app`.
+3. Store the key only as Codemagic secret `MAPS_API_KEY` (and local gitignored `apps/parent_app/ios/Flutter/Secrets.xcconfig`). Never commit it.
+
+### C. Codemagic → TestFlight → review
+
+1. [codemagic.io](https://codemagic.io) → add this GitHub repo → enable [codemagic.yaml](../codemagic.yaml).
+2. Integrations: Apple Developer Portal (signing) + App Store Connect API key named **onthebus**.
+3. Set secret `MAPS_API_KEY`. After the App Store app exists, optionally set `APP_STORE_APPLE_ID` (numeric).
+4. Run workflow **OnTheBus iOS TestFlight**. IPA uploads to TestFlight (not App Store review).
+5. Install TestFlight on a physical iPhone; smoke login + map + avatar + Delete my account. Capture 6.7" screenshots (iPhone-only binary; no iPad shots).
+6. App Store Connect → select the TestFlight build → Submit for Review.
 
 ## In Progress
 
@@ -209,6 +239,7 @@ Before moving an item to **Completed**, confirm:
 ## Next Up
 
 - Founder manual readiness before school visits: run [pre-school-readiness.md](pre-school-readiness.md) (env gates, sales/demo, onboard, admin CRUD, operational day, security, Go/No-Go).
+- Finish iOS Parent publish: Apple enrollment + App Store Connect app, Maps SDK for iOS key, Codemagic first TestFlight, screenshots, submit with `play-review` credentials (see **iOS Parent publish runbook** above).
 - Add `SUPABASE_SERVICE_ROLE_KEY` and `NEXT_PUBLIC_SITE_URL` to `.env.local` and Vercel (required for school invite emails).
 - Supabase Auth URL config (hosted): Site URL = `https://onthebusapp.com`; Redirect URLs include `https://*.onthebusapp.com/**`. Invite `redirectTo` must never be localhost — fixed via `getTenantInviteRedirectUrl`.
 - Sign out/in as `muragedev@gmail.com` and verify `/schools`.
@@ -234,6 +265,7 @@ Before moving an item to **Completed**, confirm:
 - **PostGIS Trigger Evaluation:** Computing geofences dynamically at the database layer via SQL triggers. When new vehicle coordinates are written, PostGIS calculates boundary intersections directly on the metal, avoiding network overhead, and triggering Supabase Edge Functions for SMS dispatch.
 - **Automatic Delay Detection:** On each telemetry insert (throttled 30s/trip), `evaluate_trip_delay()` compares predicted stop arrivals (geometric leg progress + `stops.dwell_seconds`) against the schedule baseline and notifies affected parents at ≥5 min delay with +10 min escalation bands. Live ETAs persist in `trip_stop_etas`.
 - **Parent signed session + ETA API:** Parent OTP login issues `par.*` HMAC tokens for Next.js ETA API and a Supabase Auth session (`auth.users.id = profiles.id`, claims in `app_metadata`) for Realtime RLS on telemetry/ETAs/stops.
+- **Parent iOS identity:** Store/home-screen name **OnTheBus**; bundle ID `com.schooltrack.parent_app` (same as Android). IPA via Codemagic macOS builders; v1 is iPhone-only. Account deletion is in-app via the public `/delete-account` page.
 
 - **Pre-departure cron:** Vercel Cron hits `/api/trips/predeparture-check` every 5 minutes; overdue never-started trips get `status_override=Delayed` once, reusing trip-status notifications.
 - **Queue-Based Notification Engine:** Used an `alerts_queue` table combined with Supabase database webhooks to decouple spatial compute from external network API execution.

@@ -12,6 +12,7 @@ import 'package:parent_app/screens/attendance_form_screen.dart';
 import 'package:parent_app/screens/notifications_screen.dart';
 import 'package:parent_app/utils/eta_utils.dart';
 import 'package:parent_app/widgets/eta_display.dart';
+import 'package:parent_app/widgets/delete_account_link.dart';
 import 'package:parent_app/services/parent_etas_service.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
@@ -2586,6 +2587,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   label: const Text('Log Out Session', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                 ),
               ),
+              const SizedBox(height: 8),
+              const Center(child: DeleteAccountLink()),
               const SizedBox(height: 24),
             ],
           ),

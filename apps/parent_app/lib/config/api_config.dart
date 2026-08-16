@@ -3,6 +3,7 @@ import 'dart:io';
 /// Central API host for Parent app HTTP calls (auth + Google Maps proxies).
 class ApiConfig {
   static const String productionUrl = 'https://www.onthebusapp.com';
+  static const String deleteAccountUrl = 'https://onthebusapp.com/delete-account';
 
   static String get baseUrl {
     const fromEnv = String.fromEnvironment('API_BASE_URL');
