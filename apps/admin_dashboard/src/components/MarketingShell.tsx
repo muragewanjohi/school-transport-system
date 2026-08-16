@@ -5,7 +5,7 @@ import { useState, type ReactNode } from "react";
 import { Menu, X } from "lucide-react";
 
 type MarketingShellProps = Readonly<{
-  active?: "about" | "careers" | "contact";
+  active?: "pricing" | "about" | "careers" | "contact";
   children: ReactNode;
 }>;
 
@@ -27,6 +27,11 @@ export default function MarketingShell({ active, children }: MarketingShellProps
           </Link>
 
           <ul className="landing-menu-links">
+            <li>
+              <Link href="/pricing" className={active === "pricing" ? "is-active" : undefined}>
+                Pricing
+              </Link>
+            </li>
             <li>
               <Link href="/about" className={active === "about" ? "is-active" : undefined}>
                 About
@@ -61,6 +66,9 @@ export default function MarketingShell({ active, children }: MarketingShellProps
         </div>
 
         <div className={`landing-mobile-menu${menuOpen ? " open" : ""}`}>
+          <Link href="/pricing" onClick={() => setMenuOpen(false)}>
+            Pricing
+          </Link>
           <Link href="/about" onClick={() => setMenuOpen(false)}>
             About
           </Link>
@@ -82,6 +90,7 @@ export default function MarketingShell({ active, children }: MarketingShellProps
         <div className="landing-container legal-footer-inner">
           <p>&copy; {new Date().getFullYear()} OnTheBus. All rights reserved.</p>
           <div className="legal-footer-links">
+            <Link href="/pricing">Pricing</Link>
             <Link href="/about">About</Link>
             <Link href="/careers">Careers</Link>
             <Link href="/contact">Contact</Link>

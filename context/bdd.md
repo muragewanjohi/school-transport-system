@@ -4,43 +4,47 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Parent iOS App Store prep (OnTheBus) |
-| **Stack** | `flutter` (`apps/parent_app`) |
-| **Owner path(s)** | `apps/parent_app/ios/Runner/Info.plist`, `apps/parent_app/android/app/src/main/AndroidManifest.xml`, `apps/parent_app/lib/widgets/delete_account_link.dart`, `codemagic.yaml` |
+| **Name** | Public marketing pricing page |
+| **Stack** | `nextjs` (`apps/admin_dashboard`) |
+| **Owner path(s)** | `apps/admin_dashboard/src/lib/pricingPlans.ts`, `apps/admin_dashboard/src/components/PricingCalculator.tsx`, `apps/admin_dashboard/src/app/pricing/page.tsx` |
 | **Started** | 2026-08-16 |
 | **Status** | `passing` |
 
 ## Goal
 
-Parents see the app as **OnTheBus** on iOS and Android, and can request account deletion in-app (Apple 5.1.1(v)) before the first TestFlight / App Store submit.
+Visitors on apex `/pricing` see Starter / School / Growth / Enterprise tiers (School = 6 buses) and a needs calculator that recommends the cheapest plan covering students, buses, and locations. SMS notifications are excluded from every plan.
 
 ## Scenarios
 
 ```gherkin
-Feature: Parent store identity and account deletion
+Feature: Public pricing plan recommendation
 
-  Scenario: Home-screen name is OnTheBus
-    Given the parent app binary is installed
-    When the user looks at the home-screen label
-    Then the name is OnTheBus on iOS and Android
-    And the Dart package and applicationId stay parent_app / com.schooltrack.parent_app
+  Scenario: School-sized needs recommend School
+    Given a visitor sets students to 300, buses to 6, and locations to 2
+    When the pricing calculator recommends a plan
+    Then the recommended plan is School
 
-  Scenario: Parent requests account deletion
-    Given a signed-in parent on the dashboard
-    When they tap Delete my account
-    Then the public delete-account page https://onthebusapp.com/delete-account opens
+  Scenario: One extra bus past School recommends Growth
+    Given a visitor sets students to 300, buses to 7, and locations to 3
+    When the pricing calculator recommends a plan
+    Then the recommended plan is Growth
 
-  Scenario: Delete-account page cannot open
-    Given a signed-in parent on the dashboard
-    When they tap Delete my account
-    And the system cannot launch the URL
-    Then they see Could not open account deletion page.
+  Scenario: Needs above Growth caps recommend Enterprise
+    Given a visitor sets students to 601, buses to 11, and locations to 6
+    When the pricing calculator recommends a plan
+    Then the recommended plan is Enterprise
+
+  Scenario: /pricing is a public marketing path
+    Given an unauthenticated visitor
+    When they open /pricing
+    Then the path is treated as a public marketing page
 ```
 
 ## Automation map
 
 | Scenario title | Test / verification | Status |
 | :--- | :--- | :--- |
-| Home-screen name is OnTheBus | `test/store_identity_test.dart` (plist + AndroidManifest labels) | `passing` |
-| Parent requests account deletion | `test/delete_account_link_test.dart` | `passing` |
-| Delete-account page cannot open | `test/delete_account_link_test.dart` | `passing` |
+| School-sized needs recommend School | `src/lib/pricingPlans.test.ts` | `passing` |
+| One extra bus past School recommends Growth | `src/lib/pricingPlans.test.ts` | `passing` |
+| Needs above Growth caps recommend Enterprise | `src/lib/pricingPlans.test.ts` | `passing` |
+| /pricing is a public marketing path | `src/lib/tenantHost.test.ts` | `passing` |

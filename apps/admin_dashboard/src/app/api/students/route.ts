@@ -8,6 +8,7 @@ import {
   isDemoReadonly,
 } from "@/lib/authApi";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
+import { duplicateGuardianPhoneError } from "@/lib/studentGuardians";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -166,6 +167,14 @@ export async function POST(request: Request) {
 
     if (!result.success) {
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
+    }
+
+    const duplicatePhone = duplicateGuardianPhoneError(result.data.guardians);
+    if (duplicatePhone) {
+      return NextResponse.json(
+        { success: false, errors: { guardians: [duplicatePhone] } },
+        { status: 400 }
+      );
     }
 
     const authHeader = request.headers.get("authorization");

@@ -42,6 +42,7 @@ describe("isMarketingPublicPath › legal and landing › public without login",
     expect(isMarketingPublicPath("/about")).toBe(true);
     expect(isMarketingPublicPath("/careers")).toBe(true);
     expect(isMarketingPublicPath("/contact")).toBe(true);
+    expect(isMarketingPublicPath("/pricing")).toBe(true);
   });
 
   it("Given /dashboard, When checking marketing public, Then blocked", () => {
@@ -59,6 +60,7 @@ describe("isUnauthenticatedAllowedPath › auth entry + legal › allowed", () =
     expect(isUnauthenticatedAllowedPath("/about")).toBe(true);
     expect(isUnauthenticatedAllowedPath("/careers")).toBe(true);
     expect(isUnauthenticatedAllowedPath("/contact")).toBe(true);
+    expect(isUnauthenticatedAllowedPath("/pricing")).toBe(true);
   });
 
   it("Given /fleet, When checking unauthenticated access, Then blocked", () => {

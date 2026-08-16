@@ -10,6 +10,7 @@ import {
 } from "@/lib/authApi";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { haversineDistanceMeters, parseGeoPoint } from "@/lib/geoUtils";
+import { duplicateGuardianPhoneError } from "@/lib/studentGuardians";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -164,6 +165,16 @@ export async function PUT(
 
     if (!result.success) {
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });
+    }
+
+    if (result.data.guardians) {
+      const duplicatePhone = duplicateGuardianPhoneError(result.data.guardians);
+      if (duplicatePhone) {
+        return NextResponse.json(
+          { success: false, errors: { guardians: [duplicatePhone] } },
+          { status: 400 }
+        );
+      }
     }
 
     const authHeader = request.headers.get("authorization");

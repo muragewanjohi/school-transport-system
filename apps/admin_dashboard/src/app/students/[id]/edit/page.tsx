@@ -4,7 +4,6 @@ import React, { useState, useEffect, use } from "react";
 import { useRouter } from "next/navigation";
 import { 
   User, 
-  Trash2, 
   ArrowLeft,
   Phone, 
   Compass, 
@@ -16,6 +15,7 @@ import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import HomeLocationMapPicker from "@/components/HomeLocationMapPicker";
 import StudentStopAssignmentFields from "@/components/StudentStopAssignmentFields";
+import StudentGuardiansFields from "@/components/StudentGuardiansFields";
 import {
   defaultDifferentStopIds,
   defaultSameStopId,
@@ -23,15 +23,14 @@ import {
   sameStageIds,
   type StudentStopMode,
 } from "@/lib/studentStopAssignment";
+import {
+  validateGuardianEntries,
+  type GuardianEntry,
+} from "@/lib/studentGuardians";
 
 interface DBRoute {
   id: string;
   name: string;
-}
-
-interface Guardian {
-  name: string;
-  phone: string;
 }
 
 export default function EditStudentPage({ params }: { params: Promise<{ id: string }> }) {
@@ -63,7 +62,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
     latitude: -1.2185,
     longitude: 36.8335,
   });
-  const [formGuardians, setFormGuardians] = useState<Guardian[]>([
+  const [formGuardians, setFormGuardians] = useState<GuardianEntry[]>([
     { name: "", phone: "" }
   ]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -131,7 +130,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
         });
         setStopMode(inferStudentStopMode(student.pickup_stop_id || "", student.dropoff_stop_id || ""));
         setFormGuardians(student.guardians && student.guardians.length > 0 
-          ? student.guardians.map((g: any) => ({ ...g }))
+          ? student.guardians.map((g: GuardianEntry) => ({ name: g.name, phone: g.phone }))
           : [{ name: "", phone: "" }]
         );
       } else {
@@ -186,38 +185,9 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
       errors.nfc_card_hash = "NFC Card Hash must be at least 4 characters";
     }
 
-    // Validate guardians
-    const guardianErrors: string[] = [];
-    formGuardians.forEach((g, idx) => {
-      if (!g.name.trim()) {
-        guardianErrors.push(`Guardian ${idx + 1} name is required`);
-        return;
-      }
-      const phoneTrimmed = g.phone.trim();
-      if (!phoneTrimmed) {
-        guardianErrors.push(`Guardian ${idx + 1} phone number is required`);
-        return;
-      }
-      const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
-      let matchedCode = "";
-      for (const code of codes) {
-        if (phoneTrimmed.startsWith(code)) {
-          matchedCode = code;
-          break;
-        }
-      }
-      const localPart = matchedCode ? phoneTrimmed.substring(matchedCode.length) : phoneTrimmed;
-      if (!localPart) {
-        guardianErrors.push(`Guardian ${idx + 1} phone number details are required`);
-      } else if (!/^\d+$/.test(localPart)) {
-        guardianErrors.push(`Guardian ${idx + 1} phone number must consist of digits only`);
-      } else if (localPart.length < 7 || localPart.length > 11) {
-        guardianErrors.push(`Guardian ${idx + 1} phone number is invalid (must be 7-11 digits)`);
-      }
-    });
-
-    if (guardianErrors.length > 0) {
-      errors.guardians = guardianErrors[0];
+    const guardianError = validateGuardianEntries(formGuardians);
+    if (guardianError) {
+      errors.guardians = guardianError;
     }
     
     setFormErrors(errors);
@@ -502,139 +472,19 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
                 }
               />
 
-              {/* SECTION: Parents & Guardians */}
-              <div>
-                <h3 className="form-section-title">Parents & Guardians</h3>
-                {formErrors.guardians && <span className="form-error-text" style={{ marginBottom: "12px", display: "block" }}>{formErrors.guardians}</span>}
-                
-                <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                  {formGuardians.map((guardian, index) => (
-                    <div key={index} style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-                      <div style={{ flex: 1, display: "flex", gap: "10px" }}>
-                        <input
-                          type="text"
-                          className="form-input"
-                          style={{ flex: 1 }}
-                          placeholder="Guardian Name"
-                          value={guardian.name}
-                          onChange={(e) => {
-                            const updated = [...formGuardians];
-                            updated[index].name = e.target.value;
-                            setFormGuardians(updated);
-                          }}
-                          required
-                        />
-                        <div style={{ display: "flex", gap: "8px", flex: 1 }}>
-                          <select
-                            value={(() => {
-                              const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
-                              for (const code of codes) {
-                                if (guardian.phone.startsWith(code)) return code;
-                              }
-                              return "+254";
-                            })()}
-                            onChange={(e) => {
-                              const newCode = e.target.value;
-                              const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
-                              let currentLocal = guardian.phone;
-                              for (const code of codes) {
-                                if (guardian.phone.startsWith(code)) {
-                                  currentLocal = guardian.phone.substring(code.length);
-                                  break;
-                                }
-                              }
-                              if (currentLocal.startsWith("0")) currentLocal = currentLocal.substring(1);
-                              const updated = [...formGuardians];
-                              updated[index].phone = newCode + currentLocal;
-                              setFormGuardians(updated);
-                            }}
-                            className="form-input"
-                            style={{ width: "95px", paddingLeft: "8px", paddingRight: "8px" }}
-                          >
-                            <option value="+254">🇰🇪 +254</option>
-                            <option value="+256">🇺🇬 +256</option>
-                            <option value="+255">🇹🇿 +255</option>
-                            <option value="+250">🇷🇼 +250</option>
-                            <option value="+1">🇺🇸 +1</option>
-                            <option value="+44">🇬🇧 +44</option>
-                          </select>
-                          <input
-                            type="text"
-                            className="form-input"
-                            style={{ flex: 1 }}
-                            placeholder="Phone Number"
-                            value={(() => {
-                              const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
-                              for (const code of codes) {
-                                if (guardian.phone.startsWith(code)) {
-                                  return guardian.phone.substring(code.length);
-                                }
-                              }
-                              return guardian.phone;
-                            })()}
-                            onChange={(e) => {
-                              const codes = ["+254", "+256", "+255", "+250", "+1", "+44"];
-                              let currentCode = "+254";
-                              for (const code of codes) {
-                                if (guardian.phone.startsWith(code)) {
-                                  currentCode = code;
-                                  break;
-                                }
-                              }
-                              let val = e.target.value.replace(/[\s\-()]+/g, "");
-                              if (val.startsWith("0")) val = val.substring(1);
-                              const updated = [...formGuardians];
-                              updated[index].phone = currentCode + val;
-                              setFormGuardians(updated);
-                            }}
-                            required
-                          />
-                        </div>
-                      </div>
-                      {formGuardians.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => setFormGuardians(formGuardians.filter((_, i) => i !== index))}
-                          style={{
-                            background: "rgba(244,63,94,0.06)",
-                            border: "1px solid rgba(244,63,94,0.2)",
-                            color: "var(--state-error)",
-                            padding: "10px",
-                            borderRadius: "6px",
-                            cursor: "pointer",
-                            display: "flex",
-                            alignItems: "center"
-                          }}
-                          title="Remove Guardian Row"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  
-                  {formGuardians.length < 3 && (
-                    <button
-                      type="button"
-                      onClick={() => setFormGuardians([...formGuardians, { name: "", phone: "" }])}
-                      style={{
-                        background: "rgba(255,255,255,0.04)",
-                        border: "1px solid var(--border-default)",
-                        color: "var(--text-primary)",
-                        padding: "6px 12px",
-                        borderRadius: "6px",
-                        fontSize: "0.75rem",
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        alignSelf: "flex-start",
-                        marginTop: "4px"
-                      }}
-                    >
-                      + Add Guardian Profile
-                    </button>
-                  )}
-                </div>
-              </div>
+              <StudentGuardiansFields
+                guardians={formGuardians}
+                error={formErrors.guardians}
+                onChange={(next) => {
+                  setFormGuardians(next);
+                  if (formErrors.guardians) {
+                    setFormErrors((prev) => ({ ...prev, guardians: "" }));
+                  }
+                }}
+                onError={(message) =>
+                  setFormErrors((prev) => ({ ...prev, guardians: message }))
+                }
+              />
 
               {/* SECTION: Transit Settings */}
               <div>

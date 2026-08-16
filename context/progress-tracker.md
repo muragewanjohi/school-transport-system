@@ -201,6 +201,7 @@ Before moving an item to **Completed**, confirm:
 - Vehicle compliance dates (2026-08-14): Last/next service and insurance expiry are optional (date pickers default to 2000-01-01, stored as null). Notify checkbox enables 1-month / 2-week / 1-day due alerts. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/vehicleCompliance.test.ts`. Migration `vehicle_compliance_notify`.
 - Student registry trip filter (2026-08-14): Manifests Registry lists Route (editable, filterable) instead of pickup/drop-off stops; Trips stay as pick-up/drop-off dropdowns with a trip filter. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/studentRegistryFilter.test.ts`, `src/lib/studentStopAssignment.test.ts`.
 - Parent iOS App Store prep (2026-08-16): Public name **OnTheBus** (Android label + iOS `CFBundleDisplayName`/`CFBundleName`); iOS bundle ID aligned to `com.schooltrack.parent_app`; iPhone-only; camera/photo usage strings + `ITSAppUsesNonExemptEncryption`; dashboard **Delete my account** → `https://onthebusapp.com/delete-account`; Flutter `ios/Podfile`; root [codemagic.yaml](../codemagic.yaml) builds IPA to TestFlight. BDD in [bdd.md](bdd.md) Status `passing` — `apps/parent_app/test/store_identity_test.dart`, `apps/parent_app/test/delete_account_link_test.dart`.
+- Student guardian source (2026-08-16): Parents & Guardians on Add/Edit Student defaults to **Existing parent** with a name-filterable dropdown; **Add new parent** hides it. Duplicate guardian phones are blocked in the form and `POST`/`PUT /api/students`. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/studentGuardians.test.ts`, `src/app/api/students/route.test.ts`.
 
 ## iOS Parent publish runbook (Windows)
 
@@ -252,7 +253,7 @@ Repo is ready. These steps are browser-only (Apple / Google / Codemagic). You ca
 
 ## Open Questions
 
-*(none for delay / parent auth — pre-departure cron and parent Supabase Auth JWT are shipped)*
+- **Public pricing tiers vs campus-flat-fee billing:** Apex `/pricing` publishes Starter / School / Growth / Enterprise (student, bus, and location caps; KSh 5,000 / 10,000 / 15,000 / custom). The billing engine still invoices `active_campus_count × campus_monthly_fee_kes` (default KES 10,000) plus a separate SMS meter. Should paid tenants be entitled by these marketing caps, stay on campus-flat-fee, or both? Resolve before changing `/billing` or entitlements.
 
 ## Architecture Decisions
 
@@ -266,6 +267,7 @@ Repo is ready. These steps are browser-only (Apple / Google / Codemagic). You ca
 - **Automatic Delay Detection:** On each telemetry insert (throttled 30s/trip), `evaluate_trip_delay()` compares predicted stop arrivals (geometric leg progress + `stops.dwell_seconds`) against the schedule baseline and notifies affected parents at ≥5 min delay with +10 min escalation bands. Live ETAs persist in `trip_stop_etas`.
 - **Parent signed session + ETA API:** Parent OTP login issues `par.*` HMAC tokens for Next.js ETA API and a Supabase Auth session (`auth.users.id = profiles.id`, claims in `app_metadata`) for Realtime RLS on telemetry/ETAs/stops.
 - **Parent iOS identity:** Store/home-screen name **OnTheBus**; bundle ID `com.schooltrack.parent_app` (same as Android). IPA via Codemagic macOS builders; v1 is iPhone-only. Account deletion is in-app via the public `/delete-account` page.
+- **Unique guardian phones per student:** A student cannot have two guardian rows with the same phone (normalized digits). Operators pick an existing parent or add a new one; they cannot attach the same number twice.
 
 - **Pre-departure cron:** Vercel Cron hits `/api/trips/predeparture-check` every 5 minutes; overdue never-started trips get `status_override=Delayed` once, reusing trip-status notifications.
 - **Queue-Based Notification Engine:** Used an `alerts_queue` table combined with Supabase database webhooks to decouple spatial compute from external network API execution.

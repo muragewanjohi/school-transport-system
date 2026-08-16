@@ -224,7 +224,7 @@ export default function LandingPage() {
             <li><a href="#features" className="is-active">Features</a></li>
             <li><a href="#solutions">Solutions</a></li>
             <li><a href="#how-it-works">How It Works</a></li>
-            <li><a href="#contact">Pricing</a></li>
+            <li><Link href="/pricing">Pricing</Link></li>
             <li><a href="#contact">Resources</a></li>
           </ul>
 
@@ -246,6 +246,7 @@ export default function LandingPage() {
           <a href="#features" onClick={closeMenu}>Features</a>
           <a href="#solutions" onClick={closeMenu}>Solutions</a>
           <a href="#how-it-works" onClick={closeMenu}>How It Works</a>
+          <Link href="/pricing" onClick={closeMenu}>Pricing</Link>
           <Link href="/request-demo" onClick={closeMenu}>Request Demo</Link>
         </div>
       </nav>
@@ -614,7 +615,7 @@ export default function LandingPage() {
               <h4>Product</h4>
               <a href="#features">Features</a>
               <a href="#solutions">Solutions</a>
-              <a href="#contact">Pricing</a>
+              <Link href="/pricing">Pricing</Link>
               <a href="#how-it-works">How It Works</a>
             </div>
             <div className="lp-footer-col">

@@ -24,6 +24,7 @@ Scoped CSS variables on `.landing-page` (Stitch Green Edition; do not reuse as g
 | Body text | `--lp-muted` | `#3D4A3E` |
 | Primary green | `--lp-primary` | `#006B32` |
 | Bright accent | `--lp-primary-bright` | `#5ADF82` |
+| Enterprise accent | `--lp-enterprise` | `#6D28D9` |
 | Border | `--lp-outline` | `#BCCABB` |
 
 Primary CTAs: **Request Demo** → `/request-demo` (lead form; not mailto). Landing nav has no Login link (operators reach `/login` directly). Hero/media assets live in `apps/admin_dashboard/public/stitch/`. Authenticated console remains `/dashboard`.
@@ -36,6 +37,9 @@ Footer Company column links to `/about`, `/careers`, and `/contact` (shared `Mar
 
 ### Play Store review school
 Permanent sandbox tenant slug `play-review` (blocked for onboarding; excluded from demo expiry purge). Seed via `apps/admin_dashboard`: `npm run seed:play-review`. Driver phone `+254700000001`, Parent `+254700000002`, OTP `123456` (does not expire).
+
+### Pricing page (`/pricing`)
+Public apex-only marketing page using `MarketingShell` and `.landing-page` tokens. Four monthly plans: **Starter** (100 students / 2 buses / 1 location, KSh 5,000), **School** (most popular: 300 students / 6 buses / 3 locations, KSh 10,000), **Growth** (600 students / 10 buses / 5 locations, KSh 15,000), **Enterprise** (custom). Paid-plan CTAs go to `/request-demo`; Enterprise and help mailto is `info@onthebusapp.com`. A needs calculator recommends the cheapest plan whose caps cover the visitor’s students, buses, and locations. **SMS notifications are excluded** from every plan (push remains in-plan; SMS billed separately). Hero uses `public/stitch/apps_hero_image.png` (admin live tracking, driver app, parent app). This page is marketing copy only and does not change campus-flat-fee billing in the console.
 
 ### Request Demo page (`/request-demo`)
 Public apex-only marketing page using `.landing-page` tokens. Captures school leads (name, role, school, searchable country combobox with filter-at-top, city/area, WhatsApp/phone with country dial code, required work email, fleet size, preferred time). On success, the requester immediately gets a Resend confirmation email (“We've received your demo request”), sales is notified, and the visitor is told to wait for an emailed demo school URL and login details after approval. Contact Sales remains a secondary mailto/WhatsApp path.

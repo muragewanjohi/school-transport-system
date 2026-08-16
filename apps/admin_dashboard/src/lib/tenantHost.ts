@@ -144,6 +144,7 @@ export const MARKETING_PUBLIC_PATHS = [
   "/about",
   "/careers",
   "/contact",
+  "/pricing",
 ] as const;
 
 export function isMarketingPublicPath(pathname: string): boolean {
