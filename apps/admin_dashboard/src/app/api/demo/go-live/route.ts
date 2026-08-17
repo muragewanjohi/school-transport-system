@@ -175,7 +175,7 @@ export async function POST(request: Request) {
       requestStatus: loaded.request?.status ?? null,
     });
 
-    if (eligibility.alreadyRequested) {
+    if (!eligibility.ok && eligibility.alreadyRequested) {
       return NextResponse.json({
         success: true,
         already_requested: true,
