@@ -28,7 +28,7 @@ import {
   type DemoProvisionCredentials,
 } from "@/lib/demoRequestCredentials";
 
-type DemoRequestStatus = "pending" | "confirmed" | "completed" | "declined";
+type DemoRequestStatus = "pending" | "confirmed" | "ready_to_onboard" | "completed" | "declined";
 
 type DemoRequestDetail = {
   id: string;
@@ -65,7 +65,7 @@ function formatDateTime(iso: string | null | undefined): string {
 function statusTone(status: DemoRequestStatus): "success" | "warning" | "error" | "muted" {
   if (status === "confirmed" || status === "completed") return "success";
   if (status === "declined") return "error";
-  if (status === "pending") return "warning";
+  if (status === "pending" || status === "ready_to_onboard") return "warning";
   return "muted";
 }
 
@@ -236,7 +236,7 @@ export default function DemoRequestDetailPage() {
   };
 
   const resendAccessEmail = async () => {
-    if (!request || request.status !== "confirmed") return;
+    if (!request || (request.status !== "confirmed" && request.status !== "ready_to_onboard")) return;
     setActing(true);
     setError(null);
     try {
@@ -341,13 +341,19 @@ export default function DemoRequestDetailPage() {
 
                 <div className="demo-meta-row">
                   <span className={`demo-status-pill ${statusTone(request.status)}`}>
-                    {request.status}
+                    {request.status.replaceAll("_", " ")}
                   </span>
                   <span className="demo-meta-dates">
                     Submitted {formatDateTime(request.created_at)}
                     {request.reviewed_at ? ` · Reviewed ${formatDateTime(request.reviewed_at)}` : ""}
                   </span>
                 </div>
+                {request.status === "ready_to_onboard" ? (
+                  <p className="form-hint">
+                    The school requested to go live. Onboard a new paid tenant on a real slug — do not
+                    flip this demo store to paid. Then Complete &amp; purge the demo.
+                  </p>
+                ) : null}
 
                 <div className="form-grid">
                   {(
@@ -483,7 +489,7 @@ export default function DemoRequestDetailPage() {
                       </button>
                     </>
                   )}
-                  {request.status === "confirmed" && (
+                  {(request.status === "confirmed" || request.status === "ready_to_onboard") && (
                     <>
                       <button
                         type="button"

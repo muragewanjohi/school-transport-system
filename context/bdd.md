@@ -4,47 +4,60 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Public marketing pricing page |
+| **Name** | Demo account banner and request to go live |
 | **Stack** | `nextjs` (`apps/admin_dashboard`) |
-| **Owner path(s)** | `apps/admin_dashboard/src/lib/pricingPlans.ts`, `apps/admin_dashboard/src/components/PricingCalculator.tsx`, `apps/admin_dashboard/src/app/pricing/page.tsx` |
-| **Started** | 2026-08-16 |
+| **Owner path(s)** | `apps/admin_dashboard/src/lib/demoGoLive.ts`, `apps/admin_dashboard/src/app/api/demo/go-live/route.ts`, `apps/admin_dashboard/src/lib/demoRequestEmails.ts` |
+| **Started** | 2026-08-17 |
 | **Status** | `passing` |
 
 ## Goal
 
-Visitors on apex `/pricing` see Starter / School / Growth / Enterprise tiers (School = 6 buses) and a needs calculator that recommends the cheapest plan covering students, buses, and locations. SMS notifications are excluded from every plan.
+School admins on a per-lead demo store see that they are on a demo account with an expiry date. **Request to go live** marks the linked demo request `ready_to_onboard` and emails `info@onthebusapp.com`. The demo tenant is not flipped to paid.
 
 ## Scenarios
 
 ```gherkin
-Feature: Public pricing plan recommendation
+Feature: Demo request to go live
 
-  Scenario: School-sized needs recommend School
-    Given a visitor sets students to 300, buses to 6, and locations to 2
-    When the pricing calculator recommends a plan
-    Then the recommended plan is School
+  Scenario: Per-lead confirmed demo can request go live
+    Given an is_demo tenant linked to a confirmed demo request
+    When go-live eligibility is evaluated
+    Then the school can request to go live
 
-  Scenario: One extra bus past School recommends Growth
-    Given a visitor sets students to 300, buses to 7, and locations to 3
-    When the pricing calculator recommends a plan
-    Then the recommended plan is Growth
+  Scenario: Expiry date is formatted for the banner
+    Given demo_expires_at is 2026-08-31T00:00:00.000Z
+    When the expiry label is formatted on 2026-08-17
+    Then it reads Expires 31 August 2026
 
-  Scenario: Needs above Growth caps recommend Enterprise
-    Given a visitor sets students to 601, buses to 11, and locations to 6
-    When the pricing calculator recommends a plan
-    Then the recommended plan is Enterprise
+  Scenario: Request to go live updates status and emails sales
+    Given a school admin on a confirmed per-lead demo
+    When they POST /api/demo/go-live
+    Then demo_requests.status becomes ready_to_onboard
+    And an email is sent to info@onthebusapp.com
 
-  Scenario: /pricing is a public marketing path
-    Given an unauthenticated visitor
-    When they open /pricing
-    Then the path is treated as a public marketing page
+  Scenario: Repeat request is idempotent
+    Given the demo request is already ready_to_onboard
+    When they POST /api/demo/go-live again
+    Then the API succeeds without sending another email
+
+  Scenario: Play Review and static demo cannot convert
+    Given a demo tenant whose slug is play-review or demo
+    When go-live eligibility is evaluated
+    Then the school cannot request to go live
+
+  Scenario: Paid schools cannot request go live
+    Given a tenant with is_demo false
+    When they POST /api/demo/go-live
+    Then the API returns 400
 ```
 
 ## Automation map
 
-| Scenario title | Test / verification | Status |
-| :--- | :--- | :--- |
-| School-sized needs recommend School | `src/lib/pricingPlans.test.ts` | `passing` |
-| One extra bus past School recommends Growth | `src/lib/pricingPlans.test.ts` | `passing` |
-| Needs above Growth caps recommend Enterprise | `src/lib/pricingPlans.test.ts` | `passing` |
-| /pricing is a public marketing path | `src/lib/tenantHost.test.ts` | `passing` |
+| Scenario | Test |
+| :--- | :--- |
+| Per-lead confirmed demo can request go live | `apps/admin_dashboard/src/lib/demoGoLive.test.ts` |
+| Expiry date is formatted for the banner | `apps/admin_dashboard/src/lib/demoGoLive.test.ts` |
+| Request to go live updates status and emails sales | `apps/admin_dashboard/src/app/api/demo/go-live/route.test.ts` |
+| Repeat request is idempotent | `apps/admin_dashboard/src/app/api/demo/go-live/route.test.ts` |
+| Play Review and static demo cannot convert | `apps/admin_dashboard/src/lib/demoGoLive.test.ts` |
+| Paid schools cannot request go live | `apps/admin_dashboard/src/app/api/demo/go-live/route.test.ts` |

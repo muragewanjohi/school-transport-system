@@ -1,5 +1,6 @@
 import { escapeHtml, sendResendEmail } from "@/lib/resendEmail";
 import type { DemoProvisionResult } from "@/lib/demoProvision";
+import { buildGoLiveNotifyEmail, goLiveNotifyEmail } from "@/lib/demoGoLive";
 
 export async function notifyRequesterReceived(payload: {
   full_name: string;
@@ -132,6 +133,27 @@ export async function notifyDemoReady(
     subject,
     text,
     html,
+    from: process.env.DEMO_REQUESTS_FROM_EMAIL || undefined,
+  });
+}
+
+export async function notifyGoLiveRequested(payload: {
+  schoolName: string;
+  slug: string;
+  tenantId: string;
+  demoExpiresAt: string | null;
+  leadName: string;
+  leadEmail: string | null;
+  leadPhone: string | null;
+  leadCity: string | null;
+  requestedByName: string;
+  requestedByEmail: string;
+}): Promise<boolean> {
+  const { subject, text } = buildGoLiveNotifyEmail(payload);
+  return sendResendEmail({
+    to: goLiveNotifyEmail(),
+    subject,
+    text,
     from: process.env.DEMO_REQUESTS_FROM_EMAIL || undefined,
   });
 }

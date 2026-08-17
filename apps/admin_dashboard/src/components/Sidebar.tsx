@@ -21,8 +21,14 @@ import {
   CreditCard,
   Clock,
   Building2,
-  BellRing
+  BellRing,
+  School
 } from "lucide-react";
+import {
+  isRoutesSectionNavActive,
+  isSchoolCampusNavActive,
+  SCHOOL_CAMPUS_PATH,
+} from "@/lib/schoolCampusNav";
 
 export default function Sidebar() {
   return (
@@ -59,7 +65,7 @@ function SidebarContent() {
     if (pathname.startsWith("/staff")) {
       setStaffExpanded(true);
     }
-    if (pathname.startsWith("/routes")) {
+    if (isRoutesSectionNavActive(pathname, tabParam)) {
       setRoutesExpanded(true);
     }
   }, [pathname]);
@@ -73,7 +79,9 @@ function SidebarContent() {
         const response = await fetch("/api/demo-requests?summary=1");
         const json = await response.json();
         if (!cancelled && json.success) {
-          setPendingDemoRequests(Number(json.data?.pending_count) || 0);
+          setPendingDemoRequests(
+            Number(json.data?.attention_count ?? json.data?.pending_count) || 0
+          );
         }
       } catch {
         // Keep navigation usable when notification loading fails.
@@ -253,7 +261,7 @@ function SidebarContent() {
           <li>
             <div 
               onClick={() => setRoutesExpanded(!routesExpanded)}
-              className={`menu-item ${pathname.startsWith("/routes") ? "active" : ""}`}
+              className={`menu-item ${isRoutesSectionNavActive(pathname, tabParam) ? "active" : ""}`}
               style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -303,18 +311,19 @@ function SidebarContent() {
                     <span>Today's Trips</span>
                   </Link>
                 </li>
-                <li>
-                  <Link 
-                    href="/routes?tab=schools" 
-                    className={`menu-item ${pathname === "/routes" && tabParam === "schools" ? "active" : ""}`}
-                    style={{ padding: "6px 12px", fontSize: "0.85rem" }}
-                  >
-                    <MapPin size={14} style={{ color: "var(--text-muted)" }} />
-                    <span>School Locations</span>
-                  </Link>
-                </li>
               </ul>
             )}
+          </li>
+
+          {/* School Campus */}
+          <li>
+            <Link
+              href={SCHOOL_CAMPUS_PATH}
+              className={`menu-item ${isSchoolCampusNavActive(pathname, tabParam) ? "active" : ""}`}
+            >
+              <School size={18} />
+              <span>School Campus</span>
+            </Link>
           </li>
 
           {/* Admin Management */}

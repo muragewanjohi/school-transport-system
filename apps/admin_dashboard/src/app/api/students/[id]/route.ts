@@ -11,6 +11,11 @@ import {
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { haversineDistanceMeters, parseGeoPoint } from "@/lib/geoUtils";
 import { duplicateGuardianPhoneError } from "@/lib/studentGuardians";
+import {
+  mapStudentProfile,
+  studentDbWriteFields,
+  STUDENT_PROFILE_COLUMNS,
+} from "@/lib/studentRecord";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -119,7 +124,7 @@ export async function GET(
 
     const { data: student, error } = await scope.client
       .from("students")
-      .select("id, name, route_id, nfc_card_hash, pickup_stop_id, dropoff_stop_id, schedule_ids, guardians, status, grade, class_name")
+      .select(STUDENT_PROFILE_COLUMNS)
       .eq("id", id)
       .eq("tenant_id", scope.tenantId)
       .single();
@@ -128,20 +133,11 @@ export async function GET(
       return NextResponse.json({ success: false, error: "Student not found" }, { status: 404 });
     }
 
-    let parsedGuardians = [];
-    if (student.guardians) {
-      parsedGuardians = typeof student.guardians === "string" 
-        ? JSON.parse(student.guardians) 
-        : student.guardians;
-    }
-
-    const mappedStudent = {
-      ...student,
-      guardians: parsedGuardians,
-      status: student.status || "Present"
-    };
-
-    return NextResponse.json({ success: true, source: "supabase", data: mappedStudent });
+    return NextResponse.json({
+      success: true,
+      source: "supabase",
+      data: mapStudentProfile(student),
+    });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
@@ -182,11 +178,15 @@ export async function PUT(
 
     if (!isSupabaseConfigured) {
       const localStudents = getLocalStudents();
-      const idx = localStudents.findIndex((s: any) => s.id === id);
+      const idx = localStudents.findIndex((s: { id: string }) => s.id === id);
       if (idx !== -1) {
-        localStudents[idx] = { ...localStudents[idx], ...result.data };
+        const updated = {
+          ...localStudents[idx],
+          ...studentDbWriteFields(result.data),
+        };
+        localStudents[idx] = updated;
         saveLocalStudents(localStudents);
-        return NextResponse.json({ success: true, source: "mock", data: localStudents[idx] });
+        return NextResponse.json({ success: true, source: "mock", data: updated });
       }
       return NextResponse.json({ success: false, error: "Student not found in mock list" }, { status: 404 });
     }
@@ -299,28 +299,7 @@ export async function PUT(
       }
     }
 
-    // Build update payload dynamically
-    const updatePayload: Record<string, any> = {};
-    if (result.data.name !== undefined) updatePayload.name = result.data.name;
-    if (result.data.route_id !== undefined) updatePayload.route_id = result.data.route_id;
-    if (result.data.nfc_card_hash !== undefined) updatePayload.nfc_card_hash = result.data.nfc_card_hash || null;
-    if (result.data.guardians !== undefined) updatePayload.guardians = result.data.guardians;
-    if (result.data.status !== undefined) updatePayload.status = result.data.status;
-    if (result.data.grade !== undefined) updatePayload.grade = result.data.grade || null;
-    if (result.data.class_name !== undefined) updatePayload.class_name = result.data.class_name || null;
-    if (result.data.pickup_stop_id !== undefined) updatePayload.pickup_stop_id = result.data.pickup_stop_id;
-    if (result.data.dropoff_stop_id !== undefined) updatePayload.dropoff_stop_id = result.data.dropoff_stop_id;
-    if (result.data.schedule_ids !== undefined) updatePayload.schedule_ids = result.data.schedule_ids;
-    if (result.data.address !== undefined) updatePayload.address = result.data.address || null;
-    if (result.data.latitude !== undefined || result.data.longitude !== undefined) {
-      const lat = result.data.latitude;
-      const lng = result.data.longitude;
-      if (lat !== undefined && lat !== null && lng !== undefined && lng !== null) {
-        updatePayload.pickup_location = `POINT(${lng} ${lat})`;
-        updatePayload.latitude = lat;
-        updatePayload.longitude = lng;
-      }
-    }
+    const updatePayload = studentDbWriteFields(result.data);
 
     const { data: studentUpdate, error } = await client
       .from("students")
@@ -331,17 +310,8 @@ export async function PUT(
       .single();
 
     if (error) {
-      console.warn(`Supabase student update error for ${id}, falling back to mock:`, error.message);
-      
-      const localStudents = getLocalStudents();
-      const idx = localStudents.findIndex((s: any) => s.id === id);
-      if (idx !== -1) {
-        localStudents[idx] = { ...localStudents[idx], ...result.data };
-        saveLocalStudents(localStudents);
-        return NextResponse.json({ success: true, source: "supabase_error_fallback", data: localStudents[idx] });
-      }
-      
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: { id, ...result.data } });
+      console.error("Supabase student update error:", error.message);
+      return NextResponse.json({ success: false, error: "Failed to update student" }, { status: 500 });
     }
 
     // Sync trip manifest attendance if student status changes and there is an active trip today
@@ -414,13 +384,8 @@ export async function DELETE(
       .eq("tenant_id", scope.tenantId);
 
     if (error) {
-      console.warn(`Supabase student delete error for ${id}, falling back to mock:`, error.message);
-      
-      const localStudents = getLocalStudents();
-      const updated = localStudents.filter((s: any) => s.id !== id);
-      saveLocalStudents(updated);
-
-      return NextResponse.json({ success: true, source: "supabase_error_fallback" });
+      console.error("Supabase student delete error:", error.message);
+      return NextResponse.json({ success: false, error: "Failed to delete student" }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, source: "supabase" });

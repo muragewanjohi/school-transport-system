@@ -28,6 +28,7 @@ import {
   tripTypeLabel,
   validateScheduleForm,
 } from "@/lib/scheduleFormValidation";
+import { SCHOOL_CAMPUS_ICON_URL, schoolCampusMapIcon } from "@/lib/schoolCampusNav";
 
 interface DBRoute {
   id: string;
@@ -139,10 +140,10 @@ function RoutesManagement() {
 
   const handleDeleteSchool = (id: string) => {
     if (schoolLocations.length <= 1) {
-      alert("At least one school location is required.");
+      alert("At least one school campus is required.");
       return;
     }
-    if (!confirm("Are you sure you want to delete this school location?")) return;
+    if (!confirm("Are you sure you want to delete this school campus?")) return;
     
     const updated = schoolLocations.filter(loc => loc.id !== id);
     setSchoolLocations(updated);
@@ -500,14 +501,7 @@ function RoutesManagement() {
       map: mapRef.current,
       draggable: true,
       title: "Drag to position school campus",
-      icon: {
-        path: "M12 2L1 9l11 7 9-5.73V17h2V9L12 2zm0 4.28L17.27 9 12 12.36 6.73 9 12 6.28z",
-        fillColor: "#4F46E5",
-        fillOpacity: 1,
-        strokeColor: "#FFFFFF",
-        strokeWeight: 2,
-        scale: 1.8,
-      },
+      icon: schoolCampusMapIcon(window.google.maps),
     });
 
     marker.addListener("dragend", () => {
@@ -569,7 +563,7 @@ function RoutesManagement() {
     setTempSchoolConfig(prev => {
       const next = { ...prev, latitude: val };
       if (draggableSchoolMarkerRef.current && !isNaN(val) && !isNaN(prev.longitude)) {
-        draggableSchoolMarkerRef.current.setLngLat([prev.longitude, val]);
+        draggableSchoolMarkerRef.current.setPosition({ lat: val, lng: prev.longitude });
       }
       return next;
     });
@@ -579,7 +573,7 @@ function RoutesManagement() {
     setTempSchoolConfig(prev => {
       const next = { ...prev, longitude: val };
       if (draggableSchoolMarkerRef.current && !isNaN(val) && !isNaN(prev.latitude)) {
-        draggableSchoolMarkerRef.current.setLngLat([val, prev.latitude]);
+        draggableSchoolMarkerRef.current.setPosition({ lat: prev.latitude, lng: val });
       }
       return next;
     });
@@ -877,12 +871,7 @@ function RoutesManagement() {
           position: { lat: loc.latitude, lng: loc.longitude },
           map: map,
           title: loc.name,
-          icon: {
-            url: "/assets/school-location-icon.png",
-            scaledSize: new window.google.maps.Size(44, 44),
-            origin: new window.google.maps.Point(0, 0),
-            anchor: new window.google.maps.Point(22, 22),
-          },
+          icon: schoolCampusMapIcon(window.google.maps),
         });
 
         const infoWindow = new window.google.maps.InfoWindow({
@@ -931,12 +920,7 @@ function RoutesManagement() {
           position: { lat, lng },
           map: map,
           title: `${stopTag}: ${stop.name}`,
-          icon: {
-            url: "/assets/school-location-icon.png",
-            scaledSize: new window.google.maps.Size(44, 44),
-            origin: new window.google.maps.Point(0, 0),
-            anchor: new window.google.maps.Point(22, 22),
-          },
+          icon: schoolCampusMapIcon(window.google.maps),
         });
 
         const infoWindow = new window.google.maps.InfoWindow({
@@ -1441,7 +1425,10 @@ function RoutesManagement() {
       <main className="main-content">
         <header className="top-bar">
           <div>
-            <span className="top-bar-title">Transit Route Planner</span>
+            <span className="top-bar-title">
+              {activeTab === "schools" ? "School Campus" : "Transit Route Planner"}
+            </span>
+            {activeTab !== "schools" && (
             <span style={{ 
               marginLeft: "12px", 
               background: "rgba(99,102,241,0.1)", 
@@ -1454,6 +1441,7 @@ function RoutesManagement() {
             }}>
               Core Mapping
             </span>
+            )}
           </div>
         </header>
 
@@ -1571,8 +1559,8 @@ function RoutesManagement() {
               <div style={{ display: "flex", borderBottom: "1px solid var(--border-default)", justifyContent: "space-between", alignItems: "center" }}>
                 {activeTab === "schools" ? (
                   <div style={{ padding: "10px 16px", fontSize: "0.90rem", fontWeight: 600, color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "8px" }}>
-                    <MapPin size={16} style={{ color: "var(--accent-primary)" }} />
-                    Configured Campus Locations ({schoolLocations.length})
+                    <img src={SCHOOL_CAMPUS_ICON_URL} alt="" width={18} height={18} />
+                    School Campuses ({schoolLocations.length})
                   </div>
                 ) : (
                   <div style={{ display: "flex" }}>
@@ -1703,7 +1691,7 @@ function RoutesManagement() {
                     }}
                   >
                     <Plus size={14} />
-                    Add School Location
+                    Add School Campus
                   </button>
                 )}
               </div>
@@ -1882,7 +1870,7 @@ function RoutesManagement() {
               ) : (
                 schoolLocations.length === 0 ? (
                   <div style={{ display: "flex", justifyContent: "center", padding: "30px 0", color: "var(--text-muted)", fontSize: "0.85rem" }}>
-                    No school locations configured.
+                    No school campuses configured.
                   </div>
                 ) : (
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
@@ -1903,7 +1891,7 @@ function RoutesManagement() {
                       >
                         <div>
                           <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
-                            <MapPin size={18} style={{ color: "var(--accent-primary)", marginTop: "2px", flexShrink: 0 }} />
+                            <img src={SCHOOL_CAMPUS_ICON_URL} alt="" width={22} height={22} style={{ marginTop: "2px", flexShrink: 0 }} />
                             <div>
                               <h4 style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "0.95rem", margin: 0 }}>{loc.name}</h4>
                               <p style={{ fontSize: "0.8rem", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
@@ -2176,14 +2164,14 @@ function RoutesManagement() {
           </div>
         </div>
       )}
-      {/* Edit School Location Modal */}
+      {/* Edit School Campus Modal */}
       {showSchoolModal && (
         <div className="drawer-overlay" onClick={() => setShowSchoolModal(false)}>
           <div className="drawer-content" onClick={(e) => e.stopPropagation()} style={{ width: "380px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", borderBottom: "1px solid var(--border-default)", paddingBottom: "12px" }}>
               <h2 style={{ fontSize: "1.1rem", fontWeight: 600, display: "flex", alignItems: "center", gap: "8px" }}>
-                <MapPin size={18} style={{ color: "var(--accent-primary)" }} />
-                {schoolDrawerMode === "edit" ? "Edit School Location" : "Add School Location"}
+                <img src={SCHOOL_CAMPUS_ICON_URL} alt="" width={22} height={22} />
+                {schoolDrawerMode === "edit" ? "Edit School Campus" : "Add School Campus"}
               </h2>
               <button onClick={() => setShowSchoolModal(false)} style={{ background: "transparent", border: "none", color: "var(--text-muted)", cursor: "pointer" }}>
                 <X size={18} />
@@ -2196,7 +2184,7 @@ function RoutesManagement() {
                 <input 
                   type="text" 
                   className="form-input"
-                  placeholder="Search school location..."
+                  placeholder="Search school campus..."
                   value={tempSchoolConfig.name}
                   onChange={(e) => handleSchoolNameChange(e.target.value)}
                   onFocus={() => {
@@ -2278,7 +2266,7 @@ function RoutesManagement() {
                     fontSize: "0.85rem"
                   }}
                 >
-                  {schoolDrawerMode === "edit" ? "Save Changes" : "Add Location"}
+                  {schoolDrawerMode === "edit" ? "Save Changes" : "Add School Campus"}
                 </button>
               </div>
             </div>

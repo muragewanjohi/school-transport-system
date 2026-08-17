@@ -63,7 +63,7 @@ interface SchoolRow {
   sms_used_this_month: number;
 }
 
-type DemoRequestStatus = "pending" | "confirmed" | "completed" | "declined";
+type DemoRequestStatus = "pending" | "confirmed" | "ready_to_onboard" | "completed" | "declined";
 
 interface DemoRequestRow {
   id: string;
@@ -327,6 +327,10 @@ function PlatformConsole() {
   }, [schools]);
 
   const pendingDemoRequests = demoRequests.filter((request) => request.status === "pending").length;
+  const readyToOnboardRequests = demoRequests.filter(
+    (request) => request.status === "ready_to_onboard"
+  ).length;
+  const demoAttentionCount = pendingDemoRequests + readyToOnboardRequests;
 
   const filtered = schools.filter((school) => {
     const q = search.toLowerCase();
@@ -493,8 +497,8 @@ function PlatformConsole() {
                 {tab.id === "billing" && stats.unpaidCount > 0 && (
                   <span className="tab-badge">{stats.unpaidCount}</span>
                 )}
-                {tab.id === "demos" && pendingDemoRequests > 0 && (
-                  <span className="tab-badge">{pendingDemoRequests}</span>
+                {tab.id === "demos" && demoAttentionCount > 0 && (
+                  <span className="tab-badge">{demoAttentionCount}</span>
                 )}
               </button>
             ))}
@@ -619,7 +623,10 @@ function PlatformConsole() {
                 <div>
                   <div className="cell-primary">Demo request inbox</div>
                   <div className="cell-muted">
-                    {pendingDemoRequests} request{pendingDemoRequests === 1 ? "" : "s"} waiting for review
+                    {pendingDemoRequests} waiting for review
+                    {readyToOnboardRequests > 0
+                      ? ` · ${readyToOnboardRequests} ready to onboard`
+                      : ""}
                   </div>
                 </div>
                 <button className="btn-ghost accent" onClick={() => void fetchDemoRequests()}>
@@ -745,7 +752,7 @@ function PlatformConsole() {
                                     : "warning"
                               }`}
                             >
-                              {request.status}
+                              {request.status.replaceAll("_", " ")}
                             </span>
                           </td>
                           <td>
@@ -775,7 +782,8 @@ function PlatformConsole() {
                                   </button>
                                 </>
                               )}
-                              {request.status === "confirmed" && (
+                              {(request.status === "confirmed" ||
+                                request.status === "ready_to_onboard") && (
                                 <button
                                   className="btn-ghost accent"
                                   disabled={updatingDemoRequestId === request.id}

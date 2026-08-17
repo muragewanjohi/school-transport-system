@@ -153,3 +153,60 @@ export function formatCapLabel(
   }
   return `Up to ${value} ${unit}`;
 }
+
+export type PlanUsageMetric = {
+  used: number;
+  cap: number | null;
+  over: boolean;
+  display: string;
+};
+
+export type PlanUsageBreakdown = {
+  students: PlanUsageMetric;
+  buses: PlanUsageMetric;
+  locations: PlanUsageMetric;
+};
+
+export function formatUsageAgainstCap(used: number, cap: number | null): string {
+  const usedLabel = used.toLocaleString("en-KE");
+  if (cap === null) {
+    return `${usedLabel} / Unlimited`;
+  }
+  return `${usedLabel} / ${cap.toLocaleString("en-KE")}`;
+}
+
+export function usageMetric(used: number, cap: number | null): PlanUsageMetric {
+  return {
+    used,
+    cap,
+    over: cap !== null && used > cap,
+    display: formatUsageAgainstCap(used, cap),
+  };
+}
+
+export function usageAgainstPlan(plan: PricingPlan, needs: PricingNeeds): PlanUsageBreakdown {
+  return {
+    students: usageMetric(needs.students, plan.maxStudents),
+    buses: usageMetric(needs.buses, plan.maxBuses),
+    locations: usageMetric(needs.locations, plan.maxLocations),
+  };
+}
+
+export function capUsagePercent(used: number, cap: number | null): number {
+  if (cap === null || cap <= 0) return 0;
+  return Math.min(100, Math.round((used / cap) * 100));
+}
+
+export function upgradePlanAction(planId: PlanId): { label: string; href: string } {
+  if (planId === "enterprise") {
+    return {
+      label: "Contact sales",
+      href: pricingMailto("Enterprise plan inquiry"),
+    };
+  }
+  return {
+    label: "Upgrade plan",
+    href: "/pricing",
+  };
+}
+

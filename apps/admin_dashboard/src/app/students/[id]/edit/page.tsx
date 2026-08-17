@@ -27,6 +27,7 @@ import {
   validateGuardianEntries,
   type GuardianEntry,
 } from "@/lib/studentGuardians";
+import { studentApiErrorMessage } from "@/lib/studentRecord";
 
 interface DBRoute {
   id: string;
@@ -221,12 +222,15 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      const json = await res.json();
+      const json = await res.json() as {
+        success?: boolean;
+        error?: string;
+        errors?: Record<string, string[] | undefined>;
+      };
       if (json.success) {
         router.push("/students");
       } else {
-        const errorMsg = json.error || "Unknown validation error";
-        alert(`Failed to update student: ${errorMsg}`);
+        alert(`Failed to update student: ${studentApiErrorMessage(json)}`);
       }
     } catch (err) {
       console.error(err);

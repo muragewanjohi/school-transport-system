@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import SearchableSelect from "@/components/SearchableSelect";
 import type { StudentStopMode } from "@/lib/studentStopAssignment";
 
 interface StopOption {
@@ -38,9 +39,10 @@ export default function StudentStopAssignmentFields({
 }: Readonly<StudentStopAssignmentFieldsProps>) {
   const routeStops = stops.filter((s) => s.route_id === routeId);
   const disabled = !routeId;
+  const placeholder = routeId ? "-- Select stage --" : "-- Assign route --";
 
   return (
-    <div className="form-group">
+    <div className="form-group form-span-full">
       <span className="form-label">Pickup and drop-off *</span>
       <div
         role="radiogroup"
@@ -95,46 +97,36 @@ export default function StudentStopAssignmentFields({
           <label className="form-label" htmlFor="student-same-stage">
             Stage *
           </label>
-          <select
+          <SearchableSelect
             id="student-same-stage"
-            className="form-input"
             value={pickupStopId}
-            onChange={(e) => onSameStageChange(e.target.value)}
+            options={routeStops}
+            onChange={onSameStageChange}
             disabled={disabled}
-          >
-            {!routeId && <option value="">-- Assign route --</option>}
-            {routeId && <option value="">-- Select stage --</option>}
-            {routeStops.map((stop) => (
-              <option key={stop.id} value={stop.id}>
-                {stop.name}
-              </option>
-            ))}
-          </select>
+            placeholder={placeholder}
+            emptyLabel={routeId ? "No stages match" : "Assign a route first"}
+            error={Boolean(pickupError)}
+          />
           {pickupError && (
             <span className="form-error-text">{pickupError}</span>
           )}
         </div>
       ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <div className="student-stop-pair">
           <div className="form-group">
             <label className="form-label" htmlFor="student-pickup-stage">
               Pickup location *
             </label>
-            <select
+            <SearchableSelect
               id="student-pickup-stage"
-              className="form-input"
               value={pickupStopId}
-              onChange={(e) => onPickupChange(e.target.value)}
+              options={routeStops}
+              onChange={onPickupChange}
               disabled={disabled}
-            >
-              {!routeId && <option value="">-- Assign route --</option>}
-              {routeId && <option value="">-- Select pickup --</option>}
-              {routeStops.map((stop) => (
-                <option key={stop.id} value={stop.id}>
-                  {stop.name}
-                </option>
-              ))}
-            </select>
+              placeholder={routeId ? "-- Select pickup --" : "-- Assign route --"}
+              emptyLabel={routeId ? "No stages match" : "Assign a route first"}
+              error={Boolean(pickupError)}
+            />
             {pickupError && (
               <span className="form-error-text">{pickupError}</span>
             )}
@@ -143,21 +135,16 @@ export default function StudentStopAssignmentFields({
             <label className="form-label" htmlFor="student-dropoff-stage">
               Drop-off location *
             </label>
-            <select
+            <SearchableSelect
               id="student-dropoff-stage"
-              className="form-input"
               value={dropoffStopId}
-              onChange={(e) => onDropoffChange(e.target.value)}
+              options={routeStops}
+              onChange={onDropoffChange}
               disabled={disabled}
-            >
-              {!routeId && <option value="">-- Assign route --</option>}
-              {routeId && <option value="">-- Select drop-off --</option>}
-              {routeStops.map((stop) => (
-                <option key={stop.id} value={stop.id}>
-                  {stop.name}
-                </option>
-              ))}
-            </select>
+              placeholder={routeId ? "-- Select drop-off --" : "-- Assign route --"}
+              emptyLabel={routeId ? "No stages match" : "Assign a route first"}
+              error={Boolean(dropoffError)}
+            />
             {dropoffError && (
               <span className="form-error-text">{dropoffError}</span>
             )}

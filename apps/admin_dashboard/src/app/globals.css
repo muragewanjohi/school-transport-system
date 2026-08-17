@@ -1006,6 +1006,110 @@ select.form-input option {
   color: var(--text-primary);
 }
 
+.form-span-full {
+  grid-column: 1 / -1;
+}
+
+.student-stop-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.searchable-select {
+  position: relative;
+}
+
+.searchable-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.searchable-select-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.searchable-select-dropdown {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+}
+
+.searchable-select-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-default);
+  color: var(--text-muted);
+}
+
+.searchable-select-search-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.9rem;
+  outline: none;
+}
+
+.searchable-select-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.searchable-select-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.searchable-select-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.searchable-select-option:hover,
+.searchable-select-option.is-selected {
+  background: var(--bg-surface-hover);
+}
+
+.searchable-select-empty {
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 768px) {
+  .student-stop-pair {
+    grid-template-columns: 1fr;
+  }
+}
+
 .main-header {
   min-height: 70px;
   border-bottom: 1px solid var(--border-default);
@@ -1091,6 +1195,57 @@ select.form-input option {
 
 .btn-primary:hover:not(:disabled) {
   filter: brightness(1.05);
+}
+
+.demo-tenant-banner {
+  position: sticky;
+  top: 0;
+  z-index: 2000;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: color-mix(in srgb, var(--state-warning) 16%, var(--bg-surface));
+  color: var(--text-primary);
+  text-align: center;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  font-family: var(--font-sans), sans-serif;
+  border-bottom: 1px solid color-mix(in srgb, var(--state-warning) 35%, var(--border-default));
+}
+
+.demo-tenant-banner-cta {
+  background: var(--accent-fill);
+  color: var(--nav-active-fg);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.demo-tenant-banner-cta:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.demo-tenant-banner-error {
+  color: var(--state-error-ink);
+  font-size: 0.82rem;
+}
+
+.demo-go-live-sent {
+  color: var(--accent-primary-ink);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.upgrade-plan-btn-wrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 12px;
 }
 
 .roster-card {

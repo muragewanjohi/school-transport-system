@@ -5,12 +5,14 @@ import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 
 // Default Mock billing data
 const mockBilling = {
-  plan_name: "Pro",
-  price_desc: "KES 10,000 / month + KES 1 / SMS",
+  plan_name: "School",
+  price_desc: "KSh 10,000 / month",
   is_paid: false,
   students_count: 214,
+  buses_count: 5,
   active_routes_count: 5,
   drivers_count: 6,
+  active_campus_count: 1,
   sms_used_this_month: 16000,
   sms_limit_expected: 25000,
 };
@@ -42,8 +44,8 @@ export async function GET(request: Request) {
         .from("billing_status")
         .insert({
           tenant_id: tenantId,
-          plan_name: "Pro",
-          price_desc: "KES 10,000 / month + KES 1 / SMS",
+          plan_name: "School",
+          price_desc: "KSh 10,000 / month",
           is_paid: false,
           students_count: 214,
           active_routes_count: 5,
@@ -66,6 +68,7 @@ export async function GET(request: Request) {
     let routesCount = billing.active_routes_count;
     let driversCount = billing.drivers_count;
     let smsCount = billing.sms_used_this_month;
+    let busesCount = 0;
 
     try {
       const { count, error } = await client.from("students").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId);
@@ -79,6 +82,13 @@ export async function GET(request: Request) {
       if (!error && count !== null) routesCount = count;
     } catch (e) {
       console.warn("Dynamic routes count query failed:", e);
+    }
+
+    try {
+      const { count, error } = await client.from("vehicles").select("id", { count: "exact", head: true }).eq("tenant_id", tenantId);
+      if (!error && count !== null) busesCount = count;
+    } catch (e) {
+      console.warn("Dynamic buses count query failed:", e);
     }
 
     try {
@@ -114,6 +124,7 @@ export async function GET(request: Request) {
     const responseData = {
       ...billing,
       students_count: studentsCount,
+      buses_count: busesCount,
       active_routes_count: routesCount,
       drivers_count: driversCount,
       sms_used_this_month: smsCount,

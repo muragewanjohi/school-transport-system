@@ -11,20 +11,24 @@ import {
   ArrowUpRight, 
   Mail, 
   Phone, 
-  ChevronRight, 
-  TrendingUp, 
-  TrendingDown, 
   Calendar,
   X,
   Smartphone,
   ShieldCheck,
   Lock,
-  ArrowRight,
-  RefreshCw
+  ArrowRight
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import { useAuth } from "@/components/AuthProvider";
+import { RequestToGoLiveButton, useDemoGoLive } from "@/components/DemoGoLiveProvider";
+import {
+  capUsagePercent,
+  formatKesMonthly,
+  recommendPlan,
+  upgradePlanAction,
+  usageAgainstPlan,
+} from "@/lib/pricingPlans";
 
 // Type definitions
 interface InvoiceHistoryItem {
@@ -37,14 +41,38 @@ interface InvoiceHistoryItem {
   dueDate: string;
 }
 
+interface BillingSnapshot {
+  students_count: number;
+  buses_count: number;
+  active_campus_count: number;
+  next_renewal?: string;
+}
+
+function formatRenewalDate(iso: string | undefined): string | null {
+  if (!iso) return null;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString("en-KE", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+}
+
 export default function BillingConsole() {
   const { profile } = useAuth();
+  const { isDemoTenant, demoExpiryLabel } = useDemoGoLive();
   const canManageBilling = profile?.admin_role === "Super Admin" || 
                            profile?.admin_role === "Operations Admin" || 
                            profile?.admin_role === "Bursar";
 
   // Billing status state (mocking local database/Supabase state, persists in localStorage)
   const [isPaid, setIsPaid] = useState<boolean>(false);
+  const [billingUsage, setBillingUsage] = useState<BillingSnapshot>({
+    students_count: 0,
+    buses_count: 0,
+    active_campus_count: 1,
+  });
   const [loading, setLoading] = useState<boolean>(true);
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
   const [paymentTab, setPaymentTab] = useState<"mpesa" | "card">("mpesa");
@@ -67,6 +95,13 @@ export default function BillingConsole() {
         const json = await res.json();
         if (json.success && json.data) {
           setIsPaid(json.data.is_paid);
+          setBillingUsage({
+            students_count: Number(json.data.students_count) || 0,
+            buses_count: Number(json.data.buses_count) || 0,
+            active_campus_count: Number(json.data.active_campus_count) || 1,
+            next_renewal:
+              typeof json.data.next_renewal === "string" ? json.data.next_renewal : undefined,
+          });
           localStorage.setItem("safaricom_billing_paid", json.data.is_paid ? "true" : "false");
         } else {
           const savedStatus = localStorage.getItem("safaricom_billing_paid");
@@ -250,6 +285,19 @@ export default function BillingConsole() {
     { id: "INV-2026-002", period: "February 2026", flatFee: 10000, smsCount: 9500, totalAmount: 19500, status: "Paid", dueDate: "February 28, 2026" },
   ];
 
+  const currentPlan = recommendPlan({
+    students: billingUsage.students_count,
+    buses: billingUsage.buses_count,
+    locations: billingUsage.active_campus_count,
+  });
+  const planUsage = usageAgainstPlan(currentPlan, {
+    students: billingUsage.students_count,
+    buses: billingUsage.buses_count,
+    locations: billingUsage.active_campus_count,
+  });
+  const upgrade = upgradePlanAction(currentPlan.id);
+  const renewalLabel = formatRenewalDate(billingUsage.next_renewal);
+
   return (
     <div className="app-container">
       <Sidebar />
@@ -327,9 +375,16 @@ export default function BillingConsole() {
 
         .mockup-price-details {
           font-size: 1rem;
-          color: #f8fafc;
+          color: var(--text-muted);
           font-weight: 500;
           margin-bottom: 12px;
+        }
+
+        .mockup-plan-desc {
+          font-size: 0.85rem;
+          color: var(--text-muted);
+          line-height: 1.45;
+          margin: 0 0 12px 0;
         }
 
         .mockup-alert-row {
@@ -373,42 +428,48 @@ export default function BillingConsole() {
           font-weight: 700;
         }
 
-        .mockup-sms-title-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 8px;
-          font-size: 0.9rem;
+        .mockup-metric-value.is-over {
+          color: var(--state-error-ink);
         }
 
-        .mockup-sms-title {
-          font-weight: 600;
-          color: var(--text-primary);
-        }
-
-        .mockup-sms-value {
-          font-weight: 700;
-          color: var(--text-primary);
-        }
-
-        .mockup-progress-bg {
+        .mockup-usage-track {
           height: 8px;
-          background: rgba(255, 255, 255, 0.05);
+          background: var(--bg-base);
           border-radius: 4px;
           overflow: hidden;
-          margin-bottom: 8px;
+          margin: 0 0 12px 0;
         }
 
-        .mockup-progress-fill {
+        .mockup-usage-fill {
           height: 100%;
-          background: linear-gradient(90deg, #6366f1, #4f46e5); /* Purple/Indigo fill */
+          background: var(--accent-primary);
           border-radius: 4px;
         }
 
-        .mockup-sms-subtext {
-          font-size: 0.78rem;
-          color: #64748b;
-          font-weight: 500;
+        .mockup-usage-fill.is-over {
+          background: var(--state-error);
+        }
+
+        .upgrade-plan-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          width: 100%;
+          margin-top: 16px;
+          padding: 12px 16px;
+          border: none;
+          border-radius: 8px;
+          background: var(--accent-fill);
+          color: #ffffff;
+          font-size: 0.9rem;
+          font-weight: 700;
+          text-decoration: none;
+          cursor: pointer;
+        }
+
+        .upgrade-plan-btn:hover {
+          opacity: 0.95;
         }
 
         /* Invoice Summary Card */
@@ -492,71 +553,6 @@ export default function BillingConsole() {
           transform: translateY(-1px);
           box-shadow: 0 6px 16px rgba(16, 185, 129, 0.3);
           background: linear-gradient(135deg, #10c98e 0%, #04825a 100%);
-        }
-
-        /* SMS Analytics Bar Chart */
-        .chart-container {
-          display: flex;
-          align-items: flex-end;
-          justify-content: space-around;
-          height: 180px;
-          padding: var(--spacing-md) 0;
-          border-bottom: 1px solid var(--border-default);
-          margin-bottom: var(--spacing-md);
-        }
-
-        .chart-bar-col {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: var(--spacing-sm);
-          width: 80px;
-        }
-
-        .chart-bar-wrapper {
-          height: 120px;
-          width: 32px;
-          background: rgba(255, 255, 255, 0.02);
-          border: 1px solid var(--border-default);
-          border-radius: 6px;
-          position: relative;
-          display: flex;
-          align-items: flex-end;
-        }
-
-        .chart-bar-fill {
-          width: 100%;
-          border-radius: 4px;
-          transition: height 0.8s cubic-bezier(0.16, 1, 0.3, 1);
-          position: relative;
-        }
-
-        .chart-bar-fill.may {
-          background: linear-gradient(to top, rgba(99, 102, 241, 0.4), var(--accent-secondary));
-          height: 90px; /* representing 14,500 */
-          box-shadow: 0 0 10px rgba(99, 102, 241, 0.2);
-        }
-
-        .chart-bar-fill.june {
-          background: linear-gradient(to top, rgba(16, 185, 129, 0.4), var(--accent-primary));
-          height: 100px; /* representing 16,000 */
-          box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
-        }
-
-        .chart-bar-value {
-          position: absolute;
-          top: -24px;
-          left: 50%;
-          transform: translateX(-50%);
-          font-size: 0.75rem;
-          font-weight: 700;
-          white-space: nowrap;
-        }
-
-        .chart-bar-label {
-          font-size: 0.8rem;
-          color: var(--text-muted);
-          font-weight: 600;
         }
 
         /* Payment Gateway Modal */
@@ -791,71 +787,103 @@ export default function BillingConsole() {
         {/* Content Layout Grid */}
         <section className="billing-layout" style={{ marginTop: "24px" }}>
           
-          {/* LEFT COLUMN: Current Plan Card (Mockup style) */}
-          <div className="mockup-plan-card">
-            {/* Header matching image */}
-            <div className="mockup-header">
-              <Box size={14} style={{ color: "var(--text-muted)" }} />
-              <span>Current plan</span>
-            </div>
+          {/* LEFT COLUMN: Current Plan Card */}
+          <div>
+            <div className="mockup-plan-card">
+              <div className="mockup-header">
+                <Box size={14} style={{ color: "var(--text-muted)" }} />
+                <span>Current plan</span>
+              </div>
 
-            {/* Plan Tier with badge */}
-            <div className="mockup-plan-title-row">
-              <span className="mockup-plan-title">Pro</span>
-              <span className="mockup-active-badge">Active</span>
-            </div>
+              <div className="mockup-plan-title-row">
+                <span className="mockup-plan-title">{isDemoTenant ? "Demo" : currentPlan.name}</span>
+                <span className="mockup-active-badge">{isDemoTenant ? "Trial" : "Active"}</span>
+              </div>
 
-            {/* Pricing Details */}
-            <div className="mockup-price-details">
-              KES 10,000 / month + KES 1 / SMS
-            </div>
+              <div className="mockup-price-details">
+                {isDemoTenant ? "Complimentary trial" : `${formatKesMonthly(currentPlan.monthlyKes)} / month`}
+              </div>
+              <p className="mockup-plan-desc">
+                {isDemoTenant
+                  ? "This is a time-boxed demo school, not a paid plan. Operational SMS is not sent to real parents."
+                  : currentPlan.description}
+              </p>
+              {isDemoTenant ? null : (
+                <p className="mockup-plan-desc">
+                  SMS notifications are billed separately. Push notifications stay in-plan.
+                </p>
+              )}
 
-            {/* Overdue/Paid notification */}
-            {!isPaid ? (
-              <div className="mockup-alert-row overdue">
-                <AlertTriangle size={14} />
-                <span>Renewal due — overdue</span>
+              {isDemoTenant ? (
+                <div className="mockup-alert-row paid">
+                  <CheckCircle size={14} />
+                  <span>{demoExpiryLabel}</span>
+                </div>
+              ) : !isPaid ? (
+                <div className="mockup-alert-row overdue">
+                  <AlertTriangle size={14} />
+                  <span>Renewal due — overdue</span>
+                </div>
+              ) : (
+                <div className="mockup-alert-row paid">
+                  <CheckCircle size={14} />
+                  <span>
+                    {renewalLabel ? `Paid — Next renewal ${renewalLabel}` : "Paid"}
+                  </span>
+                </div>
+              )}
+
+              <div className="mockup-divider" />
+
+              <div className="mockup-metric-row">
+                <span className="mockup-metric-label">Students</span>
+                <span className={`mockup-metric-value${planUsage.students.over ? " is-over" : ""}`}>
+                  {planUsage.students.display}
+                </span>
+              </div>
+              <div className="mockup-usage-track">
+                <div
+                  className={`mockup-usage-fill${planUsage.students.over ? " is-over" : ""}`}
+                  style={{ width: `${capUsagePercent(planUsage.students.used, planUsage.students.cap)}%` }}
+                />
+              </div>
+
+              <div className="mockup-metric-row">
+                <span className="mockup-metric-label">Buses</span>
+                <span className={`mockup-metric-value${planUsage.buses.over ? " is-over" : ""}`}>
+                  {planUsage.buses.display}
+                </span>
+              </div>
+              <div className="mockup-usage-track">
+                <div
+                  className={`mockup-usage-fill${planUsage.buses.over ? " is-over" : ""}`}
+                  style={{ width: `${capUsagePercent(planUsage.buses.used, planUsage.buses.cap)}%` }}
+                />
+              </div>
+
+              <div className="mockup-metric-row">
+                <span className="mockup-metric-label">Locations</span>
+                <span className={`mockup-metric-value${planUsage.locations.over ? " is-over" : ""}`}>
+                  {planUsage.locations.display}
+                </span>
+              </div>
+              <div className="mockup-usage-track" style={{ marginBottom: 0 }}>
+                <div
+                  className={`mockup-usage-fill${planUsage.locations.over ? " is-over" : ""}`}
+                  style={{ width: `${capUsagePercent(planUsage.locations.used, planUsage.locations.cap)}%` }}
+                />
+              </div>
+            </div>
+            {isDemoTenant ? (
+              <div className="upgrade-plan-btn-wrap">
+                <RequestToGoLiveButton />
               </div>
             ) : (
-              <div className="mockup-alert-row paid">
-                <CheckCircle size={14} />
-                <span>Paid — Next renewal July 31, 2026</span>
-              </div>
+              <a className="upgrade-plan-btn" href={upgrade.href}>
+                <ArrowUpRight size={16} />
+                {upgrade.label}
+              </a>
             )}
-
-            <div className="mockup-divider" />
-
-            {/* Roster & Route Stats */}
-            <div className="mockup-metric-row">
-              <span className="mockup-metric-label">Students enrolled</span>
-              <span className="mockup-metric-value">214</span>
-            </div>
-            
-            <div className="mockup-metric-row">
-              <span className="mockup-metric-label">Active routes</span>
-              <span className="mockup-metric-value">5</span>
-            </div>
-
-            <div className="mockup-metric-row">
-              <span className="mockup-metric-label">Drivers</span>
-              <span className="mockup-metric-value">6</span>
-            </div>
-
-            <div className="mockup-divider" />
-
-            {/* SMS Progress indicator */}
-            <div className="mockup-sms-title-row">
-              <span className="mockup-sms-title">SMS used (June)</span>
-              <span className="mockup-sms-value">16,000</span>
-            </div>
-
-            <div className="mockup-progress-bg">
-              <div className="mockup-progress-fill" style={{ width: "64%" }} />
-            </div>
-
-            <div className="mockup-sms-subtext">
-              16,000 of ~25,000 expected this month
-            </div>
           </div>
 
           {/* RIGHT COLUMN: Invoice Break-down Card */}
@@ -944,71 +972,8 @@ export default function BillingConsole() {
           </div>
         </section>
 
-        {/* BOTTOM SECTION: SMS Analytics & Invoice History */}
-        <section className="billing-layout" style={{ marginTop: "8px" }}>
-          
-          {/* SMS Analytics Comparison */}
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">
-                <TrendingUp size={18} style={{ color: "var(--accent-primary)" }} />
-                SMS Volume Trends
-              </span>
-              <span style={{
-                background: "rgba(244,63,94,0.1)",
-                color: "var(--state-error)",
-                fontSize: "0.75rem",
-                padding: "2px 8px",
-                borderRadius: "12px",
-                fontWeight: 600,
-                display: "flex",
-                alignItems: "center",
-                gap: "4px"
-              }}>
-                <TrendingUp size={12} />
-                +10.3% vs Last Month
-              </span>
-            </div>
-            
-            <p style={{ fontSize: "0.85rem", color: "var(--text-muted)", marginBottom: "16px" }}>
-              Bursar anticipation metric: Compare current billing month volume to prepare allocations.
-            </p>
-
-            <div className="chart-container">
-              <div className="chart-bar-col">
-                <div className="chart-bar-wrapper">
-                  <div className="chart-bar-fill may">
-                    <span className="chart-bar-value">14,500</span>
-                  </div>
-                </div>
-                <span className="chart-bar-label">May</span>
-              </div>
-
-              <div className="chart-bar-col">
-                <div className="chart-bar-wrapper">
-                  <div className="chart-bar-fill june">
-                    <span className="chart-bar-value">16,000</span>
-                  </div>
-                </div>
-                <span className="chart-bar-label">June</span>
-              </div>
-            </div>
-
-            <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", display: "flex", flexDirection: "column", gap: "8px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>June (Current Month Billing):</span>
-                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>16,000 SMS (KES 16,000)</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span>May (Previous Month Billing):</span>
-                <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>14,500 SMS (KES 14,500)</span>
-              </div>
-              <div style={{ borderTop: "1px solid rgba(255,255,255,0.03)", paddingTop: "8px", marginTop: "4px", fontSize: "0.75rem", fontStyle: "italic" }}>
-                * Expecting ~25,000 SMS total this month based on active routes. Predicted SMS charge: KES 25,000.
-              </div>
-            </div>
-          </div>
-
+        {/* BOTTOM SECTION: Invoice History */}
+        <section className="billing-layout" style={{ marginTop: "8px", gridTemplateColumns: "1fr" }}>
           {/* Invoice History & Support */}
           <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
             

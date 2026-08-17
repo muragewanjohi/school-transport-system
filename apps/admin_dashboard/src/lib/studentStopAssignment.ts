@@ -38,6 +38,15 @@ export function defaultDifferentStopIds(routeStops: RouteStopOption[]): {
   return { pickup_stop_id: pickup, dropoff_stop_id: dropoff };
 }
 
+export function filterStopsByName<T extends { name: string }>(
+  stops: T[],
+  query: string
+): T[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return stops;
+  return stops.filter((stop) => stop.name.toLowerCase().includes(needle));
+}
+
 export function assignmentForNewRoute(
   previousPickupId: string | null | undefined,
   previousDropoffId: string | null | undefined,

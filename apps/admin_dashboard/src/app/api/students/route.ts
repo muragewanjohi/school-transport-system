@@ -9,6 +9,7 @@ import {
 } from "@/lib/authApi";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { duplicateGuardianPhoneError } from "@/lib/studentGuardians";
+import { studentDbWriteFields } from "@/lib/studentRecord";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -208,29 +209,10 @@ export async function POST(request: Request) {
     const client = scope.client;
     const tenantId = scope.tenantId;
 
-    const lat = result.data.latitude;
-    const lng = result.data.longitude;
-    const wktPoint = (lat !== undefined && lat !== null && lng !== undefined && lng !== null)
-      ? `POINT(${lng} ${lat})`
-      : null;
-
     const payload = {
       id: crypto.randomUUID(),
       tenant_id: tenantId,
-      name: result.data.name,
-      route_id: result.data.route_id,
-      nfc_card_hash: result.data.nfc_card_hash || null,
-      pickup_stop_id: result.data.pickup_stop_id,
-      dropoff_stop_id: result.data.dropoff_stop_id,
-      schedule_ids: result.data.schedule_ids,
-      status: result.data.status,
-      guardians: result.data.guardians,
-      grade: result.data.grade || null,
-      class_name: result.data.class_name || null,
-      address: result.data.address || null,
-      pickup_location: wktPoint,
-      latitude: lat || null,
-      longitude: lng || null,
+      ...studentDbWriteFields(result.data),
     };
 
     const { data: studentInsert, error } = await client
@@ -240,17 +222,8 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      console.warn("Supabase student insert error, falling back to mock save:", error.message);
-      
-      const mockStudent = {
-        ...payload
-      };
-
-      const localStudents = getLocalStudents();
-      localStudents.push(mockStudent);
-      saveLocalStudents(localStudents);
-
-      return NextResponse.json({ success: true, source: "supabase_error_fallback", data: mockStudent });
+      console.error("Supabase student insert error:", error.message);
+      return NextResponse.json({ success: false, error: "Failed to register student" }, { status: 500 });
     }
 
     return NextResponse.json({ success: true, source: "supabase", data: studentInsert });

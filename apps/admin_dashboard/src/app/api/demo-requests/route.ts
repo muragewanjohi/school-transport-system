@@ -89,7 +89,7 @@ function allowRequest(ip: string): boolean {
 }
 
 const DEMO_REQUEST_SELECT =
-  "id, full_name, role, school_name, country, city, phone, email, fleet_size, preferred_time, notes, status, reviewed_at, created_at, provisioned_tenant_id";
+  "id, full_name, role, school_name, country, city, phone, email, fleet_size, preferred_time, notes, status, reviewed_at, created_at, provisioned_tenant_id, go_live_requested_at";
 
 function credentialsPayload(provision: DemoProvisionResult) {
   return {
@@ -119,18 +119,27 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url);
     if (searchParams.get("summary") === "1") {
-      const { count, error } = await adminClient
+      const { data: summaryRows, error } = await adminClient
         .from("demo_requests")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "pending");
+        .select("status")
+        .in("status", ["pending", "ready_to_onboard"]);
 
       if (error) {
         return NextResponse.json({ success: false, error: error.message }, { status: 500 });
       }
 
+      const pendingCount = (summaryRows ?? []).filter((row) => row.status === "pending").length;
+      const readyToOnboardCount = (summaryRows ?? []).filter(
+        (row) => row.status === "ready_to_onboard"
+      ).length;
+
       return NextResponse.json({
         success: true,
-        data: { pending_count: count ?? 0 },
+        data: {
+          pending_count: pendingCount,
+          ready_to_onboard_count: readyToOnboardCount,
+          attention_count: pendingCount + readyToOnboardCount,
+        },
       });
     }
 
@@ -269,9 +278,12 @@ export async function PATCH(request: Request) {
       );
     }
 
-    // Resend access details to the requester (confirmed + provisioned only)
+    // Resend access details to the requester (confirmed / ready_to_onboard + provisioned)
     if (parsed.data.action === "resend_access_email") {
-      if (existing.status !== "confirmed" || !existing.provisioned_tenant_id) {
+      if (
+        (existing.status !== "confirmed" && existing.status !== "ready_to_onboard") ||
+        !existing.provisioned_tenant_id
+      ) {
         return NextResponse.json(
           {
             success: false,
@@ -448,7 +460,11 @@ export async function PATCH(request: Request) {
       }
     }
 
-    if (nextStatus === "completed" && existing.status === "confirmed" && existing.email) {
+    if (
+      nextStatus === "completed" &&
+      (existing.status === "confirmed" || existing.status === "ready_to_onboard") &&
+      existing.email
+    ) {
       completionEmailSent = await notifyRequesterCompleted({
         fullName: existing.full_name,
         email: existing.email,

@@ -3,6 +3,7 @@ import {
   assignmentForNewRoute,
   defaultDifferentStopIds,
   defaultSameStopId,
+  filterStopsByName,
   inferStudentStopMode,
   sameStageIds,
 } from "@/lib/studentStopAssignment";
@@ -40,6 +41,23 @@ describe("default stop ids", () => {
       pickup_stop_id: "a",
       dropoff_stop_id: "b",
     });
+  });
+});
+
+describe("filterStopsByName", () => {
+  const stops = [
+    { id: "a", name: "Westlands Stage" },
+    { id: "b", name: "Kilimani Gate" },
+  ];
+
+  it("typed name › keeps matching stages only", () => {
+    expect(filterStopsByName(stops, "west")).toEqual([
+      { id: "a", name: "Westlands Stage" },
+    ]);
+  });
+
+  it("blank query › returns all stages", () => {
+    expect(filterStopsByName(stops, "  ")).toEqual(stops);
   });
 });
 

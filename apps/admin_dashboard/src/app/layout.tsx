@@ -3,6 +3,7 @@ import { Outfit, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import AuthProvider from "@/components/AuthProvider";
 import ThemeProvider from "@/components/ThemeProvider";
+import DemoGoLiveProvider from "@/components/DemoGoLiveProvider";
 
 const outfit = Outfit({
   variable: "--font-sans",
@@ -54,7 +55,7 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <AuthProvider>
-            {children}
+            <DemoGoLiveProvider>{children}</DemoGoLiveProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>
