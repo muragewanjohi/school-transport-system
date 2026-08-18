@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:driver_app/theme/app_colors.dart';
 import 'package:driver_app/utils/stop_visit_logic.dart';
+import 'package:driver_app/utils/trip_ui_logic.dart';
+import 'package:driver_app/widgets/student_contact_sheet.dart';
 
 enum BoardingIntent { pending, present, absent }
 
@@ -38,6 +40,7 @@ Future<StopBoardingSheetResult?> showStopBoardingDrawer({
   required bool isPickup,
   required bool arrived,
   DateTime? arrivedAt,
+  int minStopDwellSeconds = defaultMinStopDwellSeconds,
   required Future<bool> Function(Map<String, dynamic> student, String status) onUpdateStatus,
 }) {
   return showModalBottomSheet<StopBoardingSheetResult>(
@@ -60,6 +63,7 @@ Future<StopBoardingSheetResult?> showStopBoardingDrawer({
             isPickup: isPickup,
             arrived: arrived,
             arrivedAt: arrivedAt,
+            minStopDwellSeconds: minStopDwellSeconds,
             onUpdateStatus: onUpdateStatus,
           );
         },
@@ -78,6 +82,7 @@ class _StopBoardingDrawerBody extends StatefulWidget {
   final bool isPickup;
   final bool arrived;
   final DateTime? arrivedAt;
+  final int minStopDwellSeconds;
   final Future<bool> Function(Map<String, dynamic> student, String status) onUpdateStatus;
 
   const _StopBoardingDrawerBody({
@@ -90,6 +95,7 @@ class _StopBoardingDrawerBody extends StatefulWidget {
     required this.isPickup,
     required this.arrived,
     this.arrivedAt,
+    this.minStopDwellSeconds = defaultMinStopDwellSeconds,
     required this.onUpdateStatus,
   });
 
@@ -110,13 +116,11 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
     for (final s in widget.students) {
       final id = s['id']?.toString() ?? '';
       if (id.isEmpty) continue;
-      final status = (s['status'] ?? 'Absent').toString();
-      if (widget.isPickup) {
-        _intents[id] = status == 'Present' ? BoardingIntent.present : BoardingIntent.pending;
-      } else {
-        // Dropoff: Absent means already dropped; Present means still on bus (pending).
-        _intents[id] = status == 'Absent' ? BoardingIntent.present : BoardingIntent.pending;
-      }
+      _intents[id] = switch (studentListAttendance(s, isPickup: widget.isPickup)) {
+        StudentListAttendance.actioned => BoardingIntent.present,
+        StudentListAttendance.absent => BoardingIntent.absent,
+        StudentListAttendance.pending => BoardingIntent.pending,
+      };
     }
     _refreshDwell();
     _dwellTimer = Timer.periodic(const Duration(seconds: 1), (_) {
@@ -139,6 +143,11 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
   int get _absent => _intents.values.where((v) => v == BoardingIntent.absent).length;
   int get _pending => _intents.values.where((v) => v == BoardingIntent.pending).length;
   int get _total => widget.students.length;
+  bool get _skipUnlocked => skipStopAllowed(
+        arrivedAt: widget.arrivedAt,
+        now: DateTime.now(),
+        minStopDwellSeconds: widget.minStopDwellSeconds,
+      );
 
   Future<void> _setPresent(Map<String, dynamic> student) async {
     final id = student['id']?.toString() ?? '';
@@ -184,13 +193,9 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
           presentIds.add(id);
           continue;
         }
-        // Pending or explicit absent → finalize as Absent (no-show / not dropped here wait:
-        // pickup no-show = Absent; dropoff complete also Absent for remaining at this stop)
-        final ok = await widget.onUpdateStatus(s, 'Absent');
-        if (ok) {
-          absentIds.add(id);
-          _intents[id] = BoardingIntent.absent;
-        }
+        // Remaining Pending/absent intent → Absent on stop resolve (not dropped_off).
+        absentIds.add(id);
+        _intents[id] = BoardingIntent.absent;
       }
       if (!mounted) return;
       Navigator.of(context).pop(
@@ -209,6 +214,24 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
   }
 
   Future<void> _skipStop() async {
+    if (!skipStopAllowed(
+      arrivedAt: widget.arrivedAt,
+      now: DateTime.now(),
+      minStopDwellSeconds: widget.minStopDwellSeconds,
+    )) {
+      final wait = skipWaitRemainingSeconds(
+        arrivedAt: widget.arrivedAt,
+        now: DateTime.now(),
+        minStopDwellSeconds: widget.minStopDwellSeconds,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Wait ${wait}s before skip.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -246,7 +269,6 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
 
   @override
   Widget build(BuildContext context) {
-    final actionVerb = widget.isPickup ? 'get on the bus' : 'get off the bus';
     final pickedLabel = widget.isPickup ? 'PICKED UP' : 'DROPPED OFF';
 
     return Container(
@@ -334,7 +356,7 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
                     border: Border.all(color: AppColors.softGreen),
                   ),
                   child: Text(
-                    'Tick students as they $actionVerb. Mark absent for no-shows before completing the stop.',
+                    'Tap ${boardingActionLabel(isPickup: widget.isPickup)} when the child is ready. Tap a name to call a guardian. Swipe left to mark absent.',
                     style: const TextStyle(fontSize: 13, color: AppColors.ink, height: 1.35),
                   ),
                 ),
@@ -352,12 +374,17 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
                 ...widget.students.map((s) {
                   final id = s['id']?.toString() ?? '';
                   final intent = _intents[id] ?? BoardingIntent.pending;
-                  return _StudentBoardRow(
+                  return StudentBoardRow(
                     student: s,
                     intent: intent,
                     isPickup: widget.isPickup,
                     onPresent: () => _setPresent(s),
                     onAbsent: () => _setAbsent(s),
+                    onOpenDetails: () => showStudentContactSheet(
+                      context: context,
+                      student: s,
+                      isPickup: widget.isPickup,
+                    ),
                   );
                 }),
                 const SizedBox(height: 16),
@@ -402,7 +429,7 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Tip: Swipe a student left to mark as absent.',
+                          'Tip: Swipe a pending student left to mark absent. Tap a name to call a guardian.',
                           style: TextStyle(fontSize: 12, color: Color(0xFF1E40AF)),
                         ),
                       ),
@@ -420,7 +447,7 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
                 children: [
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: _completing ? null : _skipStop,
+                      onPressed: _completing || !_skipUnlocked ? null : _skipStop,
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFFB91C1C),
                         side: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
@@ -527,19 +554,22 @@ class _SummaryCell extends StatelessWidget {
   }
 }
 
-class _StudentBoardRow extends StatelessWidget {
+class StudentBoardRow extends StatelessWidget {
   final Map<String, dynamic> student;
   final BoardingIntent intent;
   final bool isPickup;
   final VoidCallback onPresent;
   final VoidCallback onAbsent;
+  final VoidCallback onOpenDetails;
 
-  const _StudentBoardRow({
+  const StudentBoardRow({
+    super.key,
     required this.student,
     required this.intent,
     required this.isPickup,
     required this.onPresent,
     required this.onAbsent,
+    required this.onOpenDetails,
   });
 
   @override
@@ -548,10 +578,11 @@ class _StudentBoardRow extends StatelessWidget {
     final grade = (student['grade'] ?? student['class_name'] ?? '').toString();
     final code = (student['student_code'] ?? student['id'] ?? '').toString();
     final shortId = code.length > 8 ? code.substring(0, 8) : code;
+    final canSwipeAbsent = intent == BoardingIntent.pending;
 
     return Dismissible(
       key: ValueKey('board-${student['id']}'),
-      direction: DismissDirection.endToStart,
+      direction: canSwipeAbsent ? DismissDirection.endToStart : DismissDirection.none,
       confirmDismiss: (_) async {
         onAbsent();
         return false;
@@ -571,7 +602,7 @@ class _StudentBoardRow extends StatelessWidget {
       ),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
@@ -579,39 +610,59 @@ class _StudentBoardRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Checkbox(
-              value: intent == BoardingIntent.present,
-              onChanged: (_) {
-                if (intent == BoardingIntent.present) return;
-                onPresent();
-              },
-              activeColor: AppColors.actionGreen,
-            ),
-            CircleAvatar(
-              radius: 18,
-              backgroundColor: AppColors.softGreen,
-              child: Text(
-                name.isNotEmpty ? name[0].toUpperCase() : '?',
-                style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryGreen),
-              ),
-            ),
-            const SizedBox(width: 10),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink)),
-                  Text(
-                    [
-                      if (grade.isNotEmpty) grade,
-                      if (shortId.isNotEmpty) 'ID: $shortId',
-                    ].join(' • '),
-                    style: const TextStyle(fontSize: 12, color: AppColors.muted),
-                  ),
-                ],
+              child: InkWell(
+                onTap: onOpenDetails,
+                borderRadius: BorderRadius.circular(8),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 18,
+                      backgroundColor: AppColors.softGreen,
+                      child: Text(
+                        name.isNotEmpty ? name[0].toUpperCase() : '?',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primaryGreen),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(name, style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.ink)),
+                          Text(
+                            [
+                              if (grade.isNotEmpty) grade,
+                              if (shortId.isNotEmpty) 'ID: $shortId',
+                            ].join(' • '),
+                            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-            _StatusChip(intent: intent, isPickup: isPickup),
+            const SizedBox(width: 8),
+            if (intent == BoardingIntent.pending)
+              ElevatedButton(
+                onPressed: onPresent,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.actionGreen,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  minimumSize: Size.zero,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                child: Text(
+                  boardingActionLabel(isPickup: isPickup),
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+                ),
+              )
+            else
+              _StatusChip(intent: intent, isPickup: isPickup),
           ],
         ),
       ),

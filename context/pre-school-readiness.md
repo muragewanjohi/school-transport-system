@@ -27,7 +27,7 @@ Seed play-review from `apps/admin_dashboard`: `npm run seed:play-review` (creden
 | Gap | Reality today |
 | :--- | :--- |
 | NFC boarding | Permissions exist; boarding is **manual checklist** + stop geofence gate. Badges should still store UUID only when used. |
-| Parent Notifications tab | Largely synthetic UI — verify real alerts via SMS / push / DB (`alerts_queue`), not that screen alone. |
+| Parent lock-screen push | In-app inbox is live from `notifications`. OS lock-screen FCM also needs a registered parent Firebase Android/iOS app plus `FIREBASE_SERVICE_ACCOUNT` and a device token. |
 | Attendance / alerts history consoles | Still Next Up on admin — live dashboard + mobile are the proof. |
 | Traffic-aware ETA | Out of scope for v1 — geometric progress + stored leg durations (not Distance Matrix / live traffic). |
 | Billing pay | School `/billing` is viewable; treat card/M-Pesa pay as simulated unless you have confirmed live payment. |
@@ -193,7 +193,7 @@ Core proof before schools. Recommended path: start on `[play-review]` or `[demo]
 - [ ] **P5** ETA minutes/clock update after driver GPS (not hardcoded forever).
 - [ ] **P6** When predicted delay ≥ 5 minutes → delay badge (“Running N min late”); &lt; 5 min → no badge.
 - [ ] **P7** No active trip → waiting/empty state (no crash, no stale “live” bus).
-- [ ] **P8** Notifications tab — UI smoke only; real proof is SMS/push/DB (section 5.5).
+- [ ] **P8** Notifications inbox shows live campus-exit / 500 m rows after driver GPS (or debug replay); bell badge matches unread count.
 
 ### 5.5 Proximity, delay, pre-departure
 

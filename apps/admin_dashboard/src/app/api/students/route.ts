@@ -8,7 +8,7 @@ import {
   isDemoReadonly,
 } from "@/lib/authApi";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
-import { duplicateGuardianPhoneError } from "@/lib/studentGuardians";
+import { duplicateGuardianPhoneError, attachGuardianPhotos, parentPhotoIndex } from "@/lib/studentGuardians";
 import { studentDbWriteFields } from "@/lib/studentRecord";
 
 const guardianSchema = z.object({
@@ -131,9 +131,16 @@ export async function GET(request: Request) {
       .eq("tenant_id", scope.tenantId);
     const routesMap = new Map((routesData || []).map(r => [r.id, r]));
 
+    const { data: parentsData } = await client
+      .from("profiles")
+      .select("phone, avatar_url")
+      .eq("role", "parent")
+      .eq("tenant_id", scope.tenantId);
+    const parentsByPhone = parentPhotoIndex(parentsData ?? []);
+
     const mappedStudents = studentsList.map(student => {
       // Resolve guardians column (it could be stored as JSONB string or parsed array object)
-      let parsedGuardians = [];
+      let parsedGuardians: unknown = [];
       if (student.guardians) {
         parsedGuardians = typeof student.guardians === "string" 
           ? JSON.parse(student.guardians) 
@@ -142,7 +149,7 @@ export async function GET(request: Request) {
 
       return {
         ...student,
-        guardians: parsedGuardians,
+        guardians: attachGuardianPhotos(parsedGuardians, parentsByPhone),
         status: student.status || "Present",
         route: routesMap.get(student.route_id) || null
       };

@@ -2,12 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:parent_app/firebase_options.dart';
+import 'package:parent_app/services/parent_push_service.dart';
 import 'package:parent_app/services/supabase_service.dart';
 import 'package:parent_app/screens/login_screen.dart';
 import 'package:parent_app/screens/dashboard_screen.dart';
+import 'package:parent_app/screens/onboarding_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    FirebaseMessaging.onBackgroundMessage(parentFirebaseMessagingBackgroundHandler);
+  } catch (_) {}
+  await ParentPushService.initLocal();
 
   // Initialize Supabase client using static credentials
   await Supabase.initialize(
@@ -20,32 +31,41 @@ void main() async {
   final prefsLoggedIn = prefs.getBool('is_logged_in') ?? false;
   final hasSupabaseSession = Supabase.instance.client.auth.currentSession != null;
   final isLoggedIn = prefsLoggedIn || hasSupabaseSession;
+  final onboardingDone = prefs.getBool(parentOnboardingCompleteKey) ?? false;
 
   runApp(
     ProviderScope(
-      child: MyApp(isLoggedIn: isLoggedIn),
+      child: MyApp(
+        isLoggedIn: isLoggedIn,
+        showOnboarding: !isLoggedIn && !onboardingDone,
+      ),
     ),
   );
 }
 
 class MyApp extends StatelessWidget {
   final bool isLoggedIn;
-  
-  const MyApp({super.key, required this.isLoggedIn});
+  final bool showOnboarding;
+
+  const MyApp({
+    super.key,
+    required this.isLoggedIn,
+    this.showOnboarding = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Safaricom Track Parent Portal',
+      title: 'OnTheBus',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
         brightness: Brightness.dark,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF10B981), // Safaricom Green
+          seedColor: const Color(0xFF10B981),
           brightness: Brightness.dark,
         ),
-        scaffoldBackgroundColor: const Color(0xFF0A0E1A), // Dark Navy
+        scaffoldBackgroundColor: const Color(0xFF0A0E1A),
         appBarTheme: const AppBarTheme(
           backgroundColor: Color(0xFF0A0E1A),
           foregroundColor: Colors.white,
@@ -60,7 +80,11 @@ class MyApp extends StatelessWidget {
           ),
         ),
       ),
-      home: isLoggedIn ? const DashboardScreen() : const LoginScreen(),
+      home: isLoggedIn
+          ? const DashboardScreen()
+          : showOnboarding
+              ? const OnboardingScreen()
+              : const LoginScreen(),
     );
   }
 }

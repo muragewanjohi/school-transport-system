@@ -4,27 +4,122 @@ enum StopVisitOutcome { completed, visited, skipped }
 
 enum StopExitReason { completePressed, skipPressed, leftGeofence }
 
+/// Drawer copy for the next unresolved stage.
+enum StopApproachPhase { approaching, arrived, returnToWait }
+
+const int defaultMinStopDwellSeconds = 90;
+const int minStopDwellFloor = 60;
+const int minStopDwellCeiling = 180;
+
 class StopExitResolution {
   final StopVisitOutcome outcome;
   final bool alertAdmin;
+  final bool markRemainingAbsent;
 
-  const StopExitResolution({required this.outcome, required this.alertAdmin});
+  const StopExitResolution({
+    required this.outcome,
+    required this.alertAdmin,
+    this.markRemainingAbsent = true,
+  });
 }
 
-StopExitResolution resolveStopExit({
+int clampMinStopDwellSeconds(int? raw) {
+  final value = raw ?? defaultMinStopDwellSeconds;
+  if (value < minStopDwellFloor) return minStopDwellFloor;
+  if (value > minStopDwellCeiling) return minStopDwellCeiling;
+  return value;
+}
+
+bool skipStopAllowed({
+  required DateTime? arrivedAt,
+  required DateTime now,
+  int minStopDwellSeconds = defaultMinStopDwellSeconds,
+}) {
+  if (arrivedAt == null) return false;
+  final min = clampMinStopDwellSeconds(minStopDwellSeconds);
+  return dwellSeconds(arrivedAt: arrivedAt, departedAt: now) >= min;
+}
+
+int skipWaitRemainingSeconds({
+  required DateTime? arrivedAt,
+  required DateTime now,
+  int minStopDwellSeconds = defaultMinStopDwellSeconds,
+}) {
+  final min = clampMinStopDwellSeconds(minStopDwellSeconds);
+  if (arrivedAt == null) return min;
+  final remaining = min - dwellSeconds(arrivedAt: arrivedAt, departedAt: now);
+  return remaining < 0 ? 0 : remaining;
+}
+
+/// GPS leave: ticks complete immediately; zero ticks wait until min dwell, then visited.
+StopExitResolution? resolveStopExit({
   required StopExitReason reason,
   required int studentsActioned,
+  DateTime? arrivedAt,
+  DateTime? now,
+  int minStopDwellSeconds = defaultMinStopDwellSeconds,
 }) {
   if (reason == StopExitReason.completePressed) {
-    return const StopExitResolution(outcome: StopVisitOutcome.completed, alertAdmin: false);
+    return const StopExitResolution(
+      outcome: StopVisitOutcome.completed,
+      alertAdmin: false,
+      markRemainingAbsent: true,
+    );
   }
+  final clock = now ?? DateTime.now();
   if (reason == StopExitReason.skipPressed) {
-    return const StopExitResolution(outcome: StopVisitOutcome.skipped, alertAdmin: true);
+    if (!skipStopAllowed(
+      arrivedAt: arrivedAt,
+      now: clock,
+      minStopDwellSeconds: minStopDwellSeconds,
+    )) {
+      return null;
+    }
+    return const StopExitResolution(
+      outcome: StopVisitOutcome.skipped,
+      alertAdmin: true,
+      markRemainingAbsent: true,
+    );
   }
   if (studentsActioned > 0) {
-    return const StopExitResolution(outcome: StopVisitOutcome.completed, alertAdmin: false);
+    return const StopExitResolution(
+      outcome: StopVisitOutcome.completed,
+      alertAdmin: false,
+      markRemainingAbsent: true,
+    );
   }
-  return const StopExitResolution(outcome: StopVisitOutcome.visited, alertAdmin: true);
+  if (!skipStopAllowed(
+    arrivedAt: arrivedAt,
+    now: clock,
+    minStopDwellSeconds: minStopDwellSeconds,
+  )) {
+    return null;
+  }
+  return const StopExitResolution(
+    outcome: StopVisitOutcome.visited,
+    alertAdmin: true,
+    markRemainingAbsent: true,
+  );
+}
+
+StopApproachPhase stopApproachPhase({
+  required bool atStop,
+  required bool leftBeforeMinDwell,
+}) {
+  if (atStop) return StopApproachPhase.arrived;
+  if (leftBeforeMinDwell) return StopApproachPhase.returnToWait;
+  return StopApproachPhase.approaching;
+}
+
+String stopPhaseEyebrow(StopApproachPhase phase) {
+  switch (phase) {
+    case StopApproachPhase.arrived:
+      return "YOU'RE AT THIS STOP";
+    case StopApproachPhase.returnToWait:
+      return 'RETURN TO STOP';
+    case StopApproachPhase.approaching:
+      return 'APPROACHING';
+  }
 }
 
 int dwellSeconds({required DateTime? arrivedAt, required DateTime departedAt}) {

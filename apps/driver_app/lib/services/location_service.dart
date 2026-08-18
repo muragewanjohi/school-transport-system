@@ -69,6 +69,34 @@ void onStart(ServiceInstance service) async {
     }
   });
 
+  // Debug GPS replay: UI injects mock coordinates so the isolate does not
+  // overwrite the simulated trip with the emulator/device GPS.
+  bool mockEnabled = false;
+  double? mockLat;
+  double? mockLng;
+  double mockSpeed = 0;
+  double mockBearing = 0;
+
+  service.on('setMockLocation').listen((event) {
+    if (event == null) return;
+    mockEnabled = event['enabled'] == true;
+    if (!mockEnabled) {
+      mockLat = null;
+      mockLng = null;
+      mockSpeed = 0;
+      mockBearing = 0;
+      return;
+    }
+    final lat = event['latitude'];
+    final lng = event['longitude'];
+    mockLat = lat is num ? lat.toDouble() : double.tryParse('$lat');
+    mockLng = lng is num ? lng.toDouble() : double.tryParse('$lng');
+    final speed = event['speed'];
+    final bearing = event['bearing'];
+    mockSpeed = speed is num ? speed.toDouble() : 0;
+    mockBearing = bearing is num ? bearing.toDouble() : 0;
+  });
+
   // Start periodic GPS location tracking at 5-second intervals (Success Criteria 1)
   Timer.periodic(const Duration(seconds: 5), (timer) async {
     // Stop the timer if the service instance was stopped
@@ -89,13 +117,29 @@ void onStart(ServiceInstance service) async {
     }
 
     try {
-      // Fetch high-precision GPS coordinate details using modern LocationSettings API
-      final Position position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          timeLimit: Duration(seconds: 4),
-        ),
-      );
+      final double latitude;
+      final double longitude;
+      final double speed;
+      final double bearing;
+
+      if (mockEnabled) {
+        if (mockLat == null || mockLng == null) return;
+        latitude = mockLat!;
+        longitude = mockLng!;
+        speed = mockSpeed;
+        bearing = mockBearing;
+      } else {
+        final Position position = await Geolocator.getCurrentPosition(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            timeLimit: Duration(seconds: 4),
+          ),
+        );
+        latitude = position.latitude;
+        longitude = position.longitude;
+        speed = position.speed;
+        bearing = position.heading;
+      }
 
       // Update foreground notification with live coordinates or SOS status
       if (service is AndroidServiceInstance) {
@@ -103,7 +147,9 @@ void onStart(ServiceInstance service) async {
           title: isEmergency ? "⚠️ CRITICAL SOS ACTIVE" : "OnTheBus Driver Running",
           content: isEmergency
               ? "Distress Signal Broadcasting..."
-              : "Bus Location: Lat ${position.latitude.toStringAsFixed(5)}, Lng ${position.longitude.toStringAsFixed(5)}",
+              : mockEnabled
+                  ? "Simulating GPS along the route"
+                  : "Bus Location: Lat ${latitude.toStringAsFixed(5)}, Lng ${longitude.toStringAsFixed(5)}",
         );
       }
 
@@ -118,20 +164,20 @@ void onStart(ServiceInstance service) async {
           'tenant_id': tenantId,
           'vehicle_id': vehicleId,
           'route_id': routeId,
-          'latitude': position.latitude,
-          'longitude': position.longitude,
-          'speed': position.speed,
-          'bearing': position.heading,
+          'latitude': latitude,
+          'longitude': longitude,
+          'speed': speed,
+          'bearing': bearing,
           'is_emergency': isEmergency,
         }),
       );
 
       // Broadcast coordinate updates back to the main UI thread for local updates
       service.invoke('telemetryUpdate', {
-        'latitude': position.latitude,
-        'longitude': position.longitude,
-        'speed': position.speed,
-        'bearing': position.heading,
+        'latitude': latitude,
+        'longitude': longitude,
+        'speed': speed,
+        'bearing': bearing,
         'timestamp': DateTime.now().toIso8601String(),
         'isEmergency': isEmergency,
       });

@@ -1,4 +1,5 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:driver_app/providers/trip_providers.dart';
@@ -9,8 +10,7 @@ import 'package:driver_app/utils/stop_visit_logic.dart';
 import 'package:driver_app/utils/trip_ui_logic.dart';
 import 'package:driver_app/widgets/route_map_widget.dart';
 import 'package:driver_app/widgets/stop_boarding_drawer.dart';
-import 'package:driver_app/widgets/trip_progress_card.dart';
-import 'package:driver_app/widgets/trip_stop_action_card.dart';
+import 'package:driver_app/widgets/trip_control_drawer.dart';
 
 /// Long-press SOS control for the Trip AppBar.
 class TripSosAction extends ConsumerWidget {
@@ -105,6 +105,8 @@ class TripScreen extends ConsumerStatefulWidget {
   final List<dynamic> students;
   final Map<String, StopVisitOutcome> stopOutcomes;
   final DateTime? arrivedAt;
+  final String? lastArrivedStopId;
+  final int minStopDwellSeconds;
   final int? scheduleDurationMinutes;
   final TelemetryCoords? telemetry;
   final void Function({
@@ -118,6 +120,9 @@ class TripScreen extends ConsumerStatefulWidget {
   final VoidCallback onGoHome;
   final Future<void> Function() onEndTrip;
   final VoidCallback? onMapRefresh;
+  final bool gpsReplayActive;
+  final String? gpsReplayLabel;
+  final VoidCallback? onToggleGpsReplay;
 
   const TripScreen({
     super.key,
@@ -129,6 +134,8 @@ class TripScreen extends ConsumerStatefulWidget {
     required this.students,
     required this.stopOutcomes,
     this.arrivedAt,
+    this.lastArrivedStopId,
+    this.minStopDwellSeconds = defaultMinStopDwellSeconds,
     this.scheduleDurationMinutes,
     required this.telemetry,
     required this.onStopResolved,
@@ -137,6 +144,9 @@ class TripScreen extends ConsumerStatefulWidget {
     required this.onGoHome,
     required this.onEndTrip,
     this.onMapRefresh,
+    this.gpsReplayActive = false,
+    this.gpsReplayLabel,
+    this.onToggleGpsReplay,
   });
 
   @override
@@ -146,6 +156,7 @@ class TripScreen extends ConsumerStatefulWidget {
 class _TripScreenState extends ConsumerState<TripScreen> {
   bool _drawerOpen = false;
   String? _openedForStopId;
+  Timer? _dwellTicker;
 
   bool get _isPickup => isPickupRunType(widget.runType);
 
@@ -172,10 +183,20 @@ class _TripScreenState extends ConsumerState<TripScreen> {
   @override
   void initState() {
     super.initState();
+    _dwellTicker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || widget.arrivedAt == null) return;
+      setState(() {});
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _maybeAutoOpenDrawer();
     });
+  }
+
+  @override
+  void dispose() {
+    _dwellTicker?.cancel();
+    super.dispose();
   }
 
   @override
@@ -254,6 +275,7 @@ class _TripScreenState extends ConsumerState<TripScreen> {
       isPickup: _isPickup,
       arrived: atStop,
       arrivedAt: widget.arrivedAt,
+      minStopDwellSeconds: widget.minStopDwellSeconds,
       onUpdateStatus: widget.onUpdateStudentStatus,
     );
 
@@ -277,6 +299,26 @@ class _TripScreenState extends ConsumerState<TripScreen> {
     if (stop == null) return;
     final stopId = stop['id']?.toString() ?? '';
     if (stopId.isEmpty) return;
+    final now = DateTime.now();
+    if (!skipStopAllowed(
+      arrivedAt: widget.arrivedAt,
+      now: now,
+      minStopDwellSeconds: widget.minStopDwellSeconds,
+    )) {
+      final wait = skipWaitRemainingSeconds(
+        arrivedAt: widget.arrivedAt,
+        now: now,
+        minStopDwellSeconds: widget.minStopDwellSeconds,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Wait ${wait}s before skip.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -392,20 +434,52 @@ class _TripScreenState extends ConsumerState<TripScreen> {
     );
 
     final arrived = _arrived;
-    final canBoard = nextId != null && arrived != null && arrived.id == nextId;
+    final atStop = arrived != null && arrived.id == nextId;
+    final now = DateTime.now();
+    final skipUnlocked = skipStopAllowed(
+      arrivedAt: widget.arrivedAt,
+      now: now,
+      minStopDwellSeconds: widget.minStopDwellSeconds,
+    );
+    final leftBeforeMinDwell = widget.lastArrivedStopId != null &&
+        widget.lastArrivedStopId == nextId &&
+        !atStop &&
+        widget.arrivedAt != null &&
+        !skipUnlocked;
+    final phase = stopApproachPhase(atStop: atStop, leftBeforeMinDwell: leftBeforeMinDwell);
+    final dwellElapsed = dwellSeconds(arrivedAt: widget.arrivedAt, departedAt: now);
+    final skipWait = skipWaitRemainingSeconds(
+      arrivedAt: widget.arrivedAt,
+      now: now,
+      minStopDwellSeconds: widget.minStopDwellSeconds,
+    );
     final atStopStudents = nextId == null
         ? 0
         : studentsForStop(students: widget.students, stopId: nextId, isPickup: _isPickup).length;
+    final upcoming = stopAfter(stops: widget.stops, stopId: nextId);
+    final upcomingPoint = upcoming == null ? null : stopLatLng(upcoming);
+    final upcomingEta = estimateEtaMinutes(
+      busLat: widget.telemetry?.latitude,
+      busLng: widget.telemetry?.longitude,
+      stopLat: upcomingPoint?.latitude,
+      stopLng: upcomingPoint?.longitude,
+      speedMetersPerSec: widget.telemetry?.speed ?? 0,
+    );
+    final orderedIds = orderedStopIdsFrom(widget.stops);
+    final segments = stopProgressSegments(
+      orderedStopIds: orderedIds,
+      outcomes: widget.stopOutcomes,
+      nextStopId: nextId,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (isSos) ...[
+        if (isSos)
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               color: Colors.red.shade50,
-              borderRadius: BorderRadius.circular(12),
               border: Border.all(color: Colors.red, width: 1.5),
             ),
             child: const Row(
@@ -421,57 +495,84 @@ class _TripScreenState extends ConsumerState<TripScreen> {
               ],
             ),
           ),
-          const SizedBox(height: 12),
-        ],
-        TripProgressCard(
+        if (widget.routeId != null)
+          Expanded(
+            child: Stack(
+              children: [
+                RouteMapWidget(
+                  routeId: widget.routeId!,
+                  liveLatitude: widget.telemetry?.latitude,
+                  liveLongitude: widget.telemetry?.longitude,
+                  liveBearing: widget.telemetry?.bearing,
+                  vehiclePlate: widget.vehiclePlate,
+                  arrivedStopId: arrived?.id,
+                  nextStopId: nextId,
+                  visitedStopIds: _resolvedStopIds,
+                  stopOutcomes: widget.stopOutcomes,
+                  lastTelemetryIso: widget.telemetry?.timestamp,
+                  onRefresh: widget.onMapRefresh,
+                  height: null,
+                  followBus: true,
+                ),
+                if (widget.gpsReplayActive)
+                  Positioned(
+                    top: 12,
+                    left: 12,
+                    right: 12,
+                    child: Material(
+                      color: AppColors.accentYellow.withValues(alpha: 0.95),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        child: Text(
+                          widget.gpsReplayLabel == null || widget.gpsReplayLabel!.isEmpty
+                              ? 'Simulating GPS'
+                              : 'Simulating GPS · ${widget.gpsReplayLabel}',
+                          style: const TextStyle(
+                            color: AppColors.ink,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          )
+        else
+          const Expanded(
+            child: Center(child: Text('No route selected for this trip.')),
+          ),
+        TripControlDrawer(
           progress: progress,
           isPickup: _isPickup,
+          runType: widget.runType,
+          nextStopName: next?['name']?.toString(),
+          nextStopNumber: stopSequenceNumber(stops: widget.stops, stopId: nextId),
+          studentsAtStop: atStopStudents,
+          etaMinutes: eta,
+          distanceKm: distKm,
+          segments: segments,
+          upcomingStopName: upcoming?['name']?.toString(),
+          upcomingStopNumber: stopSequenceNumber(
+            stops: widget.stops,
+            stopId: upcoming?['id']?.toString(),
+          ),
+          upcomingEtaMinutes: upcomingEta,
+          stopPhase: phase,
+          skipUnlocked: skipUnlocked,
+          skipWaitSeconds: skipWait,
+          dwellSecondsElapsed: dwellElapsed,
+          minStopDwellSeconds: widget.minStopDwellSeconds,
+          onBoardStudents: () => _openBoardingDrawer(),
+          onSkipStop: next == null ? null : _skipCurrentStop,
+          onNavigate: next == null ? null : _navigateToNextStop,
+          onViewStudents: widget.onViewStudents,
+          onEndTrip: widget.onEndTrip,
+          onToggleGpsReplay: widget.onToggleGpsReplay,
+          gpsReplayActive: widget.gpsReplayActive,
         ),
-        if (widget.routeId != null) ...[
-          const SizedBox(height: 12),
-          RouteMapWidget(
-            routeId: widget.routeId!,
-            liveLatitude: widget.telemetry?.latitude,
-            liveLongitude: widget.telemetry?.longitude,
-            liveBearing: widget.telemetry?.bearing,
-            vehiclePlate: widget.vehiclePlate,
-            arrivedStopId: arrived?.id,
-            nextStopId: nextId,
-            visitedStopIds: _resolvedStopIds,
-            stopOutcomes: widget.stopOutcomes,
-            lastTelemetryIso: widget.telemetry?.timestamp,
-            onRefresh: widget.onMapRefresh,
-            height: 450,
-          ),
-          const SizedBox(height: 12),
-          TripStopActionCard(
-            stopName: next?['name']?.toString(),
-            studentsAtStop: atStopStudents,
-            etaMinutes: eta,
-            distanceKm: distKm,
-            canBoard: canBoard,
-            runType: widget.runType,
-            onNavigate: next == null ? null : _navigateToNextStop,
-            onBoardStudents: () => _openBoardingDrawer(),
-            onSkipStop: next == null ? null : _skipCurrentStop,
-            onViewStudents: widget.onViewStudents,
-          ),
-        ],
-        const SizedBox(height: 16),
-        OutlinedButton.icon(
-          onPressed: widget.onEndTrip,
-          icon: const Icon(Icons.stop_circle_outlined, color: Colors.red),
-          label: const Text(
-            'END TRIP',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
-          ),
-          style: OutlinedButton.styleFrom(
-            side: const BorderSide(color: Colors.red, width: 1.5),
-            minimumSize: const Size(double.infinity, 56),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        ),
-        const SizedBox(height: 16),
       ],
     );
   }

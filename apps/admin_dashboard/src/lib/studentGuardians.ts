@@ -34,6 +34,65 @@ export function canonicalizeGuardianPhone(phone: string): string {
   return digits ? `+${digits}` : "";
 }
 
+export type ParentPhotoSource = {
+  phone?: string | null;
+  avatar_url?: string | null;
+};
+
+export type GuardianWithPhoto = {
+  name: string;
+  phone: string;
+  photo_url: string | null;
+};
+
+export function parentPhotoIndex(
+  parents: ParentPhotoSource[]
+): Map<string, ParentPhotoSource> {
+  const map = new Map<string, ParentPhotoSource>();
+  for (const parent of parents) {
+    const key = normalizeGuardianPhone(parent.phone ?? "");
+    if (!key) continue;
+    map.set(key, parent);
+  }
+  return map;
+}
+
+function firstNonEmptyUrl(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+/** Attach `photo_url` from the matching parent profile, or null for a thumbnail fallback. */
+export function attachGuardianPhotos(
+  guardians: unknown,
+  parentsByPhone: Map<string, ParentPhotoSource>
+): GuardianWithPhoto[] {
+  if (!Array.isArray(guardians)) return [];
+  const out: GuardianWithPhoto[] = [];
+  for (const raw of guardians) {
+    if (!raw || typeof raw !== "object") continue;
+    const row = raw as Record<string, unknown>;
+    const phone = typeof row.phone === "string" ? row.phone.trim() : "";
+    if (!phone) continue;
+    const name =
+      typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Guardian";
+    const fromRow = firstNonEmptyUrl(row.photo_url, row.avatar_url);
+    const fromProfile = firstNonEmptyUrl(
+      parentsByPhone.get(normalizeGuardianPhone(phone))?.avatar_url
+    );
+    out.push({
+      name,
+      phone,
+      photo_url: fromRow ?? fromProfile,
+    });
+  }
+  return out;
+}
+
 export function filterParentsByName<T extends { name: string }>(
   parents: T[],
   query: string

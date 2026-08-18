@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getCallerProfile } from "@/lib/authApi";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
+import { clampMinStopDwellSeconds } from "@/lib/stopVisitOutcome";
 
 const mockConfig = {
   school_name: "Safaricom Track School",
@@ -10,6 +11,7 @@ const mockConfig = {
   school_address: "Nairobi, Kenya",
   logo_url: "",
   geofence_radius_meters: 500,
+  min_stop_dwell_seconds: 90,
   notify_on_trip_start: true,
   notify_on_geofence_entry: true,
   notify_on_boarded: true,
@@ -17,6 +19,7 @@ const mockConfig = {
   sms_template_boarded: "Hi {parent_name}, {student_name} has safely boarded the school bus {vehicle_plate}.",
   sms_template_trip_start: "Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} has started. Bus {vehicle_plate} is active.",
   sms_template_trip_status: "Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} is {status_override} due to {trip_description}. Bus {vehicle_plate}.",
+  sms_template_campus_exit: "Hi {parent_name}, Bus {vehicle_plate} has left school. {student_name} will be {action} at {stop_name} around {eta_time} (about {duration_mins} min).",
   operating_hours_start: "06:00:00",
   operating_hours_end: "18:00:00",
   operating_days: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
@@ -59,6 +62,7 @@ export async function GET(request: Request) {
           school_address: "Nairobi, Kenya",
           logo_url: "",
           geofence_radius_meters: 500,
+          min_stop_dwell_seconds: 90,
           notify_on_trip_start: true,
           notify_on_geofence_entry: true,
           notify_on_boarded: true,
@@ -89,7 +93,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json();
+    const body = await request.json() as Record<string, unknown>;
     const authHeader = request.headers.get("authorization");
     const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
@@ -116,12 +120,17 @@ export async function POST(request: Request) {
       }
     }
 
+    const minDwell = clampMinStopDwellSeconds(
+      typeof body.min_stop_dwell_seconds === "number" ? body.min_stop_dwell_seconds : undefined
+    );
+
     // Update settings for the tenant
     const { data: updatedConfig, error } = await client
       .from("tenant_configs")
       .upsert({
         tenant_id: tenantId,
         ...body,
+        min_stop_dwell_seconds: minDwell,
         updated_at: new Date().toISOString()
       }, { onConflict: "tenant_id" })
       .select()

@@ -406,7 +406,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
-                            child: const Text('PICK UP', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            child: const Text('Boarded', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                           )
                         else
                           ElevatedButton(
@@ -421,7 +421,7 @@ class _StudentChecklistWidgetState extends State<StudentChecklistWidget> {
                                 borderRadius: BorderRadius.circular(8),
                               ),
                             ),
-                            child: const Text('DROP OFF', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
+                            child: const Text('Dropped off', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold)),
                           ),
                       ],
                     ),

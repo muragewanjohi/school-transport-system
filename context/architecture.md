@@ -164,8 +164,15 @@ Do **not** store the sole campus coordinates only on `tenants`. Create `campuses
 
 Parent OTP login (`POST /api/auth/parent-login`) returns:
 
-1. **HMAC API token** `par.<payload>.<sig>` (`PARENT_SESSION_SECRET`) for Next.js routes such as `GET /api/parent/etas`.
+1. **HMAC API token** `par.<payload>.<sig>` (`PARENT_SESSION_SECRET`) for Next.js routes such as `GET /api/parent/etas`, `GET`/`PATCH /api/parent/notifications`, and `POST`/`DELETE /api/parent/fcm-tokens`.
 2. **Supabase Auth session** (`supabase_access_token` / `supabase_refresh_token`) from `ensureParentAuthSession`: creates/updates `auth.users` with **`id = profiles.id`**, synthetic email `parent+{id}@users.onthebusapp.internal`, and `app_metadata` + `user_metadata` `{ role: parent, tenant_id }`. Flutter calls `auth.setSession(refresh_token)` so Realtime RLS sees `auth.uid()` and `jwt_role() = parent`.
+
+Live notifications:
+
+- Primary resilient path: poll `GET /api/parent/notifications` with Bearer `par.*` (service role, scoped to `user_id = parent.sub` and `tenant_id`). `PATCH` marks rows read. If that route is unavailable, the app falls back to a direct Supabase `SELECT` under `user_id = auth.uid()`. The Parent app inbox renders these rows (no synthetic placeholders).
+- When a Supabase Auth session is present, the app also subscribes to Realtime INSERTs on `notifications` (`supabase_realtime` publication; RLS `user_id = auth.uid()`).
+- After login the app requests notification permission, obtains an FCM token, and `POST /api/parent/fcm-tokens` upserts `user_fcm_tokens`. Logout `DELETE`s that token. `send-push` (on `notifications` INSERT) delivers lock-screen push when `FIREBASE_SERVICE_ACCOUNT` is set and tokens exist. Missing tokens skip push; the in-app row still exists.
+- SMS remains a separate optional channel (`sms_notifications_enabled`); demo/play-review stay SMS dry-run.
 
 Live ETA:
 
@@ -209,20 +216,36 @@ Trips that never start transmitting are caught by Vercel Cron → `GET /api/trip
 
 While a trip is `in_progress`, each route stop is resolved once into **`trip_stop_visits`** (`UNIQUE (trip_id, stop_id)`). Rows store `arrived_at`, `departed_at`, and `dwell_seconds` (how long the bus stayed inside the stop geofence). No student names, phones, or exact coordinates.
 
-| Outcome | How it is set | Map marker | Admin alert |
-| :--- | :--- | :--- | :--- |
-| `completed` | Driver taps **Complete Stop** in the boarding drawer (or leaves after at least one student was picked/dropped at that stop) | Completed (green) | No |
-| `visited` | Bus entered the geofence then left without Complete Stop and without any student action at that stop | Visited (amber) | Yes |
-| `skipped` | Driver taps **Skip Stop** | Not visited (red) | Yes |
+Driver UI has three phases for the next unresolved stop: **approaching** (outside the stage geofence), **arrived** (inside `stops.geofence_radius_meters`, default 50 m), **left** (outside radius + 15 m hysteresis).
+
+School config `tenant_configs.min_stop_dwell_seconds` (default **90**, allowed **60–180**) is the minimum time after `arrived_at` before **Skip Stop** is enabled and before a zero-tick leave may resolve as **visited**.
+
+| Outcome | How it is set | Map marker | Admin alert | Remaining Pending at stop |
+| :--- | :--- | :--- | :--- | :--- |
+| `completed` | Driver taps **Complete Stop**, or leaves after at least one student was picked/dropped at that stop | Completed (green) | No | → Absent |
+| `visited` | Bus arrived, min dwell elapsed, then left without Complete/Skip and without any student action | Visited (amber) | Yes | → Absent |
+| `skipped` | Driver taps **Skip Stop** after min dwell | Not visited (red) | Yes | → Absent |
 
 Rules:
 
-1. Entering the next unresolved stop geofence auto-opens the pickup/drop-off drawer (~70–80% height). The driver may dismiss it; it does not auto-reopen for the same arrival.
-2. **Complete Stop** marks remaining Pending students at that stop Absent, writes `completed`, records dwell, and advances the next stop.
-3. **Skip Stop** writes `skipped` (not visited), records dwell if the bus had arrived (else 0), and advances the next stop.
-4. Leaving the geofence (radius + 15 m hysteresis) without Complete/Skip: `visited` + alert when no students were actioned; otherwise treat as `completed` (implicit complete after boarding).
-5. Alerts are tenant-scoped ops rows (`trip_stop_visits.alerted`) plus `notifications` for that school’s `school_admin` profiles. Messages use stop name, route name, and vehicle plate only — no student PII. Demo SMS dry-run is unchanged (these alerts are dashboard/in-app, not parent SMS).
+1. Entering the next unresolved stop geofence auto-opens the pickup/drop-off drawer (~70–80% height). The driver may dismiss it; it does not auto-reopen for the same arrival. The trip control drawer copy switches from **Approaching {stage}** to **You’re at {stage}** with a dwell timer toward min wait.
+2. **Complete Stop** marks remaining Pending students at that stop Absent, writes `completed`, records dwell, and advances the next stop. Min dwell is not required.
+3. **Skip Stop** is locked until `now - arrived_at ≥ min_stop_dwell_seconds`. Then it writes `skipped`, marks remaining Pending Absent, records dwell if the bus had arrived (else 0), and advances the next stop.
+4. Leaving the geofence (radius + 15 m hysteresis):
+   - If at least one student was actioned: implicit `completed` immediately (min dwell does not apply); remaining Pending → Absent.
+   - If zero ticks and dwell **&lt; min**: do **not** write `visited` and do **not** advance the next stop. Clock keeps running from `arrived_at`. When min dwell elapses with the stop still unresolved and zero ticks → auto `visited` + Pending → Absent + admin alert (even if the bus is already down the road).
+   - If zero ticks and dwell **≥ min**: immediate `visited` + Pending → Absent + admin alert.
+5. Alerts are tenant-scoped ops rows (`trip_stop_visits.alerted`) plus `notifications` for that school’s `school_admin` profiles. Messages use stop name, route name, and vehicle plate only — no student PII. Demo SMS dry-run is unchanged (these alerts are dashboard/in-app, not parent SMS). Parents do **not** get skip/visited/left SMS.
 6. Writes go through `POST /api/driver/stop-visits` (driver HMAC session → service role). School console reads `GET /api/alerts`. RLS: `tenant_id = jwt_tenant_id()`. Completed outcomes are not overwritten by a later visited/skipped event.
+
+### Parent trip alerts (exactly two per child per trip)
+
+Operational approach messages are deduped per student per trip (`sent_proximity_alerts`). **In-app / push (`notifications`) always fires** for each of the two events. **SMS (`alerts_queue`) is optional** and is queued only when `tenant_configs.sms_notifications_enabled` is true. Demo tenants stay SMS dry-run even if that toggle is on.
+
+1. **Campus exit** — GPS leaves the active campus pin (campus `location` + **150 m** radius), or trip start if the bus is already outside campus. Each parent of a student on the trip gets that child’s ETA to pickup (`HOME_TO_SCHOOL`) or drop-off (`SCHOOL_TO_HOME`) from stored leg durations / `trip_stop_etas`.
+2. **Stage approach** — bus within `tenant_configs.geofence_radius_meters` (default **500 m**) of that student’s pickup or drop-off stop for this run. Once per student per trip.
+
+Boarding/drop-off confirmation when the driver ticks a student remains attendance (in-app always; SMS if enabled), not a third approach alert. There is no “arrived at pin” parent ping.
 
 ## Student & Parent Data Protection Model
 
@@ -237,6 +260,6 @@ School-facing summary of controls (suitable for IT / procurement review): **[arc
 
 1. **No Mixed Tenant Ingestion:** Postgres RLS policies must refuse and discard any location log or boarding record that attempts to write a `tenant_id` mismatching the sender's active token.
 2. **Foreground Blocking Prevention:** The Driver app runs GPS location polling and network transmissions inside background processes or isolate pools to prevent UI lag.
-3. **Fail-Safe Messaging Overhead Controls:** Proximity checks use a tracking table (`sent_proximity_alerts`) to verify if an SMS alert was already transmitted for a given student during the current trip, ensuring exactly one SMS per pickup to control gateway billing.
+3. **Fail-Safe Messaging Overhead Controls:** Parent approach alerts use `sent_proximity_alerts` keyed by student, trip, and kind (`campus_exit` | `proximity`) so each child gets at most those two operational **notifications** per trip. SMS is a separate optional channel (`sms_notifications_enabled`) and is dry-run on demo tenants.
 4. **No Permanent PII Leaks in Logs:** Standard error-logging outputs and analytics hooks must sanitize user-identifiable strings (e.g., student names, exact home coordinates, parent phone numbers) before writing to flat-file or cloud logs.
 5. **Telemetry Ingestion Never Fails on Auxiliary Processing:** Triggers attached to `live_coordinates` (geofence checks, delay evaluation) must catch and log their own errors — a bug in alerting/ETA logic must never abort a GPS insert.

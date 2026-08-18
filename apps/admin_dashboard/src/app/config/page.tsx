@@ -48,6 +48,7 @@ export default function ConfigConsole() {
   const [logoUrl, setLogoUrl] = useState("");
 
   const [geofenceRadius, setGeofenceRadius] = useState(500);
+  const [minStopDwellSeconds, setMinStopDwellSeconds] = useState(90);
   const [notifyTripStart, setNotifyTripStart] = useState(true);
   const [notifyGeofenceEntry, setNotifyGeofenceEntry] = useState(true);
   const [notifyBoarded, setNotifyBoarded] = useState(true);
@@ -88,6 +89,7 @@ export default function ConfigConsole() {
           setSchoolAddress(config.school_address || "");
           setLogoUrl(config.logo_url || "");
           setGeofenceRadius(config.geofence_radius_meters || 500);
+          setMinStopDwellSeconds(config.min_stop_dwell_seconds || 90);
           setNotifyTripStart(config.notify_on_trip_start !== false);
           setNotifyGeofenceEntry(config.notify_on_geofence_entry !== false);
           setNotifyBoarded(config.notify_on_boarded !== false);
@@ -127,6 +129,7 @@ export default function ConfigConsole() {
       school_address: schoolAddress,
       logo_url: logoUrl,
       geofence_radius_meters: geofenceRadius,
+      min_stop_dwell_seconds: minStopDwellSeconds,
       notify_on_trip_start: notifyTripStart,
       notify_on_geofence_entry: notifyGeofenceEntry,
       notify_on_boarded: notifyBoarded,
@@ -440,6 +443,31 @@ export default function ConfigConsole() {
                     />
                     <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
                       Parents will receive a proximity SMS warning when the school bus is within this distance of their registered stop.
+                    </span>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: "28px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <Clock size={16} style={{ color: "var(--accent-primary)" }} />
+                        <span>Minimum stop wait</span>
+                      </label>
+                      <span style={{ color: "var(--accent-primary)", fontWeight: "600", fontSize: "0.85rem" }}>
+                        {minStopDwellSeconds} seconds
+                      </span>
+                    </div>
+                    <input
+                      type="range"
+                      min="60"
+                      max="180"
+                      step="10"
+                      disabled={!canEdit}
+                      value={minStopDwellSeconds}
+                      onChange={(e) => setMinStopDwellSeconds(Number(e.target.value))}
+                      style={{ width: "100%", accentColor: "var(--accent-primary)" }}
+                    />
+                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
+                      Drivers must wait this long after arriving before Skip or an empty drive-by can mark the stop visited (1–3 minutes).
                     </span>
                   </div>
 

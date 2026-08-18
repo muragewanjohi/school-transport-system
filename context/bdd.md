@@ -4,60 +4,49 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Demo account banner and request to go live |
-| **Stack** | `nextjs` (`apps/admin_dashboard`) |
-| **Owner path(s)** | `apps/admin_dashboard/src/lib/demoGoLive.ts`, `apps/admin_dashboard/src/app/api/demo/go-live/route.ts`, `apps/admin_dashboard/src/lib/demoRequestEmails.ts` |
-| **Started** | 2026-08-17 |
+| **Name** | Parent onboarding and log out |
+| **Stack** | `flutter` (`apps/parent_app`) |
+| **Owner path(s)** | `apps/parent_app/lib/screens/onboarding_screen.dart`, `apps/parent_app/lib/utils/parent_onboarding_pages.dart`, `apps/parent_app/lib/widgets/logout_button.dart`, `apps/parent_app/lib/main.dart` |
+| **Started** | 2026-08-18 |
 | **Status** | `passing` |
 
 ## Goal
 
-School admins on a per-lead demo store see that they are on a demo account with an expiry date. **Request to go live** marks the linked demo request `ready_to_onboard` and emails `info@onthebusapp.com`. The demo tenant is not flipped to paid.
+First launch shows three OnTheBus parent onboarding screens (live map, trip alerts, peace of mind) before login. Skip or Get started marks onboarding done and opens login. Profile always has a **Log out** button, including when no children are linked.
 
 ## Scenarios
 
 ```gherkin
-Feature: Demo request to go live
+Feature: Parent onboarding and log out
 
-  Scenario: Per-lead confirmed demo can request go live
-    Given an is_demo tenant linked to a confirmed demo request
-    When go-live eligibility is evaluated
-    Then the school can request to go live
+  Scenario: First launch shows the live-map onboarding page
+    Given the parent has not finished onboarding
+    When the app opens logged out
+    Then the first screen title is Follow the bus
+    And it is page 1 of 3
 
-  Scenario: Expiry date is formatted for the banner
-    Given demo_expires_at is 2026-08-31T00:00:00.000Z
-    When the expiry label is formatted on 2026-08-17
-    Then it reads Expires 31 August 2026
+  Scenario: Last page uses Get started
+    Given the parent is on onboarding page 3
+    When they read the primary action
+    Then the label is Get started
+    And pages 1 and 2 use Next
 
-  Scenario: Request to go live updates status and emails sales
-    Given a school admin on a confirmed per-lead demo
-    When they POST /api/demo/go-live
-    Then demo_requests.status becomes ready_to_onboard
-    And an email is sent to info@onthebusapp.com
+  Scenario: Skip completes onboarding
+    Given the parent is on an onboarding page
+    When they tap Skip
+    Then onboarding is marked complete
 
-  Scenario: Repeat request is idempotent
-    Given the demo request is already ready_to_onboard
-    When they POST /api/demo/go-live again
-    Then the API succeeds without sending another email
-
-  Scenario: Play Review and static demo cannot convert
-    Given a demo tenant whose slug is play-review or demo
-    When go-live eligibility is evaluated
-    Then the school cannot request to go live
-
-  Scenario: Paid schools cannot request go live
-    Given a tenant with is_demo false
-    When they POST /api/demo/go-live
-    Then the API returns 400
+  Scenario: Profile always offers Log out
+    Given the parent is on the Profile tab
+    When the screen is shown
+    Then a Log out action is visible
 ```
 
 ## Automation map
 
-| Scenario | Test |
-| :--- | :--- |
-| Per-lead confirmed demo can request go live | `apps/admin_dashboard/src/lib/demoGoLive.test.ts` |
-| Expiry date is formatted for the banner | `apps/admin_dashboard/src/lib/demoGoLive.test.ts` |
-| Request to go live updates status and emails sales | `apps/admin_dashboard/src/app/api/demo/go-live/route.test.ts` |
-| Repeat request is idempotent | `apps/admin_dashboard/src/app/api/demo/go-live/route.test.ts` |
-| Play Review and static demo cannot convert | `apps/admin_dashboard/src/lib/demoGoLive.test.ts` |
-| Paid schools cannot request go live | `apps/admin_dashboard/src/app/api/demo/go-live/route.test.ts` |
+| Scenario | Test path | Status |
+| :--- | :--- | :--- |
+| First launch shows the live-map onboarding page | `apps/parent_app/test/parent_onboarding_test.dart` | passing |
+| Last page uses Get started | `apps/parent_app/test/parent_onboarding_test.dart` | passing |
+| Skip completes onboarding | `apps/parent_app/test/parent_onboarding_test.dart` | passing |
+| Profile always offers Log out | `apps/parent_app/test/logout_button_test.dart` | passing |

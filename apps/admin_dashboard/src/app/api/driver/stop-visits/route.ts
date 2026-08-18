@@ -7,7 +7,9 @@ import { verifyDriverSession } from "@/lib/driverSession";
 import { extractBearerToken } from "@/lib/authApi";
 import {
   adminStopAlertMessage,
+  clampMinStopDwellSeconds,
   dwellSeconds,
+  skipStopAllowed,
   shouldOverwriteOutcome,
   STOP_VISIT_OUTCOMES,
   type StopVisitOutcome,
@@ -32,6 +34,7 @@ type TripRow = {
   vehicle_id: string | null;
   driver_id: string | null;
   campus_id: string | null;
+  schedule_id: string | null;
 };
 
 type StopRow = {
@@ -70,6 +73,40 @@ async function notifySchoolAdmins(
   await client.from("notifications").insert(rows);
 }
 
+async function markRemainingPendingAbsent(
+  client: SupabaseClient,
+  input: { tenantId: string; tripId: string; stopId: string; scheduleId?: string | null }
+): Promise<void> {
+  let direction = "HOME_TO_SCHOOL";
+  if (input.scheduleId) {
+    const { data: schedule } = await client
+      .from("schedules")
+      .select("direction")
+      .eq("id", input.scheduleId)
+      .maybeSingle();
+    if (schedule && typeof (schedule as { direction?: string }).direction === "string") {
+      direction = (schedule as { direction: string }).direction;
+    }
+  }
+  const stopCol = direction === "SCHOOL_TO_HOME" ? "dropoff_stop_id" : "pickup_stop_id";
+  const { data: assigned } = await client
+    .from("students")
+    .select("id")
+    .eq("tenant_id", input.tenantId)
+    .eq(stopCol, input.stopId);
+
+  const ids = ((assigned ?? []) as Array<{ id: string }>).map((row) => row.id);
+  if (ids.length === 0) return;
+
+  await client
+    .from("trip_manifests")
+    .update({ attendance: "absent" })
+    .eq("trip_id", input.tripId)
+    .eq("tenant_id", input.tenantId)
+    .eq("attendance", "pending")
+    .in("student_id", ids);
+}
+
 export async function POST(request: Request) {
   try {
     const body: unknown = await request.json();
@@ -88,6 +125,21 @@ export async function POST(request: Request) {
     if (!isSupabaseConfigured) {
       const departedAt = payload.departed_at ?? new Date().toISOString();
       const dwell = payload.dwell_seconds ?? dwellSeconds(payload.arrived_at ?? null, departedAt);
+      const minDwell = clampMinStopDwellSeconds(undefined);
+      if (
+        (payload.outcome === "visited" || payload.outcome === "skipped") &&
+        (payload.students_actioned ?? 0) === 0 &&
+        !skipStopAllowed({
+          arrivedAt: payload.arrived_at ?? null,
+          now: departedAt,
+          minStopDwellSeconds: minDwell,
+        })
+      ) {
+        return NextResponse.json(
+          { success: false, error: "Minimum stop wait has not elapsed" },
+          { status: 409 }
+        );
+      }
       const alerted = payload.alerted ?? (payload.outcome === "visited" || payload.outcome === "skipped");
       return NextResponse.json({
         success: true,
@@ -97,6 +149,7 @@ export async function POST(request: Request) {
           dwell_seconds: dwell,
           alerted,
           students_actioned: payload.students_actioned ?? 0,
+          remaining_pending_absent: true,
         },
       });
     }
@@ -107,7 +160,7 @@ export async function POST(request: Request) {
 
     const { data: trip, error: tripError } = await client
       .from("trips")
-      .select("id, tenant_id, route_id, vehicle_id, driver_id, campus_id")
+      .select("id, tenant_id, route_id, vehicle_id, driver_id, campus_id, schedule_id")
       .eq("id", payload.trip_id)
       .eq("tenant_id", scope.tenantId)
       .maybeSingle();
@@ -140,6 +193,31 @@ export async function POST(request: Request) {
 
     const departedAt = payload.departed_at ?? new Date().toISOString();
     const dwell = payload.dwell_seconds ?? dwellSeconds(payload.arrived_at ?? null, departedAt);
+
+    const { data: tenantConfig } = await client
+      .from("tenant_configs")
+      .select("min_stop_dwell_seconds")
+      .eq("tenant_id", scope.tenantId)
+      .maybeSingle();
+    const minDwell = clampMinStopDwellSeconds(
+      typeof (tenantConfig as { min_stop_dwell_seconds?: number } | null)?.min_stop_dwell_seconds === "number"
+        ? (tenantConfig as { min_stop_dwell_seconds: number }).min_stop_dwell_seconds
+        : undefined
+    );
+    if (
+      (payload.outcome === "visited" || payload.outcome === "skipped") &&
+      (payload.students_actioned ?? 0) === 0 &&
+      !skipStopAllowed({
+        arrivedAt: payload.arrived_at ?? null,
+        now: departedAt,
+        minStopDwellSeconds: minDwell,
+      })
+    ) {
+      return NextResponse.json(
+        { success: false, error: "Minimum stop wait has not elapsed" },
+        { status: 409 }
+      );
+    }
     const alerted = payload.alerted ?? (payload.outcome === "visited" || payload.outcome === "skipped");
 
     const { data: existing } = await client
@@ -184,6 +262,17 @@ export async function POST(request: Request) {
 
     if (saveError) {
       return NextResponse.json({ success: false, error: saveError.message }, { status: 400 });
+    }
+
+    try {
+      await markRemainingPendingAbsent(client, {
+        tenantId: scope.tenantId,
+        tripId: payload.trip_id,
+        stopId: payload.stop_id,
+        scheduleId: tripRow.schedule_id,
+      });
+    } catch {
+      // Visit is already persisted; do not fail the driver request on attendance remainder.
     }
 
     if (alerted && (!existingRow || !existingRow.alerted)) {

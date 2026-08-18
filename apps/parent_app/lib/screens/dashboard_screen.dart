@@ -13,8 +13,12 @@ import 'package:parent_app/screens/notifications_screen.dart';
 import 'package:parent_app/utils/eta_utils.dart';
 import 'package:parent_app/widgets/eta_display.dart';
 import 'package:parent_app/widgets/delete_account_link.dart';
+import 'package:parent_app/widgets/logout_button.dart';
 import 'package:parent_app/services/parent_etas_service.dart';
+import 'package:parent_app/services/parent_notifications_service.dart';
+import 'package:parent_app/services/parent_push_service.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -48,6 +52,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   // Live ETA for the selected child (polled via /api/parent/etas)
   StopEta? _selectedStopEta;
   Timer? _etaPollTimer;
+  Timer? _notificationPollTimer;
+  RealtimeChannel? _notificationsChannel;
+  int _unreadCount = 0;
+  String? _latestNotificationId;
+  bool _inboxPrimed = false;
 
   Future<void> _showPhotoPickerModal(String id, String targetTable, String name, String? currentAvatarUrl) async {
     showModalBottomSheet(
@@ -275,6 +284,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void dispose() {
     _etaPollTimer?.cancel();
+    _notificationPollTimer?.cancel();
+    _notificationsChannel?.unsubscribe();
     _notesController.dispose();
     super.dispose();
   }
@@ -297,6 +308,71 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _etaPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       _refreshSelectedStudentEta();
     });
+  }
+
+  void _startNotificationInbox() {
+    ParentPushService.registerAfterLogin();
+    _refreshUnread(announceNew: false);
+    _notificationPollTimer?.cancel();
+    _notificationPollTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _refreshUnread();
+    });
+    _subscribeNotifications();
+  }
+
+  Future<void> _refreshUnread({bool announceNew = true}) async {
+    try {
+      final inbox = await ParentNotificationsService.fetchInbox();
+      if (!mounted) return;
+      final latestId = inbox.items.isEmpty ? null : inbox.items.first.id;
+      final isNew = announceNew &&
+          _inboxPrimed &&
+          latestId != null &&
+          latestId != _latestNotificationId;
+      if (isNew) {
+        final newest = inbox.items.first;
+        await ParentPushService.showLocal(newest.title, newest.subtitle);
+      }
+      setState(() {
+        _unreadCount = inbox.unreadCount;
+        _latestNotificationId = latestId ?? _latestNotificationId;
+        _inboxPrimed = true;
+      });
+    } catch (_) {}
+  }
+
+  void _subscribeNotifications() {
+    if (_parentId.isEmpty) return;
+    _notificationsChannel?.unsubscribe();
+    _notificationsChannel = SupabaseService.client
+        .channel('parent-notifications-$_parentId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'notifications',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: _parentId,
+          ),
+          callback: (payload) {
+            final rec = payload.newRecord;
+            final title = rec['title']?.toString();
+            final message = rec['message']?.toString();
+            if (title != null && message != null) {
+              ParentPushService.showLocal(title, message);
+            }
+            _refreshUnread(announceNew: false);
+          },
+        )
+        .subscribe();
+  }
+
+  Future<void> _openNotifications() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (context) => const NotificationsScreen()),
+    );
+    await _refreshUnread(announceNew: false);
   }
 
   String _getGreeting() {
@@ -404,7 +480,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
     } catch (e) {
       print('Error loading parent dashboard data: $e');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+        _startNotificationInbox();
+      }
     }
   }
 
@@ -571,6 +650,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _handleLogout() async {
+    _notificationPollTimer?.cancel();
+    await _notificationsChannel?.unsubscribe();
+    await ParentPushService.unregisterOnLogout();
     try {
       await SupabaseService.client.auth.signOut();
     } catch (_) {}
@@ -781,13 +863,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ),
                 // Notification Bell with Badge
                 InkWell(
-                  onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (context) => NotificationsScreen(students: _students),
-                      ),
-                    );
-                  },
+                  onTap: _openNotifications,
                   borderRadius: BorderRadius.circular(24),
                   child: Stack(
                     clipBehavior: Clip.none,
@@ -813,30 +889,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           size: 26,
                         ),
                       ),
-                      Positioned(
-                        right: 2,
-                        top: 2,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFEF4444),
-                            shape: BoxShape.circle,
-                          ),
-                          constraints: const BoxConstraints(
-                            minWidth: 18,
-                            minHeight: 18,
-                          ),
-                          child: Text(
-                            '${_students.length * 3}',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
+                      if (_unreadCount > 0)
+                        Positioned(
+                          right: 2,
+                          top: 2,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFEF4444),
+                              shape: BoxShape.circle,
                             ),
-                            textAlign: TextAlign.center,
+                            constraints: const BoxConstraints(
+                              minWidth: 18,
+                              minHeight: 18,
+                            ),
+                            child: Text(
+                              _unreadCount > 9 ? '9+' : '$_unreadCount',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
                           ),
                         ),
-                      ),
                     ],
                   ),
                 ),
@@ -1712,7 +1789,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _buildProfileTab() {
     if (_students.isEmpty) {
-      return _buildEmptyState();
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Profile',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const Spacer(),
+                const Text(
+                  'No registered children found under this profile.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 16),
+                ),
+                const Spacer(),
+                LogoutButton(onConfirm: _handleLogout),
+                const SizedBox(height: 8),
+                const Center(child: DeleteAccountLink()),
+              ],
+            ),
+          ),
+        ),
+      );
     }
     
     final student = _students[_selectedStudentIndex];
@@ -1773,13 +1880,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Profile',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF0F172A),
-                          ),
+                        Row(
+                          children: [
+                            const Expanded(
+                              child: Text(
+                                'Profile',
+                                style: TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFF0F172A),
+                                ),
+                              ),
+                            ),
+                            LogoutButton(compact: true, onConfirm: _handleLogout),
+                          ],
                         ),
                         const SizedBox(height: 4),
                         const Text(
@@ -1795,15 +1909,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   ),
                   // Notification Bell Badge
                   InkWell(
-                    onTap: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (context) => NotificationsScreen(
-                            students: _students,
-                          ),
-                        ),
-                      );
-                    },
+                    onTap: _openNotifications,
                     borderRadius: BorderRadius.circular(24),
                     child: Container(
                       width: 44,
@@ -1819,25 +1925,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         alignment: Alignment.center,
                         children: [
                           const Icon(Icons.notifications_none_rounded, color: Color(0xFF334155), size: 24),
-                          Positioned(
-                            top: 8,
-                            right: 8,
-                            child: Container(
-                              padding: const EdgeInsets.all(4),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFEF4444),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Text(
-                                '3',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
+                          if (_unreadCount > 0)
+                            Positioned(
+                              top: 8,
+                              right: 8,
+                              child: Container(
+                                padding: const EdgeInsets.all(4),
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFEF4444),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Text(
+                                  _unreadCount > 9 ? '9+' : '$_unreadCount',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ),
-                          ),
                         ],
                       ),
                     ),
@@ -2550,43 +2657,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
               const SizedBox(height: 24),
 
-              // Log Out Session Action Button
-              SizedBox(
-                width: double.infinity,
-                height: 50,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    showDialog(
-                      context: context,
-                      builder: (context) => AlertDialog(
-                        title: const Text('Log Out'),
-                        content: const Text('Are you sure you want to log out of the parent portal?'),
-                        actions: [
-                          TextButton(
-                            child: const Text('Cancel'),
-                            onPressed: () => Navigator.of(context).pop(),
-                          ),
-                          TextButton(
-                            child: const Text('Log Out', style: TextStyle(color: Colors.red)),
-                            onPressed: () {
-                              Navigator.of(context).pop();
-                              _handleLogout();
-                            },
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFEE2E2),
-                    foregroundColor: const Color(0xFFEF4444),
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                  ),
-                  icon: const Icon(Icons.logout_rounded, size: 20),
-                  label: const Text('Log Out Session', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                ),
-              ),
+              LogoutButton(onConfirm: _handleLogout),
               const SizedBox(height: 8),
               const Center(child: DeleteAccountLink()),
               const SizedBox(height: 24),

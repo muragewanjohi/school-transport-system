@@ -1,31 +1,15 @@
 import 'package:flutter/material.dart';
-
-class NotificationItem {
-  final String id;
-  final String time;
-  final String title;
-  final String subtitle;
-  final String type; // 'check', 'bell', 'bus'
-  final String dateGroup; // 'Today', 'Yesterday', 'Earlier'
-  final String studentName;
-
-  NotificationItem({
-    required this.id,
-    required this.time,
-    required this.title,
-    required this.subtitle,
-    required this.type,
-    required this.dateGroup,
-    required this.studentName,
-  });
-}
+import 'package:parent_app/services/parent_notifications_service.dart';
+import 'package:parent_app/utils/parent_notification_logic.dart';
 
 class NotificationsScreen extends StatefulWidget {
-  final List<dynamic> students;
+  final Future<ParentNotificationsInbox> Function()? loader;
+  final Future<void> Function()? onClearAll;
 
   const NotificationsScreen({
     super.key,
-    required this.students,
+    this.loader,
+    this.onClearAll,
   });
 
   @override
@@ -33,8 +17,9 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
-  List<NotificationItem> _notifications = [];
+  List<ParentInboxItem> _notifications = [];
   bool _isLoading = true;
+  String? _error;
 
   @override
   void initState() {
@@ -42,172 +27,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     _loadNotifications();
   }
 
-  void _loadNotifications() {
-    // Generate dynamic notifications for all children of the parent
-    final List<NotificationItem> items = [];
-
-    if (widget.students.isNotEmpty) {
-      for (int i = 0; i < widget.students.length; i++) {
-        final student = widget.students[i];
-        final String name = student['name'] ?? 'Child';
-        final String firstName = name.split(' ').first;
-        final String transitStatus = student['transit_status'] ?? 'On the Bus';
-        final bool isOnboarded = transitStatus == 'On the Bus' || 
-                                 transitStatus == 'Boarded' || 
-                                 student['status'] == 'Boarded';
-
-        // TODAY EVENTS
-        if (isOnboarded) {
-          items.add(
-            NotificationItem(
-              id: 't1_$i',
-              time: '7:15 AM',
-              title: '$firstName boarded the bus',
-              subtitle: 'Kiambu Rd Stage',
-              type: 'check',
-              dateGroup: 'Today',
-              studentName: name,
-            ),
-          );
-        } else {
-          items.add(
-            NotificationItem(
-              id: 't1_$i',
-              time: '7:15 AM',
-              title: '$firstName scheduled pickup',
-              subtitle: 'Kiambu Rd Stage',
-              type: 'check',
-              dateGroup: 'Today',
-              studentName: name,
-            ),
-          );
-        }
-
-        items.add(
-          NotificationItem(
-            id: 't2_$i',
-            time: '7:07 AM',
-            title: 'Bus is approaching pickup',
-            subtitle: 'ETA 6 mins',
-            type: 'bell',
-            dateGroup: 'Today',
-            studentName: name,
-          ),
-        );
-
-        items.add(
-          NotificationItem(
-            id: 't3_$i',
-            time: '7:00 AM',
-            title: 'Trip started',
-            subtitle: 'Driver has started the trip',
-            type: 'bus',
-            dateGroup: 'Today',
-            studentName: name,
-          ),
-        );
-
-        // YESTERDAY EVENTS
-        items.add(
-          NotificationItem(
-            id: 'y1_$i',
-            time: '2:52 PM',
-            title: '$firstName dropped off',
-            subtitle: 'Arrived safely at home',
-            type: 'check',
-            dateGroup: 'Yesterday',
-            studentName: name,
-          ),
-        );
-
-        items.add(
-          NotificationItem(
-            id: 'y2_$i',
-            time: '2:40 PM',
-            title: 'Bus was approaching home',
-            subtitle: 'ETA 8 mins',
-            type: 'bell',
-            dateGroup: 'Yesterday',
-            studentName: name,
-          ),
-        );
-
-        items.add(
-          NotificationItem(
-            id: 'y3_$i',
-            time: '2:30 PM',
-            title: 'School dismissed',
-            subtitle: 'Trip back home started',
-            type: 'bus',
-            dateGroup: 'Yesterday',
-            studentName: name,
-          ),
-        );
-      }
-    } else {
-      // Default child fallback
-      items.addAll([
-        NotificationItem(
-          id: 't1',
-          time: '7:15 AM',
-          title: 'James boarded the bus',
-          subtitle: 'Kiambu Rd Stage',
-          type: 'check',
-          dateGroup: 'Today',
-          studentName: 'James Mwangi',
-        ),
-        NotificationItem(
-          id: 't2',
-          time: '7:07 AM',
-          title: 'Bus is approaching pickup',
-          subtitle: 'ETA 6 mins',
-          type: 'bell',
-          dateGroup: 'Today',
-          studentName: 'James Mwangi',
-        ),
-        NotificationItem(
-          id: 't3',
-          time: '7:00 AM',
-          title: 'Trip started',
-          subtitle: 'Driver has started the trip',
-          type: 'bus',
-          dateGroup: 'Today',
-          studentName: 'James Mwangi',
-        ),
-        NotificationItem(
-          id: 'y1',
-          time: '2:52 PM',
-          title: 'James dropped off',
-          subtitle: 'Arrived safely at home',
-          type: 'check',
-          dateGroup: 'Yesterday',
-          studentName: 'James Mwangi',
-        ),
-        NotificationItem(
-          id: 'y2',
-          time: '2:40 PM',
-          title: 'Bus was approaching home',
-          subtitle: 'ETA 8 mins',
-          type: 'bell',
-          dateGroup: 'Yesterday',
-          studentName: 'James Mwangi',
-        ),
-        NotificationItem(
-          id: 'y3',
-          time: '2:30 PM',
-          title: 'School dismissed',
-          subtitle: 'Trip back home started',
-          type: 'bus',
-          dateGroup: 'Yesterday',
-          studentName: 'James Mwangi',
-        ),
-      ]);
-    }
-
+  Future<void> _loadNotifications() async {
     setState(() {
-      _notifications = items;
-      _isLoading = false;
+      _isLoading = true;
+      _error = null;
     });
+    try {
+      final fetch = widget.loader ?? ParentNotificationsService.fetchInbox;
+      final inbox = await fetch();
+      if (!mounted) return;
+      setState(() {
+        _notifications = inbox.items;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _error = 'Could not load notifications.';
+        _isLoading = false;
+      });
+    }
   }
 
   void _clearAllNotifications() {
@@ -221,7 +60,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         content: const Text(
-          'Are you sure you want to clear all notifications?',
+          'Mark all notifications as read?',
           style: TextStyle(color: Color(0xFF94A3B8)),
         ),
         actions: [
@@ -230,14 +69,30 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             child: const Text('Cancel', style: TextStyle(color: Color(0xFF94A3B8))),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(context).pop();
+              final clear = widget.onClearAll ?? ParentNotificationsService.markAllRead;
+              await clear();
+              if (!mounted) return;
               setState(() {
-                _notifications.clear();
+                _notifications = _notifications
+                    .map(
+                      (item) => ParentInboxItem(
+                        id: item.id,
+                        time: item.time,
+                        title: item.title,
+                        subtitle: item.subtitle,
+                        type: item.type,
+                        dateGroup: item.dateGroup,
+                        read: true,
+                      ),
+                    )
+                    .toList();
               });
+              if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('All notifications cleared.'),
+                  content: Text('Notifications marked as read.'),
                   backgroundColor: Color(0xFF10B981),
                   behavior: SnackBarBehavior.floating,
                 ),
@@ -298,9 +153,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Group notifications by dateGroup
-    final Map<String, List<NotificationItem>> grouped = {};
-    for (var item in _notifications) {
+    final Map<String, List<ParentInboxItem>> grouped = {};
+    for (final item in _notifications) {
       grouped.putIfAbsent(item.dateGroup, () => []).add(item);
     }
 
@@ -324,6 +178,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),
+            tooltip: 'Refresh',
+            onPressed: _isLoading ? null : _loadNotifications,
+          ),
+          IconButton(
             icon: const Icon(Icons.tune_rounded, color: Color(0xFF0F172A)),
             tooltip: 'Clear Notifications',
             onPressed: _notifications.isEmpty ? null : _clearAllNotifications,
@@ -332,102 +191,133 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _notifications.isEmpty
-              ? _buildEmptyState()
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: grouped.keys.map((group) {
-                      final items = grouped[group]!;
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            group,
-                            style: const TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF0F172A),
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: const Color(0xFFF1F5F9)),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withOpacity(0.03),
-                                  blurRadius: 10,
-                                  offset: const Offset(0, 4),
-                                )
-                              ],
-                            ),
-                            child: ListView.separated(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: items.length,
-                              separatorBuilder: (context, index) => const Divider(
-                                color: Color(0xFFF1F5F9),
-                                height: 1,
-                              ),
-                              itemBuilder: (context, index) {
-                                final item = items[index];
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  child: Row(
-                                    crossAxisAlignment: CrossAxisAlignment.center,
-                                    children: [
-                                      _buildNotificationIcon(item.type),
-                                      const SizedBox(width: 14),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+          : _error != null
+              ? _buildErrorState()
+              : _notifications.isEmpty
+                  ? _buildEmptyState()
+                  : RefreshIndicator(
+                      onRefresh: _loadNotifications,
+                      child: SingleChildScrollView(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.all(20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: grouped.keys.map((group) {
+                            final items = grouped[group]!;
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  group,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(20),
+                                    border: Border.all(color: const Color(0xFFF1F5F9)),
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(alpha: 0.03),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      )
+                                    ],
+                                  ),
+                                  child: ListView.separated(
+                                    shrinkWrap: true,
+                                    physics: const NeverScrollableScrollPhysics(),
+                                    itemCount: items.length,
+                                    separatorBuilder: (context, index) => const Divider(
+                                      color: Color(0xFFF1F5F9),
+                                      height: 1,
+                                    ),
+                                    itemBuilder: (context, index) {
+                                      final item = items[index];
+                                      return Padding(
+                                        padding: const EdgeInsets.symmetric(vertical: 14),
+                                        child: Row(
+                                          crossAxisAlignment: CrossAxisAlignment.center,
                                           children: [
-                                            Text(
-                                              item.time,
-                                              style: const TextStyle(
-                                                fontSize: 11,
-                                                fontWeight: FontWeight.bold,
-                                                color: Color(0xFF64748B),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              item.title,
-                                              style: const TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.bold,
-                                                color: Color(0xFF0F172A),
-                                              ),
-                                            ),
-                                            const SizedBox(height: 2),
-                                            Text(
-                                              item.subtitle,
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w500,
-                                                color: Color(0xFF64748B),
+                                            _buildNotificationIcon(item.type),
+                                            const SizedBox(width: 14),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    item.time,
+                                                    style: const TextStyle(
+                                                      fontSize: 11,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Color(0xFF64748B),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    item.title,
+                                                    style: TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight: item.read ? FontWeight.w600 : FontWeight.bold,
+                                                      color: const Color(0xFF0F172A),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 2),
+                                                  Text(
+                                                    item.subtitle,
+                                                    style: const TextStyle(
+                                                      fontSize: 13,
+                                                      fontWeight: FontWeight.w500,
+                                                      color: Color(0xFF64748B),
+                                                    ),
+                                                  ),
+                                                ],
                                               ),
                                             ),
                                           ],
                                         ),
-                                      ),
-                                    ],
+                                      );
+                                    },
                                   ),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                        ],
-                      );
-                    }).toList(),
-                  ),
-                ),
+                                ),
+                                const SizedBox(height: 24),
+                              ],
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                    ),
+    );
+  }
+
+  Widget _buildErrorState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32.0),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.wifi_off_rounded, size: 48, color: Color(0xFF94A3B8)),
+            const SizedBox(height: 16),
+            Text(
+              _error ?? 'Could not load notifications.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 16, color: Color(0xFF0F172A)),
+            ),
+            const SizedBox(height: 16),
+            TextButton(
+              onPressed: _loadNotifications,
+              child: const Text('Try again'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -461,7 +351,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             ),
             const SizedBox(height: 8),
             const Text(
-              'You have no active notifications at this time.',
+              'Trip alerts will show up here when the bus leaves school or approaches your stop.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: 14,

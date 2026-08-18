@@ -27,7 +27,9 @@ class RouteMapWidget extends StatefulWidget {
   final bool navMode;
   final String? lastTelemetryIso;
   final VoidCallback? onRefresh;
-  final double height;
+  final double? height;
+  final bool followBus;
+  final double followZoom;
 
   const RouteMapWidget({
     super.key,
@@ -44,6 +46,8 @@ class RouteMapWidget extends StatefulWidget {
     this.lastTelemetryIso,
     this.onRefresh,
     this.height = 280,
+    this.followBus = false,
+    this.followZoom = 15.8,
   });
 
   @override
@@ -184,7 +188,16 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
             oldWidget.liveLongitude != widget.liveLongitude ||
             oldWidget.navMode != widget.navMode)) {
       _followNavCamera();
+    } else if (widget.followBus &&
+        widget.liveLatitude != null &&
+        widget.liveLongitude != null &&
+        _mapController != null &&
+        (oldWidget.liveLatitude != widget.liveLatitude ||
+            oldWidget.liveLongitude != widget.liveLongitude ||
+            oldWidget.followBus != widget.followBus)) {
+      _followBusCamera(preserveZoom: oldWidget.followBus);
     } else if (!widget.navMode &&
+        !widget.followBus &&
         widget.liveLatitude != null &&
         widget.liveLongitude != null &&
         _mapController != null &&
@@ -211,6 +224,22 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
           tilt: 45,
           bearing: bearing,
         ),
+      ),
+    );
+  }
+
+  Future<void> _followBusCamera({required bool preserveZoom}) async {
+    if (_mapController == null || widget.liveLatitude == null || widget.liveLongitude == null) {
+      return;
+    }
+    final bus = LatLng(widget.liveLatitude!, widget.liveLongitude!);
+    if (preserveZoom) {
+      await _mapController!.animateCamera(CameraUpdate.newLatLng(bus));
+      return;
+    }
+    await _mapController!.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: bus, zoom: widget.followZoom),
       ),
     );
   }
@@ -304,6 +333,10 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
   Future<void> _fitRouteAndBus(List<LatLng> routePoints) async {
     if (widget.navMode) {
       await _followNavCamera();
+      return;
+    }
+    if (widget.followBus) {
+      await _followBusCamera(preserveZoom: false);
       return;
     }
     final points = List<LatLng>.from(routePoints);
@@ -504,6 +537,8 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
     await _fetchRouteStops();
     if (widget.navMode) {
       await _followNavCamera();
+    } else if (widget.followBus) {
+      await _followBusCamera(preserveZoom: false);
     }
   }
 
@@ -522,23 +557,27 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
             return const LatLng(-1.2845, 36.8192);
           }();
 
-    return Container(
+    final map = Container(
       height: widget.height,
       decoration: BoxDecoration(
         color: AppColors.surfaceAlt,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.border, width: 1.5),
-        boxShadow: const [
-          BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2)),
-        ],
+        borderRadius: widget.followBus ? BorderRadius.zero : BorderRadius.circular(12),
+        border: widget.followBus ? null : Border.all(color: AppColors.border, width: 1.5),
+        boxShadow: widget.followBus
+            ? const []
+            : const [
+                BoxShadow(color: Colors.black12, blurRadius: 6, offset: Offset(0, 2)),
+              ],
       ),
       clipBehavior: Clip.antiAlias,
       child: Stack(
+        fit: StackFit.expand,
         children: [
-          GoogleMap(
+          Positioned.fill(
+            child: GoogleMap(
             initialCameraPosition: CameraPosition(
               target: initialCenter,
-              zoom: widget.navMode ? 16 : 13.5,
+              zoom: widget.navMode ? 16 : (widget.followBus ? widget.followZoom : 13.5),
             ),
             myLocationEnabled: false,
             myLocationButtonEnabled: false,
@@ -561,6 +600,7 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
                   _roadPolyline.isNotEmpty ? _roadPolyline : _fallbackPolyline;
               await _fitRouteAndBus(points);
             },
+          ),
           ),
           const Positioned(
             top: 8,
@@ -674,5 +714,9 @@ class _RouteMapWidgetState extends State<RouteMapWidget> {
         ],
       ),
     );
+    if (widget.height == null) {
+      return SizedBox.expand(child: map);
+    }
+    return map;
   }
 }

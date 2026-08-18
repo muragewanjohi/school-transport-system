@@ -14,6 +14,10 @@ class AppColors {
   static const Color softGreen = Color(0xFFEAF8EF);
   static const Color paleGreen = Color(0xFFF2FBF5);
   static const Color accentYellow = Color(0xFFFFC107);
+  static const Color nextBlue = Color(0xFF3B82F6);
+  static const Color dangerSoft = Color(0xFFFEE2E2);
+  static const Color dangerBorder = Color(0xFFFECACA);
+  static const Color dangerInk = Color(0xFFB91C1C);
 
   /// Brand / AppBar green (prefer for chrome).
   static const Color primaryGreen = Color(0xFF006B32);

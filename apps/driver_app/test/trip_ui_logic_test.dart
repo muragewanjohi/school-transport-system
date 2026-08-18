@@ -82,6 +82,117 @@ void main() {
     });
   });
 
+  group('boardingActionLabel', () {
+    test('pickup → Boarded', () {
+      expect(boardingActionLabel(isPickup: true), 'Boarded');
+    });
+    test('dropoff → Dropped off', () {
+      expect(boardingActionLabel(isPickup: false), 'Dropped off');
+    });
+  });
+
+  group('studentListAttendance', () {
+    test('pending stays pending', () {
+      expect(
+        studentListAttendance({'attendance': 'pending'}, isPickup: true),
+        StudentListAttendance.pending,
+      );
+    });
+    test('pickup boarded is actioned', () {
+      expect(
+        studentListAttendance({'attendance': 'boarded'}, isPickup: true),
+        StudentListAttendance.actioned,
+      );
+    });
+    test('dropoff dropped_off is actioned', () {
+      expect(
+        studentListAttendance({'attendance': 'dropped_off'}, isPickup: false),
+        StudentListAttendance.actioned,
+      );
+    });
+    test('absent has no action', () {
+      expect(
+        studentListAttendance({'attendance': 'absent'}, isPickup: true),
+        StudentListAttendance.absent,
+      );
+      expect(
+        studentListAttendance({'attendance': 'absent'}, isPickup: false),
+        StudentListAttendance.absent,
+      );
+    });
+  });
+
+  group('parseStudentGuardians', () {
+    test('reads name and phone from a list', () {
+      final contacts = parseStudentGuardians([
+        {'name': 'Jane', 'phone': '+254700000002'},
+      ]);
+      expect(contacts, hasLength(1));
+      expect(contacts.first.name, 'Jane');
+      expect(contacts.first.phone, '+254700000002');
+    });
+    test('reads photo_url for the guardian thumbnail', () {
+      final contacts = parseStudentGuardians([
+        {
+          'name': 'Jane',
+          'phone': '+254700000002',
+          'photo_url': 'https://cdn.example/jane.png',
+        },
+      ]);
+      expect(contacts.first.photoUrl, 'https://cdn.example/jane.png');
+    });
+    test('blank photo_url is treated as missing', () {
+      final contacts = parseStudentGuardians([
+        {'name': 'Jane', 'phone': '+254700000002', 'photo_url': '  '},
+      ]);
+      expect(contacts.first.photoUrl, isNull);
+    });
+  });
+
+  group('uniqueTripGuardians', () {
+    test('lists each guardian once across students', () {
+      final guardians = uniqueTripGuardians([
+        {
+          'id': '1',
+          'guardians': [
+            {'name': 'Jane', 'phone': '+254700000002'},
+          ],
+        },
+        {
+          'id': '2',
+          'guardians': [
+            {'name': 'Jane', 'phone': '+254 700 000 002'},
+            {'name': 'Paul', 'phone': '+254700000003'},
+          ],
+        },
+      ]);
+      expect(guardians.map((g) => g.name).toList(), ['Jane', 'Paul']);
+    });
+  });
+
+  group('studentMatchesQuery', () {
+    test('matches a guardian name', () {
+      expect(
+        studentMatchesQuery({
+          'name': 'Amina',
+          'guardians': [
+            {'name': 'Jane Wanjiku', 'phone': '+254700000002'},
+          ],
+        }, 'jane'),
+        isTrue,
+      );
+    });
+  });
+
+  group('guardianTelUri', () {
+    test('builds a tel URI from a Kenyan mobile', () {
+      expect(guardianTelUri('+254700000002')?.toString(), 'tel:+254700000002');
+    });
+    test('rejects a number that is too short', () {
+      expect(guardianTelUri('123'), isNull);
+    });
+  });
+
   group('tripBoardingCtaLabel', () {
     test('PICKUP → Pickup Students', () {
       expect(tripBoardingCtaLabel('PICKUP'), 'Pickup Students');
@@ -202,6 +313,58 @@ void main() {
         fallbackMinutes: 7,
       );
       expect(eta, 7);
+    });
+  });
+
+  group('formatPickedSummary', () {
+    test('pickup uses of and picked', () {
+      expect(
+        formatPickedSummary(boarded: 8, total: 24, isPickup: true),
+        '8 of 24 picked',
+      );
+    });
+    test('dropoff uses of and dropped', () {
+      expect(
+        formatPickedSummary(boarded: 5, total: 12, isPickup: false),
+        '5 of 12 dropped',
+      );
+    });
+  });
+
+  group('stopProgressSegments', () {
+    test('marks completed, current, and upcoming', () {
+      final segments = stopProgressSegments(
+        orderedStopIds: ['a', 'b', 'c'],
+        outcomes: {'a': StopVisitOutcome.completed},
+        nextStopId: 'b',
+      );
+      expect(segments.map((s) => s.kind).toList(), [
+        StopProgressKind.completed,
+        StopProgressKind.current,
+        StopProgressKind.upcoming,
+      ]);
+    });
+  });
+
+  group('stopAfter', () {
+    test('returns the stop after the given id', () {
+      final next = stopAfter(
+        stops: [
+          {'id': 'a', 'name': 'One', 'sequence_no': 1},
+          {'id': 'b', 'name': 'Two', 'sequence_no': 2},
+        ],
+        stopId: 'a',
+      );
+      expect(next?['id'], 'b');
+    });
+    test('returns null at the last stop', () {
+      final next = stopAfter(
+        stops: [
+          {'id': 'a', 'sequence_no': 1},
+        ],
+        stopId: 'a',
+      );
+      expect(next, isNull);
     });
   });
 }

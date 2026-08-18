@@ -56,7 +56,7 @@ describe("POST /api/driver/stop-visits", () => {
         route_id: UUID.route,
         outcome: "visited",
         arrived_at: "2026-08-14T07:00:00.000Z",
-        departed_at: "2026-08-14T07:01:00.000Z",
+        departed_at: "2026-08-14T07:01:30.000Z",
         students_actioned: 0,
       })
     );
@@ -65,7 +65,21 @@ describe("POST /api/driver/stop-visits", () => {
     expect(json.success).toBe(true);
     expect(json.data.outcome).toBe("visited");
     expect(json.data.alerted).toBe(true);
-    expect(json.data.dwell_seconds).toBe(60);
+    expect(json.data.dwell_seconds).toBe(90);
+  });
+
+  it("visited before min dwell › returns 409", async () => {
+    const res = await POST(
+      jsonRequest({
+        trip_id: UUID.trip,
+        stop_id: UUID.stop,
+        outcome: "visited",
+        arrived_at: "2026-08-14T07:00:00.000Z",
+        departed_at: "2026-08-14T07:00:20.000Z",
+        students_actioned: 0,
+      })
+    );
+    expect(res.status).toBe(409);
   });
 
   it("valid skipped payload › returns 200 and marks alerted", async () => {
@@ -74,6 +88,8 @@ describe("POST /api/driver/stop-visits", () => {
         trip_id: UUID.trip,
         stop_id: UUID.stop,
         outcome: "skipped",
+        arrived_at: "2026-08-14T07:00:00.000Z",
+        departed_at: "2026-08-14T07:01:30.000Z",
       })
     );
     expect(res.status).toBe(200);

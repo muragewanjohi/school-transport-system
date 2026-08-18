@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   addExistingParentToGuardians,
+  attachGuardianPhotos,
   defaultGuardianSourceMode,
   duplicateGuardianPhoneError,
   filterParentsByName,
+  parentPhotoIndex,
   shouldShowExistingParentDropdown,
   validateGuardianEntries,
 } from "@/lib/studentGuardians";
@@ -92,5 +94,31 @@ describe("validateGuardianEntries", () => {
         { name: "Jane Copy", phone: "+254700111222" },
       ])
     ).toBe("Two guardians cannot share the same phone number.");
+  });
+});
+
+describe("attachGuardianPhotos", () => {
+  it("matching parent phone › copies avatar_url onto photo_url", () => {
+    const index = parentPhotoIndex([
+      { phone: "+254 700 111 222", avatar_url: "https://cdn.example/jane.png" },
+    ]);
+    expect(
+      attachGuardianPhotos(
+        [{ name: "Jane", phone: "+254700111222" }],
+        index
+      )
+    ).toEqual([
+      {
+        name: "Jane",
+        phone: "+254700111222",
+        photo_url: "https://cdn.example/jane.png",
+      },
+    ]);
+  });
+
+  it("no matching photo › photo_url is null for thumbnail fallback", () => {
+    expect(
+      attachGuardianPhotos([{ name: "Jane", phone: "+254700111222" }], new Map())
+    ).toEqual([{ name: "Jane", phone: "+254700111222", photo_url: null }]);
   });
 });

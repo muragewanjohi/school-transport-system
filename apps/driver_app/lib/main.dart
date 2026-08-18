@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_background_service/flutter_background_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -14,13 +15,16 @@ import 'package:driver_app/screens/trip_screen.dart';
 import 'package:driver_app/config/api_config.dart';
 import 'package:driver_app/widgets/route_map_widget.dart';
 import 'package:driver_app/utils/geo_utils.dart';
+import 'package:driver_app/utils/gps_replay.dart';
 import 'package:driver_app/utils/stop_visit_logic.dart';
 import 'package:driver_app/utils/trip_ui_logic.dart';
 import 'package:driver_app/providers/trip_providers.dart';
 import 'package:driver_app/services/stop_navigation_service.dart';
+import 'package:driver_app/widgets/guardian_photo_thumbnail.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'firebase_options.dart';
 
 export 'package:driver_app/providers/trip_providers.dart';
@@ -156,6 +160,12 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   DateTime? _arrivedAt;
   String? _lastArrivedStopId;
   int _studentsActionedAtCurrentStop = 0;
+  int _minStopDwellSeconds = defaultMinStopDwellSeconds;
+  Timer? _dwellWatchTimer;
+
+  bool _gpsReplayActive = false;
+  String? _gpsReplayLabel;
+  final GpsReplayPlayer _gpsReplayPlayer = GpsReplayPlayer();
 
   @override
   void initState() {
@@ -167,9 +177,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
   @override
   void dispose() {
+    _stopGpsReplay(restartGps: false);
     _telemetrySub?.cancel();
     _foregroundGpsSub?.cancel();
     _countdownTimer?.cancel();
+    _dwellWatchTimer?.cancel();
     _tenantController.dispose();
     _vehicleController.dispose();
     _routeController.dispose();
@@ -187,15 +199,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   }
 
   bool get _isPickupRun => _selectedRunType == 'PICKUP';
-
-  String get _attendanceActionLabel => _isPickupRun ? 'Pickup' : 'Dropoff';
-
-  String _attendanceFabLabel(ArrivedStop? arrived) {
-    if (arrived != null) {
-      return '$_attendanceActionLabel · ${arrived.name}';
-    }
-    return '$_attendanceActionLabel Students';
-  }
 
   Map<String, dynamic>? _nextNavStop(TelemetryCoords? telemetry) {
     return nextNavigationStop(
@@ -315,8 +318,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     double speed = 0,
     double bearing = 0,
     String? timestamp,
+    bool fromReplay = false,
   }) {
     if (!mounted) return;
+    if (_gpsReplayActive && !fromReplay) return;
     ref.read(telemetryCoordsProvider.notifier).state = TelemetryCoords(
       latitude: latitude,
       longitude: longitude,
@@ -356,6 +361,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           _arrivedAt = DateTime.now();
           _studentsActionedAtCurrentStop = 0;
         });
+        _ensureDwellWatchTimer();
       }
     }
   }
@@ -367,6 +373,35 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       }
     }
     return null;
+  }
+
+  void _ensureDwellWatchTimer() {
+    _dwellWatchTimer ??= Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted) return;
+      final coords = ref.read(telemetryCoordsProvider);
+      if (coords == null) return;
+      _tryResolveDelayedVisited(latitude: coords.latitude, longitude: coords.longitude);
+    });
+  }
+
+  void _tryResolveDelayedVisited({required double latitude, required double longitude}) {
+    final stopId = _lastArrivedStopId;
+    if (stopId == null || _arrivedAt == null) return;
+    if (_stopOutcomes.containsKey(stopId)) return;
+    if (_studentsActionedAtCurrentStop > 0) return;
+    if (!skipStopAllowed(
+      arrivedAt: _arrivedAt,
+      now: DateTime.now(),
+      minStopDwellSeconds: _minStopDwellSeconds,
+    )) {
+      return;
+    }
+    final currentStop = _stopById(stopId);
+    if (currentStop == null) return;
+    if (!hasLeftStopGeofence(latitude: latitude, longitude: longitude, stop: currentStop)) {
+      return;
+    }
+    _handleLeftStop(stopId);
   }
 
   void _handleLeftStop(String stopId) {
@@ -390,14 +425,17 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       return;
     }
     final arrivedAt = _arrivedAt;
-    setState(() {
-      _lastArrivedStopId = null;
-      _arrivedAt = null;
-    });
     final resolution = resolveStopExit(
       reason: StopExitReason.leftGeofence,
       studentsActioned: _studentsActionedAtCurrentStop,
+      arrivedAt: arrivedAt,
+      now: DateTime.now(),
+      minStopDwellSeconds: _minStopDwellSeconds,
     );
+    if (resolution == null) {
+      _ensureDwellWatchTimer();
+      return;
+    }
     _recordStopVisit(
       stopId: stopId,
       outcome: resolution.outcome,
@@ -421,6 +459,11 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         _lastArrivedStopId = null;
         _arrivedAt = null;
       }
+      _studentsList = markPendingAbsentAtStop(
+        students: _studentsList,
+        stopId: stopId,
+        isPickup: isPickupRunType(_selectedRunType),
+      );
     });
 
     final tripId = _activeTrip is Map ? _activeTrip['id']?.toString() : _selectedTripRunId;
@@ -503,6 +546,152 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     _foregroundGpsSub = null;
   }
 
+  void _pushMockLocation({
+    required double latitude,
+    required double longitude,
+    double speed = 0,
+    double bearing = 0,
+    bool enabled = true,
+  }) {
+    FlutterBackgroundService().invoke('setMockLocation', {
+      'enabled': enabled,
+      'latitude': latitude,
+      'longitude': longitude,
+      'speed': speed,
+      'bearing': bearing,
+    });
+  }
+
+  Future<void> _postReplayTelemetry({
+    required double latitude,
+    required double longitude,
+    required double speed,
+    required double bearing,
+  }) async {
+    final routeId = _selectedRouteId ?? _routeController.text.trim();
+    if (routeId.isEmpty) return;
+    try {
+      await http
+          .post(
+            Uri.parse('${_getApiBaseUrl()}/api/driver/telemetry'),
+            headers: await DriverApiAuth.headers(),
+            body: json.encode({
+              'tenant_id': _tenantController.text.trim(),
+              'vehicle_id': _vehicleController.text.trim(),
+              'route_id': routeId,
+              'latitude': latitude,
+              'longitude': longitude,
+              'speed': speed,
+              'bearing': bearing,
+              'is_emergency': false,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+    } catch (_) {
+      debugPrint('Replay telemetry post failed');
+    }
+  }
+
+  void _toggleGpsReplay() {
+    if (!kDebugMode) return;
+    if (_gpsReplayActive) {
+      _stopGpsReplay(restartGps: true);
+      return;
+    }
+    _startGpsReplay();
+  }
+
+  void _startGpsReplay() {
+    if (!kDebugMode) return;
+    if (!ref.read(tripActiveProvider)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Start a trip before replaying GPS.')),
+      );
+      return;
+    }
+
+    final waypoints = buildStopReplayScript(
+      stops: _stopsList,
+      isPickup: _isPickupRun,
+    );
+    final ticks = expandReplayWaypoints(waypoints);
+    if (ticks.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No stop coordinates to replay.')),
+      );
+      return;
+    }
+
+    _stopForegroundGpsStream();
+    _pushMockLocation(
+      latitude: ticks.first.latitude,
+      longitude: ticks.first.longitude,
+      enabled: true,
+    );
+
+    setState(() {
+      _gpsReplayActive = true;
+      _gpsReplayLabel = ticks.first.label;
+    });
+
+    _gpsReplayPlayer.start(
+      ticks: ticks,
+      onTick: (tick) {
+        if (!mounted) return;
+        setState(() => _gpsReplayLabel = tick.label);
+        _applyTelemetry(
+          latitude: tick.latitude,
+          longitude: tick.longitude,
+          speed: tick.speedMps,
+          bearing: tick.bearing,
+          fromReplay: true,
+        );
+        _pushMockLocation(
+          latitude: tick.latitude,
+          longitude: tick.longitude,
+          speed: tick.speedMps,
+          bearing: tick.bearing,
+        );
+        unawaited(
+          _postReplayTelemetry(
+            latitude: tick.latitude,
+            longitude: tick.longitude,
+            speed: tick.speedMps,
+            bearing: tick.bearing,
+          ),
+        );
+      },
+      onDone: () {
+        if (!mounted) return;
+        _stopGpsReplay(restartGps: true);
+      },
+    );
+  }
+
+  void _stopGpsReplay({required bool restartGps}) {
+    _gpsReplayPlayer.stop();
+    _pushMockLocation(
+      latitude: 0,
+      longitude: 0,
+      enabled: false,
+    );
+    final wasActive = _gpsReplayActive;
+    if (mounted) {
+      setState(() {
+        _gpsReplayActive = false;
+        _gpsReplayLabel = null;
+      });
+    } else {
+      _gpsReplayActive = false;
+      _gpsReplayLabel = null;
+    }
+    if (restartGps && wasActive && mounted && ref.read(tripActiveProvider)) {
+      _startForegroundGpsStream();
+    }
+  }
+
   String _getApiBaseUrl() => ApiConfig.baseUrl;
 
   /// Load authenticated driver details from SharedPreferences
@@ -575,10 +764,18 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         final result = json.decode(response.body);
         if (result['success'] == true && result['data'] != null) {
           final config = result['data'];
-          if (config['school_name'] != null && config['school_name'].toString().isNotEmpty) {
+          final dwell = config['min_stop_dwell_seconds'];
+          if (mounted) {
             setState(() {
-              _schoolName = config['school_name'];
+              if (config['school_name'] != null && config['school_name'].toString().isNotEmpty) {
+                _schoolName = config['school_name'];
+              }
+              if (dwell is num) {
+                _minStopDwellSeconds = clampMinStopDwellSeconds(dwell.toInt());
+              }
             });
+          }
+          if (config['school_name'] != null && config['school_name'].toString().isNotEmpty) {
             final prefs = await SharedPreferences.getInstance();
             await prefs.setString('school_name', _schoolName);
           }
@@ -1072,6 +1269,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
   /// Shutdown background tracking service
   Future<void> _endTrip() async {
+    _stopGpsReplay(restartGps: false);
     final service = FlutterBackgroundService();
     service.invoke('stopService');
     _stopForegroundGpsStream();
@@ -1186,25 +1384,21 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     }
   }
 
-  void _simulateCall(String guardianName, String phone) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.phone_in_talk, color: Colors.white),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                'Calling $guardianName at $phone...',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: const Color(0xFF10B981),
-        duration: const Duration(seconds: 4),
-      ),
-    );
+  Future<void> _callGuardian(String phone) async {
+    final uri = guardianTelUri(phone);
+    if (uri == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No valid phone number to call.')),
+      );
+      return;
+    }
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open the phone dialer.')),
+      );
+    }
   }
 
   void _showStudentDetailsPopup(dynamic student) {
@@ -1372,7 +1566,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                                       trailing: IconButton(
                                         icon: const Icon(Icons.phone_in_talk, color: Color(0xFF10B981)),
                                         onPressed: () {
-                                          _simulateCall(gName, gPhone);
+                                          _callGuardian(gPhone.toString());
                                         },
                                       ),
                                     ),
@@ -1931,6 +2125,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
       students: _studentsList,
       stopOutcomes: Map<String, StopVisitOutcome>.from(_stopOutcomes),
       arrivedAt: _arrivedAt,
+      lastArrivedStopId: _lastArrivedStopId,
+      minStopDwellSeconds: _minStopDwellSeconds,
       scheduleDurationMinutes: scheduleDuration,
       telemetry: telemetry,
       onStopResolved: ({
@@ -1962,6 +2158,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           _fetchTripDetails(_selectedRouteId!, _selectedTripId!);
         }
       },
+      gpsReplayActive: _gpsReplayActive,
+      gpsReplayLabel: _gpsReplayLabel,
+      onToggleGpsReplay: kDebugMode ? _toggleGpsReplay : null,
     );
   }
 
@@ -2002,17 +2201,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
     final telemetry = ref.watch(telemetryCoordsProvider);
     final arrived = _arrivedStopFor(telemetry);
-
-    final filteredStudents = _studentsList.where((student) {
-      final name = (student['name'] ?? '').toString().toLowerCase();
-      if (!name.contains(_studentsSearchQuery.toLowerCase())) return false;
-      if (arrived == null) return false;
-      final isBoarded = (student['status'] ?? 'Absent') == 'Present';
-      return studentAllowedAtStop(
-        student: Map<String, dynamic>.from(student as Map),
-        arrivedStopId: arrived.id,
-        isBoardAction: !isBoarded,
-      );
+    final tripGuardians = uniqueTripGuardians(_studentsList);
+    final filteredStudents = _studentsList.whereType<Map>().where((student) {
+      return studentMatchesQuery(Map<String, dynamic>.from(student), _studentsSearchQuery);
     }).toList();
 
     return Column(
@@ -2029,7 +2220,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             controller: _studentsSearchController,
             style: const TextStyle(color: Color(0xFF0B1C30)),
             decoration: InputDecoration(
-              hintText: 'Search students...',
+              hintText: 'Search students or guardians...',
               hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 14),
               prefixIcon: const Icon(Icons.search, color: Color(0xFF64748B)),
               suffixIcon: _studentsSearchQuery.isNotEmpty
@@ -2066,9 +2257,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             ),
           ),
           child: Text(
-            arrived != null
-                ? 'At ${arrived.name} — showing only students for this ${_isPickupRun ? "pickup" : "dropoff"} stop.'
-                : 'Drive into a stop geofence to unlock ${_isPickupRun ? "pickup" : "dropoff"} for that stop.',
+            'Trip roster — all students and guardians. Boarded / Dropped off still requires the child’s stop geofence.',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
@@ -2076,6 +2265,39 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             ),
           ),
         ),
+        const SizedBox(height: 16),
+
+        Row(
+          children: [
+            const Icon(Icons.family_restroom, color: Color(0xFF10B981), size: 20),
+            const SizedBox(width: 8),
+            const Text(
+              'GUARDIANS',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
+            ),
+            const Spacer(),
+            Text(
+              '${tripGuardians.length}',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (tripGuardians.isEmpty)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 8),
+            child: Text(
+              'No guardians registered on this trip.',
+              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
+            ),
+          )
+        else
+          ...tripGuardians.map(
+            (g) => GuardianContactTile(
+              contact: g,
+              onCall: () => _callGuardian(g.phone),
+            ),
+          ),
         const SizedBox(height: 16),
 
         Row(
@@ -2100,11 +2322,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 40.0),
               child: Text(
-                arrived == null
-                    ? 'No stop unlocked yet.'
-                    : (_studentsSearchQuery.isNotEmpty
-                        ? 'No matching students at this stop.'
-                        : 'No students to board or drop at ${arrived.name}.'),
+                _studentsSearchQuery.isNotEmpty
+                    ? 'No matching students or guardians.'
+                    : 'No students on this trip.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
               ),
@@ -2117,152 +2337,184 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             itemCount: filteredStudents.length,
             separatorBuilder: (context, index) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
-              final student = filteredStudents[index];
+              final student = Map<String, dynamic>.from(filteredStudents[index]);
               final String studentName = student['name'] ?? 'Unknown Student';
               final String grade = student['grade'] ?? 'N/A';
-              final String status = student['status'] ?? 'Absent';
-              final bool isBoarded = status == "Present";
+              final attendance = studentListAttendance(student, isPickup: _isPickupRun);
               final int studentIndex = index + 1;
+              final studentGuardians = parseStudentGuardians(student['guardians']);
+              final actioned = attendance == StudentListAttendance.actioned;
 
-              return GestureDetector(
-                onTap: () => _showStudentDetailsPopup(student),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFFFFF),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Row(
-                    children: [
-                      Text(
-                        '$studentIndex',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: isBoarded ? const Color(0xFF10B981) : const Color(0xFF0B1C30),
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFFFFF),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                  children: [
+                    Text(
+                      '$studentIndex',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: actioned ? const Color(0xFF10B981) : const Color(0xFF0B1C30),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: InkWell(
+                        onTap: () => _showStudentDetailsPopup(student),
+                        child: Row(
+                          children: [
+                            CircleAvatar(
+                              radius: 20,
+                              backgroundColor: actioned ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                              child: Text(
+                                _getInitials(studentName),
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    studentName,
+                                    style: const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.bold,
+                                      color: Color(0xFF0B1C30),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    grade,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      CircleAvatar(
-                        radius: 20,
-                        backgroundColor: isBoarded ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                    ),
+                    if (attendance == StudentListAttendance.pending)
+                      ElevatedButton(
+                        onPressed: () {
+                          final allowed = studentAllowedAtStop(
+                            student: student,
+                            arrivedStopId: arrived?.id,
+                            isBoardAction: _isPickupRun,
+                          );
+                          if (!allowed) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  _isPickupRun
+                                      ? 'Arrive at this student\'s pickup stop to board.'
+                                      : 'Arrive at this student\'s drop-off stop.',
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                            return;
+                          }
+                          _updateStudentStatus(student, _isPickupRun ? 'Present' : 'Absent');
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF10B981),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          minimumSize: Size.zero,
+                        ),
                         child: Text(
-                          _getInitials(studentName),
-                          style: const TextStyle(
-                            fontSize: 14,
+                          boardingActionLabel(isPickup: _isPickupRun),
+                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: attendance == StudentListAttendance.absent
+                              ? const Color(0xFFFEE2E2)
+                              : Colors.green.withAlpha(26),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: attendance == StudentListAttendance.absent
+                                ? const Color(0xFFFECACA)
+                                : Colors.green,
+                          ),
+                        ),
+                        child: Text(
+                          attendance == StudentListAttendance.absent
+                              ? 'Absent'
+                              : boardingActionLabel(isPickup: _isPickupRun),
+                          style: TextStyle(
+                            fontSize: 10,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: attendance == StudentListAttendance.absent
+                                ? const Color(0xFFB91C1C)
+                                : Colors.green,
                           ),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              studentName,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF0B1C30),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              grade,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF94A3B8),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          if (isBoarded) ...[
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: Colors.green.withAlpha(26),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.green),
-                              ),
-                              child: const Text(
-                                'ONBOARD',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.green,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            const Text(
-                              '07:12 AM',
-                              style: TextStyle(
-                                fontSize: 9,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                          ] else ...[
-                            const Text(
-                              'PENDING',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.orange,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            GestureDetector(
-                              onTap: () {
-                                final allowed = studentAllowedAtStop(
-                                  student: Map<String, dynamic>.from(student as Map),
-                                  arrivedStopId: arrived?.id,
-                                  isBoardAction: true,
-                                );
-                                if (!allowed) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Arrive at this student\'s pickup stop to board.'),
-                                      backgroundColor: Colors.red,
+                    const SizedBox(width: 4),
+                    const Icon(
+                      Icons.chevron_right,
+                      color: Color(0xFF64748B),
+                      size: 20,
+                    ),
+                  ],
+                    ),
+                    if (studentGuardians.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 8,
+                        children: studentGuardians
+                            .map(
+                              (g) => InkWell(
+                                onTap: () => _callGuardian(g.phone),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    GuardianPhotoThumbnail(
+                                      name: g.name,
+                                      photoUrl: g.photoUrl,
+                                      radius: 14,
                                     ),
-                                  );
-                                  return;
-                                }
-                                _updateStudentStatus(student, "Present");
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFF10B981),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  _isPickupRun ? 'PICKUP' : 'DROPOFF',
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                  ),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      g.name,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF0B1C30),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ),
-                          ],
-                        ],
-                      ),
-                      const SizedBox(width: 8),
-                      const Icon(
-                        Icons.chevron_right,
-                        color: Color(0xFF64748B),
-                        size: 20,
+                            )
+                            .toList(),
                       ),
                     ],
-                  ),
+                  ],
                 ),
               );
             },
@@ -2490,6 +2742,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     }
 
     final hideSchoolHeader = _currentTab == 1 && isTripActive;
+    final tripImmersive = hideSchoolHeader;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FF),
@@ -2505,12 +2758,13 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         children: [
           if (!hideSchoolHeader) _buildHeaderSection(context),
 
-          // Scrollable body content
           Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16.0),
-              child: _buildTabBody(isSos, isTripActive, routeName, tripName, telemetry),
-            ),
+            child: tripImmersive
+                ? _buildTripTab(isTripActive, telemetry)
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.all(16.0),
+                    child: _buildTabBody(isSos, isTripActive, routeName, tripName, telemetry),
+                  ),
           ),
         ],
       ),
@@ -2550,29 +2804,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           ],
         ),
       ),
-      floatingActionButton: () {
-        if (!isTripActive || _selectedRouteId == null) return null;
-        final arrivedFab = _arrivedStopFor(telemetry);
-        return FloatingActionButton.extended(
-          onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) => StudentSelectionScreen(
-                  routeId: _selectedRouteId!,
-                  tenantId: _tenantController.text.trim(),
-                  tripId: _selectedTripId ?? '',
-                  stops: _stopsList,
-                  runType: _selectedRunType,
-                ),
-              ),
-            );
-          },
-          icon: Icon(_isPickupRun ? Icons.login : Icons.logout),
-          label: Text(_attendanceFabLabel(arrivedFab)),
-          backgroundColor: const Color(0xFF10B981),
-          foregroundColor: Colors.white,
-        );
-      }(),
     );
   }
 
