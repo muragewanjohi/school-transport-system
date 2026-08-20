@@ -15,6 +15,8 @@ class ParentLiveSnapshot {
   final int delaySeconds;
   final DateTime? predictedArrival;
   final String? transitStatus;
+  final String? attendance;
+  final String? direction;
 
   const ParentLiveSnapshot({
     required this.tripActive,
@@ -29,6 +31,8 @@ class ParentLiveSnapshot {
     this.delaySeconds = 0,
     this.predictedArrival,
     this.transitStatus,
+    this.attendance,
+    this.direction,
   });
 
   bool get hasBusFix => lat != null && lng != null;
@@ -55,6 +59,10 @@ class ParentLiveSnapshot {
       arrival = DateTime.tryParse(rawArrival.toString())?.toUtc();
     }
 
+    final direction = trip['direction']?.toString();
+    final attendance = body['attendance']?.toString();
+    final rawTransit = body['transit_status']?.toString();
+
     return ParentLiveSnapshot(
       tripActive: body['trip_active'] == true,
       lat: (live?['lat'] as num?)?.toDouble(),
@@ -64,10 +72,17 @@ class ParentLiveSnapshot {
       vehiclePlate: trip['vehicle_plate']?.toString(),
       driverName: trip['driver_name']?.toString(),
       nextStopName: nextStop?['name']?.toString(),
-      etaMinutes: (eta?['eta_minutes'] as num?)?.toInt(),
+      etaMinutes: (eta?['eta_minutes'] as num?)?.toInt() ??
+          etaMinutesFromArrival(arrival),
       delaySeconds: (eta?['delay_seconds'] as num?)?.toInt() ?? 0,
-      predictedArrival: arrival,
-      transitStatus: body['transit_status']?.toString(),
+      predictedArrival: etaMinutesFromArrival(arrival) == null ? null : arrival,
+      transitStatus: parentChildStatusLabel(
+        rawTransit,
+        attendance: attendance,
+        direction: direction,
+      ),
+      attendance: attendance,
+      direction: direction,
     );
   }
 }
@@ -235,8 +250,33 @@ String parentArrivalStatusLabel({
 }
 
 /// Child column title for the live trip summary.
-String parentChildStatusLabel(String? transitStatus) {
+/// Prefers trip-manifest attendance when available; never shows raw "pending".
+String parentChildStatusLabel(
+  String? transitStatus, {
+  String? attendance,
+  String? direction,
+}) {
+  final att = (attendance ?? '').trim().toLowerCase();
+  if (att == 'boarded') return 'On the Bus';
+  if (att == 'dropped_off') return 'Dropped off';
+  if (att == 'absent' || att == 'no_show') return 'Absent';
+  if (att == 'pending') {
+    return direction == 'SCHOOL_TO_HOME' ? 'At school' : 'Waiting for pickup';
+  }
+
   final value = (transitStatus ?? '').trim();
-  if (value.isEmpty) return 'En route';
+  if (value.isEmpty || value.toLowerCase() == 'pending') {
+    return direction == 'SCHOOL_TO_HOME' ? 'At school' : 'Waiting for pickup';
+  }
   return value;
+}
+
+/// Minutes until [arrival]; null when missing or stale (more than 2 minutes past).
+int? etaMinutesFromArrival(DateTime? arrival, [DateTime? now]) {
+  if (arrival == null) return null;
+  final base = (now ?? DateTime.now()).toUtc();
+  final secs = arrival.toUtc().difference(base).inSeconds;
+  if (secs < -120) return null;
+  if (secs <= 0) return 0;
+  return (secs / 60).ceil();
 }

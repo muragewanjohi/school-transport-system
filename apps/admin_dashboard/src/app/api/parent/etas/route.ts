@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { parentSessionFromRequest } from "@/lib/parentSession";
+import { etaMinutesFromPredictedArrival } from "@/lib/parentLive";
 
 const querySchema = z.object({
   student_id: z.string().uuid("student_id must be a UUID"),
@@ -25,13 +26,6 @@ type EtaRow = {
   delay_seconds: number;
   updated_at: string;
 };
-
-function minutesUntil(iso: string, now = new Date()): number {
-  const arrivalMs = new Date(iso).getTime();
-  const secs = Math.floor((arrivalMs - now.getTime()) / 1000);
-  if (secs <= 0) return 0;
-  return Math.ceil(secs / 60);
-}
 
 export async function GET(request: Request) {
   try {
@@ -95,11 +89,29 @@ export async function GET(request: Request) {
       });
     }
 
+    const { data: tripRows } = await db
+      .from("trips")
+      .select("id")
+      .eq("route_id", row.route_id)
+      .eq("tenant_id", parent.tenant_id)
+      .eq("status", "in_progress")
+      .order("started_at", { ascending: false })
+      .limit(1);
+    const tripId = (tripRows?.[0] as { id?: string } | undefined)?.id;
+    if (!tripId) {
+      return NextResponse.json({
+        success: true,
+        eta: null,
+        reason: "no_active_trip",
+      });
+    }
+
     const { data: etaRows, error: etaError } = await db
       .from("trip_stop_etas")
       .select("stop_id, route_id, trip_id, predicted_arrival, delay_seconds, updated_at")
       .eq("route_id", row.route_id)
       .eq("stop_id", stopId)
+      .eq("trip_id", tripId)
       .eq("tenant_id", parent.tenant_id)
       .order("updated_at", { ascending: false })
       .limit(1);
@@ -117,6 +129,15 @@ export async function GET(request: Request) {
       });
     }
 
+    const etaMinutes = etaMinutesFromPredictedArrival(eta.predicted_arrival);
+    if (etaMinutes == null) {
+      return NextResponse.json({
+        success: true,
+        eta: null,
+        reason: "stale_eta",
+      });
+    }
+
     return NextResponse.json({
       success: true,
       eta: {
@@ -126,7 +147,7 @@ export async function GET(request: Request) {
         trip_id: eta.trip_id,
         predicted_arrival: eta.predicted_arrival,
         delay_seconds: eta.delay_seconds,
-        eta_minutes: minutesUntil(eta.predicted_arrival),
+        eta_minutes: etaMinutes,
         updated_at: eta.updated_at,
       },
     });

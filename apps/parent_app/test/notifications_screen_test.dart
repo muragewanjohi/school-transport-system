@@ -46,6 +46,34 @@ void main() {
     expect(find.text('No Notifications'), findsOneWidget);
     expect(find.textContaining('Trip alerts will show up here'), findsOneWidget);
   });
+
+  testWidgets('embedded tab hides back button', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: NotificationsScreen(
+          isEmbedded: true,
+          loader: _emptyInbox,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Notifications'), findsOneWidget);
+    expect(find.byIcon(Icons.arrow_back_rounded), findsNothing);
+  });
+
+  testWidgets('pushed route shows back button', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: NotificationsScreen(
+          loader: _emptyInbox,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
+  });
 }
 
 Future<ParentNotificationsInbox> _emptyInbox() async {

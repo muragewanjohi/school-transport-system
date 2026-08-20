@@ -7,6 +7,25 @@ class SupabaseService {
 
   static SupabaseClient get client => Supabase.instance.client;
 
+  /// Update parent-editable student profile fields (name, home address).
+  static Future<bool> updateStudentProfile(
+    String studentId, {
+    required String name,
+    String? address,
+  }) async {
+    try {
+      final Map<String, dynamic> updateData = {'name': name};
+      if (address != null) {
+        updateData['address'] = address;
+      }
+      await client.from('students').update(updateData).eq('id', studentId);
+      return true;
+    } catch (e) {
+      print('Error updating student profile: $e');
+      return false;
+    }
+  }
+
   /// Update student attendance status (Present vs Absent)
   static Future<bool> updateStudentStatus(String studentId, String status) async {
     try {

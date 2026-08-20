@@ -91,13 +91,17 @@ describe("GET /api/parent/live", () => {
           route_id: ROUTE_ID,
           pickup_stop_id: STOP_ID,
           dropoff_stop_id: null,
-          transit_status: "On the Bus",
+          transit_status: "pending",
           guardians: [],
         },
         error: null,
       })
       .mockResolvedValueOnce({
         data: { phone: "+254724511201" },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { attendance: "boarded" },
         error: null,
       })
       .mockResolvedValueOnce({
@@ -147,6 +151,8 @@ describe("GET /api/parent/live", () => {
     const body = await res.json();
     expect(body.success).toBe(true);
     expect(body.trip_active).toBe(true);
+    expect(body.transit_status).toBe("On the Bus");
+    expect(body.attendance).toBe("boarded");
     expect(body.trip.vehicle_plate).toBe("KDD 123A");
     expect(body.live.lat).toBe(-1.27);
     expect(body.live.lng).toBe(36.8);

@@ -10,6 +10,7 @@ import 'package:parent_app/screens/map_screen.dart';
 import 'package:parent_app/screens/relocate_screen.dart';
 import 'package:parent_app/screens/attendance_form_screen.dart';
 import 'package:parent_app/screens/notifications_screen.dart';
+import 'package:parent_app/screens/student_info_screen.dart';
 import 'package:parent_app/utils/eta_utils.dart';
 import 'package:parent_app/widgets/eta_display.dart';
 import 'package:parent_app/widgets/delete_account_link.dart';
@@ -19,6 +20,10 @@ import 'package:parent_app/services/parent_notifications_service.dart';
 import 'package:parent_app/services/parent_children_service.dart';
 import 'package:parent_app/utils/parent_children_logic.dart';
 import 'package:parent_app/services/parent_push_service.dart';
+import 'package:parent_app/services/parent_live_service.dart';
+import 'package:parent_app/utils/parent_attendance_logic.dart';
+import 'package:parent_app/utils/parent_grade_label.dart';
+import 'package:parent_app/utils/parent_map_logic.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -57,8 +62,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Timer? _notificationPollTimer;
   RealtimeChannel? _notificationsChannel;
   int _unreadCount = 0;
+  NotificationsScreen? _notificationsTab;
   String? _latestNotificationId;
   bool _inboxPrimed = false;
+
+  /// Active trip snapshot for Home status / bus / ETA cards + attendance gate.
+  ParentLiveSnapshot? _homeLive;
+  String? get _attendanceTripDirection => _homeLive?.direction;
+  String? get _attendanceManifest => _homeLive?.attendance;
 
   Future<void> _showPhotoPickerModal(String id, String targetTable, String name, String? currentAvatarUrl) async {
     showModalBottomSheet(
@@ -304,11 +315,37 @@ class _DashboardScreenState extends State<DashboardScreen> {
     setState(() => _selectedStopEta = eta);
   }
 
+  Future<void> _refreshAttendanceGate() async {
+    if (_students.isEmpty || _selectedStudentIndex >= _students.length) {
+      if (mounted) setState(() => _homeLive = null);
+      return;
+    }
+    final student = Map<String, dynamic>.from(_students[_selectedStudentIndex] as Map);
+    final studentId = student['id']?.toString() ?? '';
+    final routeId = student['route_id']?.toString();
+    try {
+      final live = await ParentLiveService.fetchLive(studentId, routeId: routeId)
+          .timeout(const Duration(seconds: 8), onTimeout: () => null);
+      if (!mounted) return;
+      setState(() {
+        _homeLive = live;
+        if (live?.transitStatus != null && live!.transitStatus!.isNotEmpty) {
+          student['transit_status'] = live.transitStatus;
+          _students[_selectedStudentIndex] = student;
+        }
+      });
+    } catch (_) {
+      // Keep last known live card; toggle still uses local transit_status.
+    }
+  }
+
   void _startEtaPolling() {
     _refreshSelectedStudentEta();
+    _refreshAttendanceGate();
     _etaPollTimer?.cancel();
     _etaPollTimer = Timer.periodic(const Duration(seconds: 20), (_) {
       _refreshSelectedStudentEta();
+      _refreshAttendanceGate();
     });
   }
 
@@ -371,10 +408,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Future<void> _openNotifications() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (context) => const NotificationsScreen()),
-    );
-    await _refreshUnread(announceNew: false);
+    setState(() {
+      _currentIndex = 2;
+    });
   }
 
   String _getGreeting() {
@@ -502,50 +538,59 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _toggleAbsenteeism(int index, bool isPresent) async {
-    final student = _students[index];
-    final String studentId = student['id'];
-    final String transitStatus = student['transit_status'] ?? student['status'] ?? 'Present';
-    
-    // Check if student has onboarded the bus
-    final bool isOnboarded = transitStatus == 'On the Bus' || 
-                             transitStatus == 'Boarded' || 
-                             transitStatus == 'In Transit';
+  Future<void> _toggleAbsenteeism(int index, bool markPresent) async {
+    if (index < 0 || index >= _students.length) return;
+    final student = Map<String, dynamic>.from(_students[index] as Map);
+    final String studentId = student['id']?.toString() ?? '';
+    if (studentId.isEmpty) return;
 
-    if (isOnboarded) {
+    final canToggle = ParentAttendanceGate.canToggle(
+      tripDirection: _attendanceTripDirection,
+      transitStatus: student['transit_status']?.toString(),
+      studentStatus: student['status']?.toString(),
+      manifestAttendance: _attendanceManifest,
+    );
+    if (!canToggle) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Row(
               children: [
-                Icon(Icons.lock, color: Colors.white, size: 18),
-                SizedBox(width: 8),
+                const Icon(Icons.lock, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
                 Expanded(
-                  child: Text('Student is currently on the bus. Attendance status cannot be changed for this trip.'),
+                  child: Text(
+                    ParentAttendanceGate.lockReason(
+                      tripDirection: _attendanceTripDirection,
+                      transitStatus: student['transit_status']?.toString(),
+                      studentStatus: student['status']?.toString(),
+                      manifestAttendance: _attendanceManifest,
+                    ),
+                  ),
                 ),
               ],
             ),
-            backgroundColor: Color(0xFFEF4444),
+            backgroundColor: const Color(0xFFEF4444),
             behavior: SnackBarBehavior.floating,
-            duration: Duration(seconds: 4),
+            duration: const Duration(seconds: 4),
           ),
         );
       }
       return;
     }
 
-    final String newStatus = isPresent ? 'Present' : 'Absent';
+    final String previous = (student['status'] ?? 'Present').toString();
+    final String newStatus = markPresent ? 'Present' : 'Absent';
+    if (previous == newStatus) return;
 
-    // Optimistic UI update
     setState(() {
       _students[index]['status'] = newStatus;
     });
 
     final success = await SupabaseService.updateStudentStatus(studentId, newStatus);
     if (!success) {
-      // Revert if failed
       setState(() {
-        _students[index]['status'] = isPresent ? 'Absent' : 'Present';
+        _students[index]['status'] = previous;
       });
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -557,15 +602,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         );
       }
     } else {
-      // Save updated data to cache
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('children_json', json.encode(_students));
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('${student['name']} marked as $newStatus.'),
-            backgroundColor: isPresent ? const Color(0xFF10B981) : Colors.amber,
+            backgroundColor: markPresent ? const Color(0xFF10B981) : Colors.amber,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -613,9 +657,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 itemBuilder: (context, index) {
                   final child = _students[index];
                   final isSelected = index == _selectedStudentIndex;
-                  final String grade = child['grade'] != null
-                      ? 'Grade ${child['grade']}'
-                      : (child['class_name'] != null ? 'Grade ${child['class_name']}' : 'Grade 5A');
+                  final String grade = formatStudentGradeLabel(
+                    child['grade']?.toString(),
+                    child['class_name']?.toString(),
+                  );
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 12),
@@ -635,6 +680,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           _selectedStudentIndex = index;
                         });
                         _refreshSelectedStudentEta();
+                        _refreshAttendanceGate();
                         Navigator.of(context).pop();
                       },
                       leading: CircleAvatar(
@@ -690,7 +736,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
         currentTabWidget = _buildMapTab();
         break;
       case 2:
-        currentTabWidget = _buildAttendanceTab();
+        _notificationsTab ??= NotificationsScreen(
+          isEmbedded: true,
+          onUnreadCountChanged: (count) {
+            if (!mounted) return;
+            setState(() => _unreadCount = count);
+          },
+        );
+        currentTabWidget = _notificationsTab!;
         break;
       case 3:
         currentTabWidget = _buildProfileTab();
@@ -701,14 +754,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC), // Clean white-slate canvas background
-      appBar: (_currentIndex == 0 || _currentIndex == 3)
-          ? null // Home and Profile tabs render custom header row matching design
+      appBar: (_currentIndex == 0 || _currentIndex == 2 || _currentIndex == 3)
+          ? null // Home, Notifications, and Profile tabs render their own chrome
           : AppBar(
-              title: Text(
-                _currentIndex == 1
-                    ? 'Live Transit Map'
-                    : 'Attendance Manager',
-                style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18),
+              title: const Text(
+                'Live Transit Map',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18),
               ),
               backgroundColor: const Color(0xFF0A0E1A),
               foregroundColor: Colors.white,
@@ -717,10 +768,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF10B981)))
-          : RefreshIndicator(
-              onRefresh: _loadSessionAndData,
-              child: currentTabWidget,
-            ),
+          : _currentIndex == 2
+              ? currentTabWidget
+              : RefreshIndicator(
+                  onRefresh: _loadSessionAndData,
+                  child: currentTabWidget,
+                ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _currentIndex,
         onTap: (index) {
@@ -737,29 +790,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
         selectedLabelStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
         unselectedLabelStyle: const TextStyle(fontSize: 12),
         elevation: 12,
-        items: const [
-          BottomNavigationBarItem(
+        items: [
+          const BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),
             activeIcon: Icon(Icons.home),
             label: 'Home',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.map_outlined),
             activeIcon: Icon(Icons.map),
             label: 'Map',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.check_circle_outline),
-            activeIcon: Icon(Icons.check_circle),
-            label: 'Attendance',
+            icon: _navNotificationsIcon(active: false),
+            activeIcon: _navNotificationsIcon(active: true),
+            label: 'Notifications',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
             activeIcon: Icon(Icons.person),
             label: 'Profile',
           ),
         ],
       ),
+    );
+  }
+
+  Widget _navNotificationsIcon({required bool active}) {
+    final icon = Icon(
+      active ? Icons.notifications : Icons.notifications_outlined,
+    );
+    if (_unreadCount <= 0) return icon;
+    return Badge(
+      label: Text(_unreadCount > 9 ? '9+' : '$_unreadCount'),
+      child: icon,
     );
   }
 
@@ -799,41 +863,92 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final bool isPresent = (student['status'] ?? 'Present') == 'Present';
     
     // Resolve dynamic fields
-    final String studentName = student['name'] ?? 'James Mwangi';
+    final String studentName = student['name'] ?? 'Child';
     final String firstName = studentName.split(' ').first;
-    final String gradeText = student['grade'] != null
-        ? 'Grade ${student['grade']}'
-        : (student['class_name'] != null ? 'Grade ${student['class_name']}' : 'Grade 5A');
-        
-    String licensePlate = 'Bus 12';
-    String conductorName = 'John Kamau';
-    String conductorPhone = '+254 712 345 678';
-    
-    try {
-      if (student['route'] != null && student['route']['vehicle'] != null) {
-        final vehicle = student['route']['vehicle'];
-        if (vehicle['license_plate'] != null && (vehicle['license_plate'] as String).isNotEmpty) {
-          licensePlate = vehicle['license_plate'];
-        }
-        
-        if (vehicle['conductor'] != null) {
+    final String gradeText = formatStudentGradeLabel(
+      student['grade']?.toString(),
+      student['class_name']?.toString(),
+    );
+
+    final live = _homeLive;
+    final String transitStatusText = () {
+      final fromLive = live?.transitStatus?.trim();
+      if (fromLive != null && fromLive.isNotEmpty) return fromLive;
+      return parentChildStatusLabel(
+        student['transit_status']?.toString(),
+        attendance: live?.attendance,
+        direction: live?.direction,
+      );
+    }();
+
+    final String vehicleLabel = () {
+      final plate = live?.vehiclePlate?.trim();
+      if (plate != null && plate.isNotEmpty) return plate;
+      try {
+        final vehicle = student['route']?['vehicle'];
+        final nested = vehicle is Map ? vehicle['license_plate']?.toString() : null;
+        if (nested != null && nested.isNotEmpty) return nested;
+      } catch (_) {}
+      return '—';
+    }();
+
+    final String staffName = () {
+      final driver = live?.driverName?.trim();
+      if (driver != null && driver.isNotEmpty) return driver;
+      try {
+        final vehicle = student['route']?['vehicle'];
+        if (vehicle is Map) {
           final cond = vehicle['conductor'];
-          if (cond['name'] != null) conductorName = cond['name'];
-          if (cond['phone'] != null) conductorPhone = cond['phone'];
-        } else if (vehicle['driver'] != null) {
+          if (cond is Map && cond['name'] != null) return cond['name'].toString();
           final drv = vehicle['driver'];
-          if (drv['name'] != null) conductorName = drv['name'];
-          if (drv['phone'] != null) conductorPhone = drv['phone'];
+          if (drv is Map && drv['name'] != null) return drv['name'].toString();
+        }
+      } catch (_) {}
+      return '—';
+    }();
+
+    final String staffLabel = live?.driverName != null && live!.driverName!.trim().isNotEmpty
+        ? 'Driver'
+        : 'Conductor';
+
+    String? staffPhone;
+    try {
+      final vehicle = student['route']?['vehicle'];
+      if (vehicle is Map) {
+        final cond = vehicle['conductor'];
+        if (cond is Map && cond['phone'] != null) staffPhone = cond['phone'].toString();
+        final drv = vehicle['driver'];
+        if (staffPhone == null && drv is Map && drv['phone'] != null) {
+          staffPhone = drv['phone'].toString();
         }
       }
     } catch (_) {}
 
+    final String nextStopName = live?.nextStopName?.trim().isNotEmpty == true
+        ? live!.nextStopName!
+        : (student['pickup_stop']?['name']?.toString() ??
+            student['dropoff_stop']?['name']?.toString() ??
+            '—');
+
+    final int? etaMinutes = live?.etaMinutes ?? _selectedStopEta?.freshMinutesUntil();
+    final int delaySeconds = live?.delaySeconds ?? _selectedStopEta?.delaySeconds ?? 0;
+    final String etaTitle = live?.direction == 'SCHOOL_TO_HOME'
+        ? 'ETA to Home'
+        : (live?.direction == 'HOME_TO_SCHOOL' ? 'ETA to School' : 'ETA');
+
     final String parentFirstName = _parentName.split(' ').first;
-    final String transitStatusText = student['transit_status'] ?? 'On the Bus';
-    final bool isOnboarded = transitStatusText == 'On the Bus' || 
-                             transitStatusText == 'Boarded' || 
-                             student['status'] == 'Boarded';
-    final bool isDropped = transitStatusText == 'Dropped' || student['status'] == 'Dropped';
+    final bool canToggleAttendance = ParentAttendanceGate.canToggle(
+      tripDirection: live?.direction,
+      transitStatus: transitStatusText,
+      studentStatus: student['status']?.toString(),
+      manifestAttendance: live?.attendance,
+    );
+    final String attendanceLockReason = ParentAttendanceGate.lockReason(
+      tripDirection: live?.direction,
+      transitStatus: transitStatusText,
+      studentStatus: student['status']?.toString(),
+      manifestAttendance: live?.attendance,
+    );
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -953,6 +1068,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             _selectedStudentIndex = index;
                           });
                           _refreshSelectedStudentEta();
+                          _refreshAttendanceGate();
                         },
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 200),
@@ -1115,7 +1231,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ),
                                 const SizedBox(height: 6),
                                 Text(
-                                  licensePlate,
+                                  vehicleLabel,
                                   style: const TextStyle(
                                     fontSize: 17,
                                     fontWeight: FontWeight.w800,
@@ -1145,41 +1261,47 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              children: [
-                                const Text(
-                                  'Conductor: ',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Color(0xFF475569),
+                            Flexible(
+                              child: Row(
+                                children: [
+                                  Text(
+                                    '$staffLabel: ',
+                                    style: const TextStyle(
+                                      fontSize: 14,
+                                      color: Color(0xFF475569),
+                                    ),
                                   ),
-                                ),
-                                Text(
-                                  conductorName,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF0F172A),
+                                  Flexible(
+                                    child: Text(
+                                      staffName,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold,
+                                        color: Color(0xFF0F172A),
+                                      ),
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            InkWell(
-                              onTap: () => _callConductor(conductorPhone),
-                              child: Container(
-                                width: 36,
-                                height: 36,
-                                decoration: const BoxDecoration(
-                                  color: Colors.white,
-                                  shape: BoxShape.circle,
-                                ),
-                                child: const Icon(
-                                  Icons.phone,
-                                  color: Color(0xFF2563EB),
-                                  size: 20,
-                                ),
+                                ],
                               ),
                             ),
+                            if (staffPhone != null && staffPhone.isNotEmpty)
+                              InkWell(
+                                onTap: () => _callConductor(staffPhone!),
+                                child: Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: const BoxDecoration(
+                                    color: Colors.white,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.phone,
+                                    color: Color(0xFF2563EB),
+                                    size: 20,
+                                  ),
+                                ),
+                              ),
                           ],
                         ),
                       ],
@@ -1190,16 +1312,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   // ETA & Next Stop Metrics Sub-Cards
                   Row(
                     children: [
-                      // ETA Card (live from trip_stop_etas)
                       Expanded(
                         child: EtaMetricCard(
-                          title: 'ETA to School',
-                          etaMinutes: _selectedStopEta?.minutesUntil(),
-                          delaySeconds: _selectedStopEta?.delaySeconds ?? 0,
+                          title: etaTitle,
+                          etaMinutes: etaMinutes,
+                          delaySeconds: delaySeconds,
                         ),
                       ),
                       const SizedBox(width: 12),
-                      // Next Stop Card
                       Expanded(
                         child: Container(
                           padding: const EdgeInsets.all(14),
@@ -1208,10 +1328,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             borderRadius: BorderRadius.circular(16),
                             border: Border.all(color: const Color(0xFFF1F5F9)),
                           ),
-                          child: const Column(
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
+                              const Text(
                                 'Next Stop',
                                 style: TextStyle(
                                   fontSize: 12,
@@ -1219,21 +1339,21 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   color: Color(0xFF64748B),
                                 ),
                               ),
-                              SizedBox(height: 4),
+                              const SizedBox(height: 4),
                               Text(
-                                'Kiambu Rd Stage',
+                                nextStopName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
+                                style: const TextStyle(
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                   color: Color(0xFF0F172A),
                                 ),
                               ),
-                              SizedBox(height: 2),
+                              const SizedBox(height: 2),
                               Text(
-                                '6 mins away',
-                                style: TextStyle(
+                                formatEtaMinutes(etaMinutes),
+                                style: const TextStyle(
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                   color: Color(0xFF0F172A),
@@ -1250,7 +1370,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
             const SizedBox(height: 20),
 
-            // 3. TODAY'S RIDING STATUS (Attendance Toggle Card - Image 2)
+            // 3. TODAY'S RIDING STATUS — Present / Absent toggle (pickup, before boarding)
             Container(
               padding: const EdgeInsets.all(18),
               decoration: BoxDecoration(
@@ -1266,17 +1386,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 ],
               ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'TODAY\'S RIDING STATUS',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF64748B),
-                          letterSpacing: 0.8,
+                      const Expanded(
+                        child: Text(
+                          'TODAY\'S RIDING STATUS',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF64748B),
+                            letterSpacing: 0.8,
+                          ),
                         ),
                       ),
                       Container(
@@ -1286,7 +1408,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          isPresent ? 'RIDING TODAY' : 'ABSENT TODAY',
+                          isPresent ? 'PRESENT' : 'ABSENT',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
@@ -1296,183 +1418,38 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
-
-                  // Pill Button Toggle Row (Image 2 design)
-                  Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF8FAFC),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      isPresent ? 'Riding today' : 'Not riding today',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF0F172A),
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        // Present Button
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => _openAttendanceForm(student, true),
-                            borderRadius: BorderRadius.circular(12),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                color: isPresent ? const Color(0xFF10B981) : Colors.transparent,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.check_circle,
-                                    size: 18,
-                                    color: isPresent ? Colors.white : const Color(0xFF94A3B8),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Present',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                      color: isPresent ? Colors.white : const Color(0xFF64748B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-
-                        // Absent / Skip Button
-                        Expanded(
-                          child: InkWell(
-                            onTap: () => _openAttendanceForm(student, false),
-                            borderRadius: BorderRadius.circular(12),
-                            child: AnimatedContainer(
-                              duration: const Duration(milliseconds: 200),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                              decoration: BoxDecoration(
-                                color: !isPresent ? const Color(0xFFEF4444) : Colors.transparent,
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.cancel,
-                                    size: 18,
-                                    color: !isPresent ? Colors.white : const Color(0xFF94A3B8),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Absent / Skip',
-                                    style: TextStyle(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.bold,
-                                      color: !isPresent ? Colors.white : const Color(0xFF64748B),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                    subtitle: Text(
+                      canToggleAttendance
+                          ? 'Toggle before pickup on a pickup trip'
+                          : attendanceLockReason,
+                      style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
                     ),
+                    value: isPresent,
+                    activeThumbColor: Colors.white,
+                    activeTrackColor: const Color(0xFF10B981),
+                    inactiveThumbColor: Colors.white,
+                    inactiveTrackColor: const Color(0xFFFECACA),
+                    onChanged: canToggleAttendance
+                        ? (value) => _toggleAbsenteeism(_selectedStudentIndex, value)
+                        : null,
                   ),
-                  if (isOnboarded) ...[
-                    const SizedBox(height: 8),
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.lock_outline, size: 12, color: Color(0xFF94A3B8)),
-                        SizedBox(width: 4),
-                        Text(
-                          'Attendance locked during active trip',
-                          style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-                        ),
-                      ],
-                    ),
-                  ],
                 ],
               ),
             ),
             const SizedBox(height: 24),
 
-            // 4. TODAY'S SCHEDULE SECTION (Vertical Timeline)
-            Container(
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
-                border: Border.all(color: const Color(0xFFF1F5F9)),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.03),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  )
-                ],
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Today\'s Schedule',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF0F172A),
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            '${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year} — Today',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF64748B),
-                            ),
-                          ),
-                        ],
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          setState(() {
-                            _currentIndex = 2; // Attendance tab
-                          });
-                        },
-                        child: const Text(
-                          'View all',
-                          style: TextStyle(
-                            color: Color(0xFF2563EB),
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-
-                  _buildTimelineNode('7:00 AM', 'Trip Started', isCompleted: isPresent, isLast: false),
-                  _buildTimelineNode('7:07 AM', 'Bus Approaching', isCompleted: isPresent, isLast: false),
-                  _buildTimelineNode('7:15 AM', isPresent ? '$firstName Boarded' : '$firstName Marked Absent', isCompleted: isPresent && isOnboarded, isLast: false),
-                  _buildTimelineNode('7:50 AM', 'Arrive at School', isCompleted: isPresent && isDropped, isLast: false),
-                  _buildTimelineNode('2:30 PM', 'School Ends', isCompleted: false, isLast: false),
-                  _buildTimelineNode('2:40 PM', 'Bus Approaching Home', isCompleted: false, isLast: false),
-                  _buildTimelineNode('2:50 PM', '$firstName Dropped Home', isCompleted: false, isLast: true),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // 5. PRIMARY CTA BUTTON: Track Bus
+            // 4. PRIMARY CTA BUTTON: Track Bus
             Container(
               width: double.infinity,
               height: 54,
@@ -1527,68 +1504,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildTimelineNode(String time, String title, {required bool isCompleted, required bool isLast}) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 70,
-            child: Text(
-              time,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: isCompleted ? const Color(0xFF334155) : const Color(0xFF94A3B8),
-              ),
-            ),
-          ),
-          Column(
-            children: [
-              Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: isCompleted ? const Color(0xFF10B981) : Colors.transparent,
-                  border: Border.all(
-                    color: isCompleted ? const Color(0xFF10B981) : const Color(0xFFCBD5E1),
-                    width: 2,
-                  ),
-                ),
-                child: isCompleted
-                    ? const Icon(Icons.check, size: 14, color: Colors.white)
-                    : null,
-              ),
-              if (!isLast)
-                Expanded(
-                  child: Container(
-                    width: 2,
-                    margin: const EdgeInsets.symmetric(vertical: 2),
-                    color: isCompleted ? const Color(0xFF10B981) : const Color(0xFFE2E8F0),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Text(
-                title,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: isCompleted ? FontWeight.bold : FontWeight.w500,
-                  color: isCompleted ? const Color(0xFF0F172A) : const Color(0xFF64748B),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildMapTab() {
     if (_students.isEmpty) {
       return _buildEmptyState();
@@ -1618,187 +1533,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       routeId: routeId,
       studentName: studentName,
       isEmbedded: true,
-    );
-  }
-
-  Widget _buildAttendanceTab() {
-    if (_students.isEmpty) {
-      return _buildEmptyState();
-    }
-
-    return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'ATTENDANCE REGISTRY',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF94A3B8),
-              letterSpacing: 1.0,
-            ),
-          ),
-          const SizedBox(height: 16),
-
-          ListView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: _students.length,
-            itemBuilder: (context, index) {
-              final child = _students[index];
-              final bool isPresent = (child['status'] ?? 'Present') == 'Present';
-              final String studentName = child['name'] ?? 'Child';
-              final String firstName = studentName.split(' ').first;
-              final String gradeText = child['grade'] != null
-                  ? 'Grade ${child['grade']}'
-                  : (child['class_name'] != null ? 'Grade ${child['class_name']}' : 'Grade 5A');
-              final String transitStatusText = child['transit_status'] ?? 'On the Bus';
-              final bool isOnboarded = transitStatusText == 'On the Bus' || 
-                                       transitStatusText == 'Boarded' || 
-                                       child['status'] == 'Boarded';
-
-              return Container(
-                margin: const EdgeInsets.only(bottom: 16),
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFF1F5F9)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.04),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
-                    )
-                  ],
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 26,
-                          backgroundColor: const Color(0xFFDBEAFE),
-                          child: Text(
-                            firstName[0].toUpperCase(),
-                            style: const TextStyle(
-                              fontSize: 20,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1E40AF),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                studentName,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF0F172A),
-                                ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                gradeText,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isPresent ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Text(
-                            isPresent ? 'RIDING TODAY' : 'ABSENT TODAY',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
-                              color: isPresent ? const Color(0xFF065F46) : const Color(0xFF92400E),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    const Divider(color: Color(0xFFF1F5F9), height: 1),
-                    const SizedBox(height: 14),
-
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              isPresent ? Icons.check_circle_outline : Icons.cancel_outlined,
-                              color: isPresent ? const Color(0xFF10B981) : const Color(0xFFEF4444),
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              isPresent ? 'Transport Status: Present' : 'Transport Status: Absent',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w600,
-                                color: isPresent ? const Color(0xFF0F172A) : const Color(0xFFEF4444),
-                              ),
-                            ),
-                          ],
-                        ),
-                        ElevatedButton(
-                          onPressed: () => _openAttendanceForm(child, isPresent),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2563EB),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                          ),
-                          child: const Text(
-                            'UPDATE',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (isOnboarded) ...[
-                      const SizedBox(height: 8),
-                      const Row(
-                        children: [
-                          Icon(Icons.lock_outline, size: 12, color: Color(0xFF94A3B8)),
-                          SizedBox(width: 4),
-                          Text(
-                            'Attendance locked during active trip',
-                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-      ),
     );
   }
 
@@ -1843,10 +1577,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final String studentGrade = student['grade'] != null 
         ? '${student['grade']} ${student['class_name'] ?? ''}'.trim() 
         : 'Grade 1 Nile';
-    final String schoolName = student['tenant']?['name'] ?? student['school_name'] ?? student['school']?['name'] ?? 'Oakwood Primary School';
-    final String admissionNo = student['admission_no'] ?? student['admission_number'] ?? (student['id'] != null ? student['id'].toString().substring(0, 8).toUpperCase() : '2023/1456');
-    final String dateOfBirth = student['dob'] ?? student['date_of_birth'] ?? '12 May 2018';
-    final String gender = student['gender'] ?? 'Male';
     final String homeAddress = student['address'] ?? student['home_address'] ?? 'Kiambu Road, Nairobi';
     final String pickupStageName = student['pickup_stop']?['name'] ?? student['pickup_stage_name'] ?? student['pickup_stage'] ?? 'Kiambu Rd Stage';
     final String pickupStageAddress = student['pickup_stop']?['name'] != null
@@ -2057,6 +1787,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           _selectedStudentIndex = index;
                         });
                         _refreshSelectedStudentEta();
+                        _refreshAttendanceGate();
                       },
                       child: Container(
                         margin: const EdgeInsets.only(right: 12),
@@ -2166,122 +1897,70 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Child Header Row with Camera Badge
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        GestureDetector(
-                          onTap: () => _showPhotoPickerModal(studentId, 'students', studentName, studentAvatarUrl),
-                          child: Stack(
-                            children: [
-                              Container(
-                                width: 84,
-                                height: 84,
-                                decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(20),
-                                  color: const Color(0xFFF1F5F9),
-                                  image: studentAvatarUrl != null
-                                      ? DecorationImage(image: NetworkImage(studentAvatarUrl), fit: BoxFit.cover)
-                                      : null,
-                                ),
-                                child: studentAvatarUrl == null
-                                    ? const Icon(Icons.person, size: 48, color: Color(0xFF94A3B8))
+                    // Student Information — single row → editable detail page
+                    InkWell(
+                      onTap: () async {
+                        final updated = await Navigator.of(context).push<bool>(
+                          MaterialPageRoute(
+                            builder: (context) => StudentInfoScreen(student: student),
+                          ),
+                        );
+                        if (updated == true) _loadSessionAndData();
+                      },
+                      borderRadius: BorderRadius.circular(16),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 52,
+                              height: 52,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                color: const Color(0xFFF1F5F9),
+                                image: studentAvatarUrl != null
+                                    ? DecorationImage(
+                                        image: NetworkImage(studentAvatarUrl),
+                                        fit: BoxFit.cover,
+                                      )
                                     : null,
                               ),
-                              Positioned(
-                                bottom: 4,
-                                right: 4,
-                                child: Container(
-                                  padding: const EdgeInsets.all(5),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF10B981),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(Icons.camera_alt_rounded, size: 14, color: Colors.white),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              child: studentAvatarUrl == null
+                                  ? const Icon(Icons.person, size: 28, color: Color(0xFF94A3B8))
+                                  : null,
+                            ),
+                            const SizedBox(width: 14),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Expanded(
-                                    child: Text(
-                                      studentName,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF0F172A),
-                                      ),
-                                    ),
-                                  ),
                                   const Text(
-                                    'Edit ✏️',
+                                    'Student Information',
                                     style: TextStyle(
                                       fontSize: 14,
                                       fontWeight: FontWeight.bold,
-                                      color: Color(0xFF10B981),
+                                      color: Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    '$studentName · $studentGrade',
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Color(0xFF64748B),
                                     ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFDCFCE7),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  student['status'] ?? 'Active',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF15803D),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  const Icon(Icons.school_outlined, size: 16, color: Color(0xFF64748B)),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      schoolName,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF334155),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                '$studentGrade  •  Admission No. $admissionNo',
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
-                            ],
-                          ),
+                            ),
+                            const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 22),
+                          ],
                         ),
-                      ],
+                      ),
                     ),
 
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 16),
 
                     // Soft Green Bus & Conductor Info Bar (Responsive Overflow-Free Row)
                     Container(
@@ -2355,69 +2034,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                         ],
                       ),
-                    ),
-
-                    const SizedBox(height: 24),
-
-                    // Personal Information Section
-                    const Text(
-                      'Personal Information',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-                    const SizedBox(height: 14),
-
-                    Row(
-                      children: [
-                        // DOB
-                        Expanded(
-                          child: Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle),
-                                child: const Icon(Icons.calendar_today_rounded, size: 18, color: Color(0xFF10B981)),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Date of Birth', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                                    Text(dateOfBirth, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        // Gender
-                        Expanded(
-                          child: Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(8),
-                                decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle),
-                                child: const Icon(Icons.person_outline_rounded, size: 18, color: Color(0xFF10B981)),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('Gender', style: TextStyle(fontSize: 11, color: Color(0xFF64748B))),
-                                    Text(gender, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
                     ),
 
                     const SizedBox(height: 24),

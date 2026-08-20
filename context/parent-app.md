@@ -148,35 +148,12 @@ Track Bus
 
 ---
 
-## Today's Timeline
+## Today's Riding Status
 
-Vertical timeline
+Present / Absent **toggle** on Home.
 
-Example
-
-```
-✓ Trip Started
-
-✓ Bus Approaching
-
-✓ Student Boarded
-
-○ Arrived School
-
-○ School Ends
-
-○ Bus Approaching Home
-
-○ Student Dropped Home
-```
-
-Each timeline event has
-
-Time
-
-Title
-
-Status
+- Parent may change status on a **pickup** trip (`HOME_TO_SCHOOL`) or before a trip starts.
+- Locked after the child is picked up / boarded, and on drop-off trips (`SCHOOL_TO_HOME`).
 
 ---
 
@@ -266,11 +243,21 @@ Locate Me
 
 ---
 
-# Screen 3 — Attendance
+# Screen 3 — Notifications (bottom nav)
 
 Purpose
 
-Allow parent to notify school whether transport will be used.
+Inbox for transport alerts (campus exit, stage approach, boarding, absent, delays).
+
+Same content as the header bell; embedded in the shell without a back button.
+
+Grouped by Today / Yesterday / Last Week. Unread count drives the nav badge and home bell.
+
+Present/Absent for today remains on **Home** (not a separate tab).
+
+---
+
+# Screen 3b — Attendance (Home flow)
 
 Large card
 
@@ -468,15 +455,9 @@ Guardian
 
 ---
 
-# Screen 7 — Notifications
+# Screen 7 — Notifications (detail)
 
-Grouped
-
-Today
-
-Yesterday
-
-Last Week
+Same inbox as bottom-nav Screen 3. When opened as a pushed route (legacy), shows a back button; when embedded in the shell, leading is hidden.
 
 Notification Types
 
@@ -561,15 +542,21 @@ Message School
 Sections
 
 ```
-My Children
+My Children (selector)
+
+Student Information → (single row with chevron; opens editable student page)
+
+Bus / Conductor / Pickup summary bar
 
 Home Location
 
 Pickup Stage
 
-Attendance
+Transport Schedule
 
-Trip History
+Today's Status
+
+Contacts
 
 Notifications
 
@@ -577,6 +564,12 @@ Support
 
 Settings
 ```
+
+Student Information page
+
+Editable: photo, full name, home address.
+
+Read-only school record: school name, grade/class, admission no., status.
 
 ---
 

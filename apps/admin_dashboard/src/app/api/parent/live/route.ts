@@ -6,10 +6,12 @@ import { parentSessionFromRequest } from "@/lib/parentSession";
 import { studentLinkedToParent } from "@/lib/parentChildren";
 import {
   childStopIdForDirection,
+  etaMinutesFromPredictedArrival,
   isInProgressTrip,
   nestedDirection,
   nestedName,
   nestedPlate,
+  parentChildStatusFromSources,
   parseLiveCoordinates,
 } from "@/lib/parentLive";
 
@@ -27,12 +29,6 @@ type StudentRow = {
   transit_status: string | null;
   guardians?: unknown;
 };
-
-function minutesUntil(iso: string, now = new Date()): number {
-  const secs = Math.floor((new Date(iso).getTime() - now.getTime()) / 1000);
-  if (secs <= 0) return 0;
-  return Math.ceil(secs / 60);
-}
 
 export async function GET(request: Request) {
   try {
@@ -133,6 +129,27 @@ export async function GET(request: Request) {
     const tripStatus = typeof trip?.status === "string" ? trip.status : null;
     const tripActive = isInProgressTrip(tripStatus);
     const direction = nestedDirection(trip?.schedule);
+    const tripId = typeof trip?.id === "string" ? trip.id : null;
+
+    let attendance: string | null = null;
+    if (tripActive && tripId) {
+      const { data: manifest } = await db
+        .from("trip_manifests")
+        .select("attendance")
+        .eq("trip_id", tripId)
+        .eq("student_id", student_id)
+        .eq("tenant_id", parent.tenant_id)
+        .maybeSingle();
+      if (manifest && typeof manifest.attendance === "string") {
+        attendance = manifest.attendance;
+      }
+    }
+
+    const childStatus = parentChildStatusFromSources({
+      attendance,
+      transitStatus: row.transit_status,
+      direction,
+    });
 
     const { data: liveRows } = await db
       .from("live_coordinates")
@@ -160,12 +177,13 @@ export async function GET(request: Request) {
     }
 
     let eta: Record<string, unknown> | null = null;
-    if (stopId && tripActive) {
+    if (stopId && tripActive && tripId) {
       const { data: etaRows } = await db
         .from("trip_stop_etas")
         .select("stop_id, route_id, trip_id, predicted_arrival, delay_seconds, updated_at")
         .eq("route_id", row.route_id)
         .eq("stop_id", stopId)
+        .eq("trip_id", tripId)
         .eq("tenant_id", parent.tenant_id)
         .order("updated_at", { ascending: false })
         .limit(1);
@@ -177,12 +195,15 @@ export async function GET(request: Request) {
             updated_at: string;
           }
         | undefined;
-      if (etaRow) {
+      const etaMinutes = etaRow
+        ? etaMinutesFromPredictedArrival(etaRow.predicted_arrival)
+        : null;
+      if (etaRow && etaMinutes != null) {
         eta = {
           stop_id: etaRow.stop_id,
           predicted_arrival: etaRow.predicted_arrival,
           delay_seconds: etaRow.delay_seconds,
-          eta_minutes: minutesUntil(etaRow.predicted_arrival),
+          eta_minutes: etaMinutes,
           updated_at: etaRow.updated_at,
         };
       }
@@ -193,7 +214,7 @@ export async function GET(request: Request) {
       trip_active: tripActive,
       trip: tripActive
         ? {
-            id: trip?.id ?? null,
+            id: tripId,
             direction,
             vehicle_plate: nestedPlate(trip?.vehicle),
             driver_name: nestedName(trip?.driver),
@@ -213,7 +234,8 @@ export async function GET(request: Request) {
           : null,
       next_stop: nextStop,
       eta,
-      transit_status: row.transit_status,
+      transit_status: childStatus,
+      attendance,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal Server Error";

@@ -44,8 +44,28 @@ void main() {
 
   test('Live trip status prefers transit wording from the bus', () {
     expect(parentChildStatusLabel('On the Bus'), 'On the Bus');
-    expect(parentChildStatusLabel(null), 'En route');
-    expect(parentChildStatusLabel('  '), 'En route');
+    expect(parentChildStatusLabel(null), 'Waiting for pickup');
+    expect(parentChildStatusLabel('  '), 'Waiting for pickup');
+    expect(
+      parentChildStatusLabel('pending', attendance: 'boarded', direction: 'SCHOOL_TO_HOME'),
+      'On the Bus',
+    );
+    expect(
+      parentChildStatusLabel('pending', direction: 'SCHOOL_TO_HOME'),
+      'At school',
+    );
+  });
+
+  test('etaMinutesFromArrival rejects stale past predictions', () {
+    final now = DateTime.parse('2026-08-20T15:00:00Z');
+    expect(
+      etaMinutesFromArrival(DateTime.parse('2026-08-20T03:43:00Z'), now),
+      isNull,
+    );
+    expect(
+      etaMinutesFromArrival(DateTime.parse('2026-08-20T15:08:00Z'), now),
+      8,
+    );
   });
 
   test('Arrival status mirrors driver punctuality copy', () {

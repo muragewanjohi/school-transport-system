@@ -4,36 +4,29 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Parent live map finds active drop-off trip |
-| **Stack** | Next.js + Flutter |
-| **Owner path(s)** | `apps/admin_dashboard/src/app/api/parent/live`, `apps/parent_app/lib/services/parent_live_service.dart` |
+| **Name** | Parent Home live card accuracy |
+| **Stack** | Flutter |
+| **Owner path(s)** | `apps/parent_app/lib/screens/dashboard_screen.dart`, `apps/parent_app/lib/utils/parent_grade_label.dart` |
 | **Started** | 2026-08-20 |
 | **Status** | `passing` |
 
 ## Goal
 
-When a child has an in-progress trip (e.g. Lower Class DropOff), the parent Map shows an active trip. Works via `/api/parent/live` when deployed, or Supabase Auth fallback when that route is missing.
+Home transit card shows live trip facts (child status, plate, driver, next stop, ETA) instead of placeholders. Grade label does not double-prefix "Grade".
 
 ## Scenarios
 
 ```gherkin
-Feature: Parent live trip detection
+Feature: Parent home card accuracy
 
-  Scenario: EWKB live coordinates parse to lat/lng
-    Given PostGIS returns an EWKB hex point
-    When the live coordinate parser runs
-    Then lat and lng are returned
-
-  Scenario: Parent live API rejects another family's child
-    Given a signed parent session
-    And a student linked to a different parent
-    When GET /api/parent/live is called
-    Then the response is 403
+  Scenario: Grade label avoids double Grade prefix
+    Given student grade is "Grade 2" and class is "Nile"
+    When formatStudentGradeLabel runs
+    Then the result is "Grade 2 Nile"
 ```
 
 ## Automation map
 
 | Scenario | Test path | Status |
 | :--- | :--- | :--- |
-| EWKB live coordinates parse to lat/lng | `src/lib/parentLive.test.ts`, `apps/parent_app/test/parent_map_logic_test.dart` | passing |
-| Parent live API rejects another family's child | `src/app/api/parent/live/route.test.ts` | passing |
+| Grade label avoids double Grade prefix | `apps/parent_app/test/parent_grade_label_test.dart` | passing |

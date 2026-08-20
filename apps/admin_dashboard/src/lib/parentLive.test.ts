@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   childStopIdForDirection,
+  etaMinutesFromPredictedArrival,
   isInProgressTrip,
   nestedName,
   nestedPlate,
+  parentChildStatusFromSources,
   parseLiveCoordinates,
 } from "@/lib/parentLive";
 
@@ -38,6 +40,30 @@ describe("parentLive", () => {
     expect(isInProgressTrip("in_progress")).toBe(true);
     expect(isInProgressTrip("scheduled")).toBe(false);
     expect(isInProgressTrip("completed")).toBe(false);
+  });
+
+  it("parentChildStatusFromSources › prefers manifest attendance over pending transit", () => {
+    expect(
+      parentChildStatusFromSources({
+        attendance: "boarded",
+        transitStatus: "pending",
+        direction: "SCHOOL_TO_HOME",
+      })
+    ).toBe("On the Bus");
+    expect(
+      parentChildStatusFromSources({
+        attendance: "pending",
+        transitStatus: "pending",
+        direction: "SCHOOL_TO_HOME",
+      })
+    ).toBe("At school");
+  });
+
+  it("etaMinutesFromPredictedArrival › rejects stale past predictions", () => {
+    const now = new Date("2026-08-20T15:00:00Z");
+    expect(etaMinutesFromPredictedArrival("2026-08-20T03:43:00Z", now)).toBeNull();
+    expect(etaMinutesFromPredictedArrival("2026-08-20T15:08:00Z", now)).toBe(8);
+    expect(etaMinutesFromPredictedArrival("2026-08-20T14:59:30Z", now)).toBe(0);
   });
 
   it("nested helpers › read plate and name", () => {

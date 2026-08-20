@@ -90,12 +90,25 @@ class ParentLiveService {
       }
 
       final trip = Map<String, dynamic>.from(tripRows.first as Map);
+      final tripId = trip['id']?.toString();
       final schedule = trip['schedule'];
       final direction = schedule is Map ? schedule['direction']?.toString() : null;
       final vehicle = trip['vehicle'];
       final driver = trip['driver'];
       final plate = vehicle is Map ? vehicle['license_plate']?.toString() : null;
       final driverName = driver is Map ? driver['name']?.toString() : null;
+
+      String? attendance;
+      if (tripId != null && tripId.isNotEmpty) {
+        final manifest = await client
+            .from('trip_manifests')
+            .select('attendance')
+            .eq('trip_id', tripId)
+            .eq('student_id', studentId)
+            .maybeSingle()
+            .timeout(const Duration(seconds: 6));
+        attendance = manifest?['attendance']?.toString();
+      }
 
       final liveRows = await client
           .from('live_coordinates')
@@ -124,6 +137,9 @@ class ParentLiveService {
         dropoffStopId: dropoffStopId,
       );
       String? nextStopName;
+      DateTime? predictedArrival;
+      int? etaMinutes;
+      var delaySeconds = 0;
       if (stopId != null) {
         final stop = await client
             .from('stops')
@@ -132,7 +148,33 @@ class ParentLiveService {
             .maybeSingle()
             .timeout(const Duration(seconds: 6));
         nextStopName = stop?['name']?.toString();
+
+        if (tripId != null) {
+          final etaRows = await client
+              .from('trip_stop_etas')
+              .select('predicted_arrival, delay_seconds, updated_at')
+              .eq('route_id', resolvedRouteId)
+              .eq('stop_id', stopId)
+              .eq('trip_id', tripId)
+              .order('updated_at', ascending: false)
+              .limit(1)
+              .timeout(const Duration(seconds: 6));
+          if (etaRows is List && etaRows.isNotEmpty) {
+            final eta = Map<String, dynamic>.from(etaRows.first as Map);
+            predictedArrival =
+                DateTime.tryParse(eta['predicted_arrival']?.toString() ?? '')?.toUtc();
+            etaMinutes = etaMinutesFromArrival(predictedArrival);
+            if (etaMinutes == null) predictedArrival = null;
+            delaySeconds = (eta['delay_seconds'] as num?)?.toInt() ?? 0;
+          }
+        }
       }
+
+      final statusLabel = parentChildStatusLabel(
+        transitStatus,
+        attendance: attendance,
+        direction: direction,
+      );
 
       return ParentLiveSnapshot(
         tripActive: true,
@@ -143,7 +185,12 @@ class ParentLiveService {
         vehiclePlate: plate,
         driverName: driverName,
         nextStopName: nextStopName,
-        transitStatus: transitStatus,
+        etaMinutes: etaMinutes,
+        delaySeconds: delaySeconds,
+        predictedArrival: predictedArrival,
+        transitStatus: statusLabel,
+        attendance: attendance,
+        direction: direction,
       );
     } catch (_) {
       return null;

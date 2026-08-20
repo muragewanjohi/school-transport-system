@@ -74,6 +74,41 @@ export function isInProgressTrip(status: string | null | undefined): boolean {
   return (status ?? "").toString() === "in_progress";
 }
 
+/** Parent-facing child status from trip manifest attendance (preferred) or roster transit_status. */
+export function parentChildStatusFromSources(input: {
+  attendance?: string | null;
+  transitStatus?: string | null;
+  direction?: string | null;
+}): string {
+  const attendance = (input.attendance ?? "").toString().trim().toLowerCase();
+  if (attendance === "boarded") return "On the Bus";
+  if (attendance === "dropped_off") return "Dropped off";
+  if (attendance === "absent" || attendance === "no_show") return "Absent";
+  if (attendance === "pending") {
+    return input.direction === "SCHOOL_TO_HOME" ? "At school" : "Waiting for pickup";
+  }
+
+  const transit = (input.transitStatus ?? "").toString().trim();
+  if (!transit || transit.toLowerCase() === "pending") {
+    return input.direction === "SCHOOL_TO_HOME" ? "At school" : "Waiting for pickup";
+  }
+  return transit;
+}
+
+/** Minutes until arrival; null when missing or stale (already more than 2 minutes past). */
+export function etaMinutesFromPredictedArrival(
+  iso: string | null | undefined,
+  now = new Date()
+): number | null {
+  if (!iso) return null;
+  const arrivalMs = new Date(iso).getTime();
+  if (!Number.isFinite(arrivalMs)) return null;
+  const secs = Math.floor((arrivalMs - now.getTime()) / 1000);
+  if (secs < -120) return null; // stale past ETA — do not show "Arriving"
+  if (secs <= 0) return 0;
+  return Math.ceil(secs / 60);
+}
+
 function unwrapRelation(value: unknown): unknown {
   if (Array.isArray(value)) return value[0] ?? null;
   return value;

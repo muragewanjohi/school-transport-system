@@ -6,10 +6,18 @@ class NotificationsScreen extends StatefulWidget {
   final Future<ParentNotificationsInbox> Function()? loader;
   final Future<void> Function()? onClearAll;
 
+  /// When true (bottom-nav tab), hide the back button.
+  final bool isEmbedded;
+
+  /// Called after load so the parent shell can refresh the nav badge.
+  final ValueChanged<int>? onUnreadCountChanged;
+
   const NotificationsScreen({
     super.key,
     this.loader,
     this.onClearAll,
+    this.isEmbedded = false,
+    this.onUnreadCountChanged,
   });
 
   @override
@@ -40,6 +48,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         _notifications = inbox.items;
         _isLoading = false;
       });
+      widget.onUnreadCountChanged?.call(inbox.unreadCount);
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -89,6 +98,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     )
                     .toList();
               });
+              widget.onUnreadCountChanged?.call(0);
               if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -172,10 +182,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         backgroundColor: Colors.white,
         foregroundColor: const Color(0xFF0F172A),
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        automaticallyImplyLeading: !widget.isEmbedded,
+        leading: widget.isEmbedded
+            ? null
+            : IconButton(
+                icon: const Icon(Icons.arrow_back_rounded, color: Color(0xFF0F172A)),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh_rounded, color: Color(0xFF0F172A)),

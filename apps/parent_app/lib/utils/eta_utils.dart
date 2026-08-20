@@ -23,8 +23,16 @@ class StopEta {
   int minutesUntil([DateTime? now]) {
     final base = (now ?? DateTime.now()).toUtc();
     final secs = predictedArrival.difference(base).inSeconds;
+    if (secs < -120) return -1; // stale — callers should treat as missing
     if (secs <= 0) return 0;
     return (secs / 60).ceil();
+  }
+
+  /// Fresh remaining minutes, or null when the prediction is stale/past.
+  int? freshMinutesUntil([DateTime? now]) {
+    final mins = minutesUntil(now);
+    if (mins < 0) return null;
+    return mins;
   }
 
   int get delayMinutes => delaySeconds <= 0 ? 0 : (delaySeconds / 60).ceil();

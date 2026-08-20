@@ -247,6 +247,8 @@ class _MapScreenState extends State<MapScreen> {
           delaySeconds: _live.delaySeconds,
           predictedArrival: _live.predictedArrival,
           transitStatus: _live.transitStatus,
+          attendance: _live.attendance,
+          direction: _live.direction,
         );
       });
       _mapController?.animateCamera(
@@ -299,7 +301,21 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   // Dynamic metric calculations
-  int? get _etaMinutes => _live.etaMinutes ?? _stopEta?.minutesUntil();
+  int? get _etaMinutes {
+    if (_live.etaMinutes != null) return _live.etaMinutes;
+    return _stopEta?.freshMinutesUntil();
+  }
+
+  DateTime? get _predictedArrival {
+    if (_live.predictedArrival != null &&
+        etaMinutesFromArrival(_live.predictedArrival) != null) {
+      return _live.predictedArrival;
+    }
+    if (_stopEta != null && _stopEta!.freshMinutesUntil() != null) {
+      return _stopEta!.predictedArrival;
+    }
+    return null;
+  }
 
   int get _delaySeconds =>
       _live.delaySeconds != 0 ? _live.delaySeconds : (_stopEta?.delaySeconds ?? 0);
@@ -640,9 +656,7 @@ class _MapScreenState extends State<MapScreen> {
       toLat: _pickupStageLocation?.latitude,
       toLng: _pickupStageLocation?.longitude,
     );
-    final arrival = formatArrivalClock(
-      _live.predictedArrival ?? _stopEta?.predictedArrival,
-    );
+    final arrival = formatArrivalClock(_predictedArrival);
     final status = parentArrivalStatusLabel(
       hasBusFix: _live.hasBusFix,
       delaySeconds: _delaySeconds,
@@ -664,7 +678,11 @@ class _MapScreenState extends State<MapScreen> {
               Expanded(
                 child: _LiveMetric(
                   title: 'CHILD STATUS',
-                  value: parentChildStatusLabel(_live.transitStatus ?? _transitStatus),
+                  value: parentChildStatusLabel(
+                    _live.transitStatus ?? _transitStatus,
+                    attendance: _live.attendance,
+                    direction: _live.direction,
+                  ),
                   footer: widget.studentName,
                 ),
               ),
