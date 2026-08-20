@@ -73,6 +73,112 @@ void main() {
     });
   });
 
+  group('dropoffTripReadyToStart', () {
+    test('empty roster is ready', () {
+      expect(dropoffTripReadyToStart([]), isTrue);
+    });
+    test('boarded and absent is ready', () {
+      expect(
+        dropoffTripReadyToStart([
+          {'attendance': 'boarded'},
+          {'attendance': 'absent'},
+        ]),
+        isTrue,
+      );
+    });
+    test('pending is not ready', () {
+      expect(
+        dropoffTripReadyToStart([
+          {'attendance': 'boarded'},
+          {'attendance': 'pending'},
+        ]),
+        isFalse,
+      );
+    });
+    test('pendingCount 0 is ready', () {
+      expect(dropoffTripReadyFromCounts(pendingCount: 0), isTrue);
+    });
+    test('pendingCount > 0 is not ready', () {
+      expect(dropoffTripReadyFromCounts(pendingCount: 3), isFalse);
+    });
+    test('missing counts without rows is not ready', () {
+      expect(dropoffTripReadyFromCounts(), isFalse);
+    });
+  });
+
+  group('attendanceForCampusBoarding', () {
+    test('Present → boarded', () {
+      expect(attendanceForCampusBoarding('Present'), 'boarded');
+    });
+    test('Absent → absent not dropped_off', () {
+      expect(attendanceForCampusBoarding('Absent'), 'absent');
+    });
+  });
+
+  group('homeManifestCtaLabel', () {
+    test('drop-off Home CTA is Board Students', () {
+      expect(homeManifestCtaLabel(isPickup: false), 'BOARD STUDENTS');
+    });
+    test('pickup Home CTA stays Pickup Students', () {
+      expect(homeManifestCtaLabel(isPickup: true), 'PICKUP STUDENTS');
+    });
+  });
+
+  group('flattenTripManifestRows', () {
+    test('uses trip run nested student and manifest id', () {
+      final rows = flattenTripManifestRows([
+        {
+          'id': 'man-1',
+          'student_id': 'std-1',
+          'attendance': 'pending',
+          'student': {'id': 'std-1', 'name': 'Amina', 'grade': 'Grade 3'},
+        },
+      ]);
+      expect(rows, hasLength(1));
+      expect(rows.first['id'], 'std-1');
+      expect(rows.first['manifest_id'], 'man-1');
+      expect(rows.first['name'], 'Amina');
+      expect(rows.first['attendance'], 'pending');
+    });
+  });
+
+  group('campusBoardingCounts', () {
+    test('labels boarded absent and remaining', () {
+      final counts = campusBoardingCounts([
+        {'attendance': 'boarded'},
+        {'attendance': 'absent'},
+        {'attendance': 'pending'},
+      ]);
+      expect(counts.progressLabel, '1 boarded · 1 absent · 1 remaining');
+    });
+  });
+
+  group('campusToggleSelection', () {
+    test('pending is neither boarded nor absent', () {
+      expect(campusToggleSelection(null), CampusToggleSelection.pending);
+      expect(campusToggleSelection('pending'), CampusToggleSelection.pending);
+    });
+    test('boarded and absent map to the matching side', () {
+      expect(campusToggleSelection('boarded'), CampusToggleSelection.boarded);
+      expect(campusToggleSelection('absent'), CampusToggleSelection.absent);
+    });
+    test('switch is on only when boarded', () {
+      expect(campusSwitchIsOn(CampusToggleSelection.boarded), isTrue);
+      expect(campusSwitchIsOn(CampusToggleSelection.pending), isFalse);
+      expect(campusSwitchIsOn(CampusToggleSelection.absent), isFalse);
+    });
+    test('pendingCampusRows keeps leftover pending only', () {
+      final pending = pendingCampusRows([
+        {'id': '1', 'name': 'Brian', 'attendance': 'boarded'},
+        {'id': '2', 'name': 'Joyland', 'attendance': 'boarded'},
+        {'id': '3', 'name': 'Elena', 'attendance': 'boarded'},
+        {'id': '4', 'name': 'Fig Student', 'attendance': 'pending'},
+      ]);
+      expect(pending, hasLength(1));
+      expect(pending.first['id'], '4');
+    });
+  });
+
   group('attendanceDoneWord', () {
     test('pickup → picked', () {
       expect(attendanceDoneWord(isPickup: true), 'picked');
@@ -98,16 +204,51 @@ void main() {
         StudentListAttendance.pending,
       );
     });
-    test('pickup boarded is actioned', () {
+    test('pickup boarded is boarded', () {
       expect(
         studentListAttendance({'attendance': 'boarded'}, isPickup: true),
-        StudentListAttendance.actioned,
+        StudentListAttendance.boarded,
       );
     });
-    test('dropoff dropped_off is actioned', () {
+    test('dropoff campus boarded stays boarded not dropped off', () {
+      expect(
+        studentListAttendance({'attendance': 'boarded'}, isPickup: false),
+        StudentListAttendance.boarded,
+      );
+      expect(
+        studentListStatusLabel(StudentListAttendance.boarded),
+        'Boarded',
+      );
+      expect(
+        studentListShowsActionButton(
+          StudentListAttendance.boarded,
+          isPickup: false,
+        ),
+        isTrue,
+      );
+      expect(
+        studentListActionComplete(
+          StudentListAttendance.boarded,
+          isPickup: false,
+        ),
+        isFalse,
+      );
+    });
+    test('dropoff dropped_off is complete', () {
       expect(
         studentListAttendance({'attendance': 'dropped_off'}, isPickup: false),
-        StudentListAttendance.actioned,
+        StudentListAttendance.droppedOff,
+      );
+      expect(
+        studentListStatusLabel(StudentListAttendance.droppedOff),
+        'Dropped off',
+      );
+      expect(
+        studentListActionComplete(
+          StudentListAttendance.droppedOff,
+          isPickup: false,
+        ),
+        isTrue,
       );
     });
     test('absent has no action', () {
@@ -118,6 +259,10 @@ void main() {
       expect(
         studentListAttendance({'attendance': 'absent'}, isPickup: false),
         StudentListAttendance.absent,
+      );
+      expect(
+        studentListStatusLabel(StudentListAttendance.absent),
+        'Absent',
       );
     });
   });
@@ -365,6 +510,181 @@ void main() {
         stopId: 'a',
       );
       expect(next, isNull);
+    });
+  });
+
+  group('school terminal stops', () {
+    final stops = [
+      {'id': 'school', 'name': 'Campus', 'sequence_no': 1},
+      {'id': 'home-1', 'name': 'Ruaka', 'sequence_no': 2},
+      {'id': 'home-2', 'name': 'Bypass', 'sequence_no': 3},
+    ];
+    final pickupStops = [
+      {'id': 'home-1', 'name': 'Ruaka', 'sequence_no': 1},
+      {'id': 'home-2', 'name': 'Bypass', 'sequence_no': 2},
+      {'id': 'school', 'name': 'Campus', 'sequence_no': 3},
+    ];
+
+    test('drop-off first stop is school origin', () {
+      expect(
+        isSchoolOriginStop(stop: stops.first, stops: stops, isPickup: false),
+        isTrue,
+      );
+      expect(
+        isSchoolOriginStop(stop: stops.last, stops: stops, isPickup: false),
+        isFalse,
+      );
+      expect(
+        isSchoolOriginStop(stop: pickupStops.first, stops: pickupStops, isPickup: true),
+        isFalse,
+      );
+    });
+
+    test('pickup last stop is school destination', () {
+      expect(
+        isSchoolDestinationStop(stop: pickupStops.last, stops: pickupStops, isPickup: true),
+        isTrue,
+      );
+      expect(
+        isSchoolDestinationStop(stop: pickupStops.first, stops: pickupStops, isPickup: true),
+        isFalse,
+      );
+      expect(
+        isSchoolDestinationStop(stop: stops.last, stops: stops, isPickup: false),
+        isFalse,
+      );
+    });
+
+    test('skips the boarding drawer at drop-off school origin', () {
+      expect(
+        shouldSkipBoardingDrawer(
+          stop: stops.first,
+          stops: stops,
+          isPickup: false,
+          studentsAtStop: 12,
+        ),
+        isTrue,
+      );
+    });
+
+    test('skips the boarding drawer at pickup school destination', () {
+      expect(
+        shouldSkipBoardingDrawer(
+          stop: pickupStops.last,
+          stops: pickupStops,
+          isPickup: true,
+          studentsAtStop: 8,
+        ),
+        isTrue,
+      );
+    });
+
+    test('skips the boarding drawer when the stop roster is empty', () {
+      expect(
+        shouldSkipBoardingDrawer(
+          stop: pickupStops.first,
+          stops: pickupStops,
+          isPickup: true,
+          studentsAtStop: 0,
+        ),
+        isTrue,
+      );
+    });
+
+    test('still opens at a pickup home stop', () {
+      expect(
+        shouldSkipBoardingDrawer(
+          stop: pickupStops.first,
+          stops: pickupStops,
+          isPickup: true,
+          studentsAtStop: 4,
+        ),
+        isFalse,
+      );
+    });
+
+    test('pickup arriving at school auto-completes', () {
+      expect(
+        shouldAutoCompletePickupAtSchool(
+          arrivedStop: pickupStops.last,
+          stops: pickupStops,
+          isPickup: true,
+        ),
+        isTrue,
+      );
+      expect(
+        shouldAutoCompletePickupAtSchool(
+          arrivedStop: pickupStops.first,
+          stops: pickupStops,
+          isPickup: true,
+        ),
+        isFalse,
+      );
+      expect(
+        shouldAutoCompletePickupAtSchool(
+          arrivedStop: stops.last,
+          stops: stops,
+          isPickup: false,
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('trip duration', () {
+    test('duration_seconds is completed_at minus started_at', () {
+      expect(
+        durationSecondsFromRange(
+          DateTime.utc(2026, 8, 20, 7, 0),
+          DateTime.utc(2026, 8, 20, 7, 32),
+        ),
+        1920,
+      );
+    });
+
+    test('missing started_at is 0', () {
+      expect(durationSecondsFromRange(null, DateTime.utc(2026, 8, 20, 7, 32)), 0);
+    });
+
+    test('snackbar uses ceiling minutes', () {
+      expect(tripCompleteSnackLabel(90), 'Trip complete · 2 min');
+      expect(tripCompleteSnackLabel(0), 'Trip complete · 0 min');
+    });
+  });
+
+  group('home active-trip summary labels', () {
+    test('pickup progress title', () {
+      expect(homeAttendanceProgressTitle(isPickup: true), 'STUDENTS PICKED UP');
+    });
+
+    test('drop-off progress title', () {
+      expect(homeAttendanceProgressTitle(isPickup: false), 'STUDENTS DROPPED OFF');
+    });
+
+    test('next stop meta joins ETA and distance', () {
+      expect(
+        formatNextStopMeta(etaMinutes: 3, distanceKm: 1.2),
+        '3 min • 1.2 km',
+      );
+    });
+
+    test('arrival clock adds ETA minutes', () {
+      expect(
+        formatEstimatedArrivalClock(25, now: DateTime(2026, 8, 20, 13, 0)),
+        '13:25',
+      );
+    });
+
+    test('punctuality is On time when start is near departure', () {
+      expect(
+        homeArrivalStatusLabel(
+          etaMinutes: 10,
+          startedAt: DateTime(2026, 8, 20, 13, 2),
+          departureTime: '13:00:00',
+          now: DateTime(2026, 8, 20, 13, 5),
+        ),
+        'On time',
+      );
     });
   });
 }

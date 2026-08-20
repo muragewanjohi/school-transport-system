@@ -13,7 +13,7 @@
 ## System Boundaries
 
 - `apps/driver_app` — Flutter mobile application. Connects to Supabase to stream GPS coordinates via Realtime Broadcast channels and scans physical NFC cards to verify student boarding.
-- `apps/parent_app` — Flutter mobile application. Subscribes to Supabase Realtime channels to track active bus coordinates and view static route configurations. Public store/home-screen name is **OnTheBus**. iOS bundle ID matches Android `applicationId`: `com.schooltrack.parent_app`. iOS IPA is built on Codemagic (not Windows). v1 ships iPhone-only.
+- `apps/parent_app` — Flutter mobile application. Subscribes to Supabase Realtime channels to track active bus coordinates and view static route configurations. Public store/home-screen name is **OnTheBus**. Android `applicationId` is `com.schooltrack.parent_app`. iOS bundle ID is `com.schooltrack.parentApp` (Firebase/Apple allow letters, numbers, dots, and hyphens — not underscores; same camelCase pattern as driver `com.schooltrack.driverApp`). iOS IPA is built on Codemagic (not Windows). v1 ships iPhone-only.
 - `apps/admin_dashboard` — Next.js administrative web console hosted on Vercel. Manages user provisioning, route layouts, NFC card bindings, and exposes secure API Route Handlers.
 - `supabase/migrations/` — Relational database tables, spatial indexes, schema migrations, and SQL Row Level Security (RLS) policies defining data isolation rules.
 - `supabase/functions/` — Deno Edge Functions hosted on Supabase (e.g., Africa's Talking SMS dispatcher trigger).
@@ -164,7 +164,7 @@ Do **not** store the sole campus coordinates only on `tenants`. Create `campuses
 
 Parent OTP login (`POST /api/auth/parent-login`) returns:
 
-1. **HMAC API token** `par.<payload>.<sig>` (`PARENT_SESSION_SECRET`) for Next.js routes such as `GET /api/parent/etas`, `GET`/`PATCH /api/parent/notifications`, and `POST`/`DELETE /api/parent/fcm-tokens`.
+1. **HMAC API token** `par.<payload>.<sig>` (`PARENT_SESSION_SECRET`) for Next.js routes such as `GET /api/parent/children`, `GET /api/parent/live`, `GET /api/parent/etas`, `GET`/`PATCH /api/parent/notifications`, and `POST`/`DELETE /api/parent/fcm-tokens`. `GET /api/parent/children` is the parent app’s primary child roster (service role, scoped to `parent_id = parent.sub` and tenant, plus guardian-phone matches when `parent_id` is still null). Direct Supabase `SELECT` on `students` is a fallback only — parent RLS is `parent_id = auth.uid()`, so a missing Flutter Auth session must not wipe the roster. `GET /api/parent/live` returns in-progress trip + bus GPS for a child; if that route is unavailable the Flutter map falls back to Supabase Auth (`trips` + `live_coordinates` for the child’s route).
 2. **Supabase Auth session** (`supabase_access_token` / `supabase_refresh_token`) from `ensureParentAuthSession`: creates/updates `auth.users` with **`id = profiles.id`**, synthetic email `parent+{id}@users.onthebusapp.internal`, and `app_metadata` + `user_metadata` `{ role: parent, tenant_id }`. Flutter calls `auth.setSession(refresh_token)` so Realtime RLS sees `auth.uid()` and `jwt_role() = parent`.
 
 Live notifications:
@@ -172,6 +172,7 @@ Live notifications:
 - Primary resilient path: poll `GET /api/parent/notifications` with Bearer `par.*` (service role, scoped to `user_id = parent.sub` and `tenant_id`). `PATCH` marks rows read. If that route is unavailable, the app falls back to a direct Supabase `SELECT` under `user_id = auth.uid()`. The Parent app inbox renders these rows (no synthetic placeholders).
 - When a Supabase Auth session is present, the app also subscribes to Realtime INSERTs on `notifications` (`supabase_realtime` publication; RLS `user_id = auth.uid()`).
 - After login the app requests notification permission, obtains an FCM token, and `POST /api/parent/fcm-tokens` upserts `user_fcm_tokens`. Logout `DELETE`s that token. `send-push` (on `notifications` INSERT) delivers lock-screen push when `FIREBASE_SERVICE_ACCOUNT` is set and tokens exist. Missing tokens skip push; the in-app row still exists.
+- Parent Android Firebase app is `com.schooltrack.parent_app` (`1:465945931477:android:5a06937b146c6c6b5cbc5c`) in project `school-transport-system-f606a`. Parent iOS Firebase app is `com.schooltrack.parentApp` (`1:465945931477:ios:98205baf8a938a245cbc5c`). Do not reuse the driver Android/iOS app IDs. iOS lock-screen also needs an APNs key in that Firebase project.
 - SMS remains a separate optional channel (`sms_notifications_enabled`); demo/play-review stay SMS dry-run.
 
 Live ETA:
@@ -212,6 +213,32 @@ Trips that never start transmitting are caught by Vercel Cron → `GET /api/trip
 
 - Traffic-aware delay math (Google Distance Matrix); v1 uses stored leg durations + geometric progress.
 
+## Drop-off campus boarding
+
+For `schedules.direction = SCHOOL_TO_HOME` (drop-off, school to home), students gather at campus and must be accounted for **before** the trip leaves:
+
+1. While the daily trip is `scheduled`, the driver processes the full `trip_manifests` roster at campus with a **SwitchListTile** per student (on = boarded, off = absent; pending starts off). Start Trip does **not** auto-mark remaining Pending as boarded. **Mark remaining absent** writes leftover Pending → Absent via the same per-manifest PUT as the switch (not a trip-row PATCH).
+2. `PUT /api/trips` with `status: in_progress` returns **409** if any manifest is still `pending`. An empty roster may start. `HOME_TO_SCHOOL` (pickup) may still start with pending manifests and boards at pickup stops after GPS is live.
+3. Campus roll-call is **not** stop-geofence gated and does not require live telemetry. Writes go to `trip_manifests` (`boarded` / `absent`), not driver `PUT /api/students/:id` (that path maps Absent → `dropped_off` and requires a stop geofence).
+4. Parent “has boarded” notifications still fire from `on_manifest_attendance_update` when attendance becomes `boarded` (including on a still-`scheduled` trip). Parent **absent** notifications also fire from that trigger when attendance becomes `absent`, gated by school `/config`:
+   - **Stop absent** (`notify_on_absent_stop`, default on): trip is `in_progress`. Default copy: `Bus {vehicle_plate} has left stage {stop_name} and {student_name} was marked absent at {time}.` `{stop_name}` is the child’s pickup stop on `HOME_TO_SCHOOL` or drop-off stop on `SCHOOL_TO_HOME`.
+   - **Campus absent** (`notify_on_absent_campus`, default on): trip is still `scheduled` and direction is `SCHOOL_TO_HOME` (Absent toggle or Mark remaining absent). Default copy: `Bus {vehicle_plate}: {student_name} was marked absent before the trip left school at {time}.`
+   - In-app / push uses those templates. SMS is queued only when `sms_notifications_enabled` is also on (demo dry-run unchanged). `no_show` does not notify.
+5. After start, existing **Driver Stop Visit Outcomes** apply at **home** stops. School terminal stops do not open a pick/drop drawer (see **School terminal stops**).
+
+## School terminal stops
+
+Routes are sequenced; campus is typically the first and/or last pin.
+
+- **Drop-off (`SCHOOL_TO_HOME`):** the first sequenced stop is school origin. The driver already boarded at campus before Start Trip. Entering that geofence must **not** auto-open Pickup/DropOff Students. An empty stop roster also skips the drawer (pickup leaving campus as stop 1).
+- **Pickup (`HOME_TO_SCHOOL`):** the last sequenced stop is school destination. Entering that geofence (no min-dwell wait) once per trip:
+  1. Remaining `trip_manifests` `boarded` → `dropped_off` (`dropped_off_at` set). Parent drop-off notifications fire from `on_manifest_attendance_update`. Still-`pending` → `absent` (stop-absent parent notify if `notify_on_absent_stop`).
+  2. `trip_stop_visits` outcome `completed` for that stop.
+  3. Trip `status = completed`, `completed_at = now()`, `duration_seconds = completed_at - started_at`.
+- Writes go through `POST /api/driver/school-arrival` `{ trip_id, stop_id }` (driver HMAC → service role). 409 unless the trip is `in_progress`, direction is `HOME_TO_SCHOOL`, and `stop_id` is the last sequenced stop. Idempotent if the trip is already `completed`.
+- Ordinary **Hold to end** mid-route does **not** dump remaining boarded students as dropped at school. Hold to end **at the school fence** on pickup may use the same school-arrival endpoint.
+- Home first stops on pickup still auto-open the boarding drawer.
+
 ## Driver Stop Visit Outcomes
 
 While a trip is `in_progress`, each route stop is resolved once into **`trip_stop_visits`** (`UNIQUE (trip_id, stop_id)`). Rows store `arrived_at`, `departed_at`, and `dwell_seconds` (how long the bus stayed inside the stop geofence). No student names, phones, or exact coordinates.
@@ -228,14 +255,14 @@ School config `tenant_configs.min_stop_dwell_seconds` (default **90**, allowed *
 
 Rules:
 
-1. Entering the next unresolved stop geofence auto-opens the pickup/drop-off drawer (~70–80% height). The driver may dismiss it; it does not auto-reopen for the same arrival. The trip control drawer copy switches from **Approaching {stage}** to **You’re at {stage}** with a dwell timer toward min wait.
+1. Entering the next unresolved **home** stop geofence auto-opens the pickup/drop-off drawer (~70–80% height). School terminal stops and empty stop rosters skip the drawer (see **School terminal stops**). The driver may dismiss it; it does not auto-reopen for the same arrival. The trip control drawer copy switches from **Approaching {stage}** to **You’re at {stage}** with a dwell timer toward min wait.
 2. **Complete Stop** marks remaining Pending students at that stop Absent, writes `completed`, records dwell, and advances the next stop. Min dwell is not required.
 3. **Skip Stop** is locked until `now - arrived_at ≥ min_stop_dwell_seconds`. Then it writes `skipped`, marks remaining Pending Absent, records dwell if the bus had arrived (else 0), and advances the next stop.
 4. Leaving the geofence (radius + 15 m hysteresis):
    - If at least one student was actioned: implicit `completed` immediately (min dwell does not apply); remaining Pending → Absent.
    - If zero ticks and dwell **&lt; min**: do **not** write `visited` and do **not** advance the next stop. Clock keeps running from `arrived_at`. When min dwell elapses with the stop still unresolved and zero ticks → auto `visited` + Pending → Absent + admin alert (even if the bus is already down the road).
    - If zero ticks and dwell **≥ min**: immediate `visited` + Pending → Absent + admin alert.
-5. Alerts are tenant-scoped ops rows (`trip_stop_visits.alerted`) plus `notifications` for that school’s `school_admin` profiles. Messages use stop name, route name, and vehicle plate only — no student PII. Demo SMS dry-run is unchanged (these alerts are dashboard/in-app, not parent SMS). Parents do **not** get skip/visited/left SMS.
+5. Alerts are tenant-scoped ops rows (`trip_stop_visits.alerted`) plus `notifications` for that school’s `school_admin` profiles. Messages use stop name, route name, and vehicle plate only — no student PII. Demo SMS dry-run is unchanged (these alerts are dashboard/in-app, not parent SMS). Parents do **not** get a separate skip/visited/left ping; remaining Pending → Absent may notify parents if `notify_on_absent_stop` is on.
 6. Writes go through `POST /api/driver/stop-visits` (driver HMAC session → service role). School console reads `GET /api/alerts`. RLS: `tenant_id = jwt_tenant_id()`. Completed outcomes are not overwritten by a later visited/skipped event.
 
 ### Parent trip alerts (exactly two per child per trip)
@@ -245,7 +272,7 @@ Operational approach messages are deduped per student per trip (`sent_proximity_
 1. **Campus exit** — GPS leaves the active campus pin (campus `location` + **150 m** radius), or trip start if the bus is already outside campus. Each parent of a student on the trip gets that child’s ETA to pickup (`HOME_TO_SCHOOL`) or drop-off (`SCHOOL_TO_HOME`) from stored leg durations / `trip_stop_etas`.
 2. **Stage approach** — bus within `tenant_configs.geofence_radius_meters` (default **500 m**) of that student’s pickup or drop-off stop for this run. Once per student per trip.
 
-Boarding/drop-off confirmation when the driver ticks a student remains attendance (in-app always; SMS if enabled), not a third approach alert. There is no “arrived at pin” parent ping.
+Boarding/drop-off confirmation when the driver ticks a student remains attendance (in-app always; SMS if enabled), not a third approach alert. Absent confirmation is a separate configurable attendance event (`notify_on_absent_stop` / `notify_on_absent_campus`), not a third approach alert. There is no “arrived at pin” parent ping.
 
 ## Student & Parent Data Protection Model
 

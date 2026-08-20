@@ -78,6 +78,16 @@ Before moving an item to **Completed**, confirm:
 
 ## Completed
 
+- Parent Map live trip detection: production `/api/parent/live` was 404 — Flutter now falls back to Supabase Auth (trips + live_coordinates); EWKB GPS parse + parent trips RLS. BDD in [bdd.md](bdd.md) Status `passing`.
+- Parent Map is live-trip only (driver-style status / next stop / arrival); home updates stay on Profile → Home Location. BDD in [bdd.md](bdd.md) Status `passing` — `apps/parent_app/test/parent_map_logic_test.dart`.
+- Parent Home no longer hangs on HMAC login: cache renders immediately; Supabase profile/student queries time out at 8s. BDD in [bdd.md](bdd.md) Status `passing` — `apps/parent_app/test/parent_children_logic_test.dart`.
+- Parent two-screen OTP login: phone entry then six-digit verification, matching driver chrome with **Parent App** copy (never driver/conductor). BDD in [bdd.md](bdd.md) Status `passing` — `apps/parent_app/test/parent_login_test.dart`.
+- Driver Home active-trip summary: replaces Home map with stacked attendance / next stop / est. arrival rows. BDD in [bdd.md](bdd.md) Status `passing` — `test/trip_ui_logic_test.dart`, `test/active_trip_home_summary_test.dart`.
+- Driver Students tab after drop-off start: no trip Guardians list / Manifest header; campus-boarded students show **Boarded** until home-stop drop-off. Guardians remain on student details. BDD in [bdd.md](bdd.md) Status `passing` — `test/trip_ui_logic_test.dart`.
+- School admin console mobile shell: ≤900px uses a hamburger shell bar + off-canvas sidebar; KPI grids and tables adapt. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/mobileNav.test.ts`.
+- Campus start-trip loader: Board Students shows a blocking **Starting trip…** overlay while the trip is saved, then opens the Trip tab. **Mark remaining absent** uses a **Saving…** overlay. BDD in [bdd.md](bdd.md) Status `passing` — `test/campus_boarding_panel_test.dart`.
+- Drop-off campus Boarded/Absent toggle: per-student [SwitchListTile](https://api.flutter.dev/flutter/material/SwitchListTile-class.html) (on = boarded, off = absent). **Mark remaining absent** uses per-manifest writes so production does not return Trip not found. BDD in [bdd.md](bdd.md) Status `passing` — `test/trip_ui_logic_test.dart`, `src/app/api/trips/route.test.ts`.
+- Parent absent notifications: school `/config` toggles + templates for stop and drop-off campus absents; `on_manifest_attendance_update` uses `Bus {vehicle_plate} has left stage {stop_name} and {student_name} was marked absent at {time}.` for in-progress stop absents. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/absentParentAlert.test.ts`.
 - Reviewed ecosystem features, invariants, boundaries, and overall scopes.
 - Populated project development rules and boundary-splitting thresholds in [ai-workflow-rules.md](file:///c:/Dev/School-Transpot/context/ai-workflow-rules.md).
 - Documented Next.js serverless API standards, Supabase RLS policies, and Flutter client guidelines in [code-standards.md](file:///c:/Dev/School-Transpot/context/code-standards.md).
@@ -210,6 +220,7 @@ Before moving an item to **Completed**, confirm:
 - Driver student list actions (2026-08-18): Stop list uses **Boarded** / **Dropped off** buttons (no checkbox). Absent rows show **Absent** with no action button. Tap a name for guardian phone + Call (`tel:`). **View Students** lists unique trip guardians with photos (initials thumbnail if missing). BDD in [bdd.md](bdd.md) Status `passing` — `test/stop_boarding_drawer_test.dart`, `test/student_contact_sheet_test.dart`, `test/guardian_photo_thumbnail_test.dart`, `test/trip_ui_logic_test.dart`, `src/lib/studentGuardians.test.ts`.
 - Parent live notifications (2026-08-18): Parent inbox reads live `notifications` (HMAC API with Supabase fallback). Realtime INSERTs + local OS banners while the app is open. FCM token register/unregister for lock-screen push. BDD in [bdd.md](bdd.md) Status `passing` — `apps/parent_app/test/parent_notification_logic_test.dart`, `apps/parent_app/test/notifications_screen_test.dart`, `src/app/api/parent/notifications/route.test.ts`, `src/app/api/parent/fcm-tokens/route.test.ts`.
 - Parent onboarding + log out (2026-08-18): First launch shows three onboarding screens (live map, trip alerts, peace of mind) before login. Profile **Log out** is always visible, including when no children are linked. BDD in [bdd.md](bdd.md) Status `passing` — `apps/parent_app/test/parent_onboarding_test.dart`, `apps/parent_app/test/logout_button_test.dart`.
+- Parent child roster after login (2026-08-20): Parent home loads children from `GET /api/parent/children` (HMAC session + service role) so a missing Flutter Auth session cannot wipe the roster via RLS. Guardian-phone matches still count when `parent_id` is null. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/parentChildren.test.ts`, `src/app/api/parent/children/route.test.ts`, `apps/parent_app/test/parent_children_logic_test.dart`.
 
 ## iOS Parent publish runbook (Windows)
 
@@ -218,9 +229,9 @@ Repo is ready. These steps are browser-only (Apple / Google / Codemagic). You ca
 ### A. Apple Developer + App Store Connect
 
 1. Enroll at [developer.apple.com/programs](https://developer.apple.com/programs/) ($99/year). Wait until status is Active.
-2. Identifiers → App IDs → Register **explicit** `com.schooltrack.parent_app` (no extra capabilities for v1).
+2. Identifiers → App IDs → Register **explicit** `com.schooltrack.parentApp` (no extra capabilities for v1). Firebase and Apple reject underscores; do not use `com.schooltrack.parent_app` on iOS.
 3. Users and Access → Integrations → App Store Connect API → create a key with **App Manager**. Download the `.p8` once. Note Key ID + Issuer ID.
-4. Apps → + → name **OnTheBus**, bundle ID `com.schooltrack.parent_app`, SKU `onthebus-parent`, English.
+4. Apps → + → name **OnTheBus**, bundle ID `com.schooltrack.parentApp`, SKU `onthebus-parent`, English.
 5. Listing: privacy `https://onthebusapp.com/privacy`, support `https://onthebusapp.com`, category Navigation or Education (**not** Kids), include Kenya.
 6. App Review Information: phone `+254700000002`, OTP `123456` (`play-review` sandbox). Contact email you monitor.
 7. If Play listing still says “OnTheBus Parent”, change the Play Console store title to **OnTheBus** (launcher name updates with the next Android build).
@@ -228,7 +239,7 @@ Repo is ready. These steps are browser-only (Apple / Google / Codemagic). You ca
 ### B. Google Maps iOS key
 
 1. Google Cloud → Credentials → API key restricted to **Maps SDK for iOS**.
-2. iOS apps restriction: bundle ID `com.schooltrack.parent_app`.
+2. iOS apps restriction: bundle ID `com.schooltrack.parentApp`.
 3. Store the key only as Codemagic secret `MAPS_API_KEY` (and local gitignored `apps/parent_app/ios/Flutter/Secrets.xcconfig`). Never commit it.
 
 ### C. Codemagic → TestFlight → review
@@ -265,11 +276,16 @@ Repo is ready. These steps are browser-only (Apple / Google / Codemagic). You ca
 
 ## Architecture Decisions
 
+- **Drop-off campus Boarded/Absent toggle:** Campus roll-call uses a [SwitchListTile](https://api.flutter.dev/flutter/material/SwitchListTile-class.html) per student (on = boarded, off = absent). Pending starts off. Start Trip does not auto-mark pending students boarded. **Mark remaining absent** uses per-manifest attendance writes (same as the switch), not a trip-row PATCH, so production does not return Trip not found.
+- **Parent absent notifications:** School `/config` gates `notify_on_absent_stop` and `notify_on_absent_campus` (default on). `on_manifest_attendance_update` notifies on `pending`/`other` → `absent`. In-progress trips use the stop template (`Bus {vehicle_plate} has left stage {stop_name} and {student_name} was marked absent at {time}.`). Scheduled `SCHOOL_TO_HOME` campus boarding uses the campus template. SMS still requires `sms_notifications_enabled`. `no_show` does not notify.
+- **School terminal skip popup and pickup auto-end:** Drop-off first sequenced stop (school origin) does not auto-open pick/drop. Pickup last sequenced stop (school) auto-marks remaining boarded students `dropped_off`, completes the trip, and stores `duration_seconds`. Ordinary Hold to end mid-route does not dump the roster as dropped at school.
+- **Parent FCM apps:** Parent Android is `com.schooltrack.parent_app` in Firebase project `school-transport-system-f606a`. Parent iOS is `com.schooltrack.parentApp` (underscores are invalid in Firebase/Apple bundle IDs). `send-push` is deployed (JWT verification off, same as `send-sms` webhooks). Do not reuse driver app IDs.
 - **Google Maps across clients:** Admin uses Maps JavaScript API + Directions/Places. Driver and Parent use `google_maps_flutter` with native `MAPS_API_KEY`. Road polylines for mobile come from `POST /api/maps/directions` (server key → Google Directions). Parent relocate search uses `GET /api/maps/places`.
-- **Stop-gated boarding:** Drivers may board a student only inside that student’s `pickup_stop` geofence and drop off only inside `dropoff_stop` geofence (radius = `stops.geofence_radius_meters`, default 50 m). Enforced in Driver UI and on driver attendance `PUT /api/students/[id]`.
+- **Drop-off campus boarding before start:** `SCHOOL_TO_HOME` trips cannot become `in_progress` until every `trip_manifests` row is `boarded` or `absent` (`PUT /api/trips` returns 409 otherwise). Campus roll-call is not stop-geofence gated. Pickup (`HOME_TO_SCHOOL`) may still start with pending manifests. After a drop-off starts, home-stop drop-offs stay geofence-gated.
+- **Stop-gated boarding:** Drivers may board a student only inside that student’s `pickup_stop` geofence and drop off only inside `dropoff_stop` geofence (radius = `stops.geofence_radius_meters`, default 50 m). Enforced in Driver UI and on driver attendance `PUT /api/students/[id]`. Exception: drop-off campus roll-call before Start Trip writes `trip_manifests` directly.
 - **Driver stop navigation (Trip):** Overflow **Navigate** on the trip control drawer opens Google Maps turn-by-turn to the next stop (`google.navigation:` on Android, Maps directions URL fallback). The embedded map follows the live bus at a closer zoom (~15.8) instead of fitting the whole route; pinch-zoom remains. In-app nav mode is not used from the Trip drawer. Stops-tab per-stop Navigate uses the same deep-link service.
 - **Debug GPS replay:** Debug driver builds only. Overflow **Replay demo GPS** walks the active trip’s stops (Play Review corridor if the trip has no coordinates) and posts telemetry. Hidden in Play/release builds.
-- **Driver student list + guardian call:** Stop roster uses **Boarded** / **Dropped off** buttons. Absent students show **Absent** and no action button. Tapping a name opens guardian contact; Call uses the device dialer (`tel:`). **View Students** shows the full trip roster and every unique guardian with photo or initials thumbnail. Drivers may see guardian phones for students on their assigned trip.
+- **Driver student list + guardian call:** Stop roster uses **Boarded** / **Dropped off** buttons. Absent students show **Absent** and no action button. Tapping a name opens guardian contact; Call uses the device dialer (`tel:`). The Students tab is the full trip roster without a trip-wide Guardians section — guardians are on student details only. After drop-off campus start, boarded students show **Boarded** until home-stop drop-off. Drivers may see guardian phones for students on their assigned trip.
 - **Driver stop visit outcomes:** Approaching vs arrived drawer copy. Min dwell (`min_stop_dwell_seconds`, default 90) gates Skip and auto-visited. **Complete Stop** or leave after ticks → `completed` + remaining Pending → Absent. Leave with zero ticks only after min dwell → `visited` + Absent + admin alert. **Skip Stop** after min dwell → `skipped` + Absent + admin alert. Parents get two approach alerts only (campus exit with child ETA, then 500 m from their stage). Persisted in `trip_stop_visits`; dashboard Recent Alerts reads `GET /api/alerts`. No student PII in admin alerts.
 - **Workspaces Monorepo:** Consolidated driver/parent mobile folders, Next.js web folders, and Supabase migrations.
 - **Pure Serverless Transition (Vercel + Supabase):** Swapped persistent servers for Next.js route handlers, Supabase Realtime Channels, and Deno edge workers.
@@ -277,7 +293,7 @@ Repo is ready. These steps are browser-only (Apple / Google / Codemagic). You ca
 - **Automatic Delay Detection:** On each telemetry insert (throttled 30s/trip), `evaluate_trip_delay()` compares predicted stop arrivals (geometric leg progress + `stops.dwell_seconds`) against the schedule baseline and notifies affected parents at ≥5 min delay with +10 min escalation bands. Live ETAs persist in `trip_stop_etas`.
 - **Parent signed session + ETA API:** Parent OTP login issues `par.*` HMAC tokens for Next.js ETA API and a Supabase Auth session (`auth.users.id = profiles.id`, claims in `app_metadata`) for Realtime RLS on telemetry/ETAs/stops.
 - **Parent live notifications:** Inbox reads `GET /api/parent/notifications` (HMAC, own rows only). Realtime INSERTs on `notifications` when a Supabase session is present. FCM token upsert via `POST /api/parent/fcm-tokens`; `send-push` delivers OS push. SMS remains optional / demo dry-run.
-- **Parent iOS identity:** Store/home-screen name **OnTheBus**; bundle ID `com.schooltrack.parent_app` (same as Android). IPA via Codemagic macOS builders; v1 is iPhone-only. Account deletion is in-app via the public `/delete-account` page.
+- **Parent iOS identity:** Store/home-screen name **OnTheBus**; Android `com.schooltrack.parent_app`; iOS `com.schooltrack.parentApp` (same camelCase split as driver). IPA via Codemagic macOS builders; v1 is iPhone-only. Account deletion is in-app via the public `/delete-account` page.
 - **Unique guardian phones per student:** A student cannot have two guardian rows with the same phone (normalized digits). Operators pick an existing parent or add a new one; they cannot attach the same number twice.
 
 - **Pre-departure cron:** Vercel Cron hits `/api/trips/predeparture-check` every 5 minutes; overdue never-started trips get `status_override=Delayed` once, reusing trip-status notifications.

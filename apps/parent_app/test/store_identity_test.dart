@@ -46,14 +46,38 @@ void main() {
       expect(gradle.contains('applicationId = "com.schooltrack.parent_app"'), isTrue);
     });
 
-    test('iOS bundle id matches Android applicationId', () {
+    test('iOS bundle id is camelCase parentApp (Firebase rejects underscores)', () {
       final pbx = File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
-      expect(pbx.contains('PRODUCT_BUNDLE_IDENTIFIER = com.schooltrack.parent_app;'), isTrue);
+      expect(pbx.contains('PRODUCT_BUNDLE_IDENTIFIER = com.schooltrack.parentApp;'), isTrue);
       expect(
-        pbx.contains('PRODUCT_BUNDLE_IDENTIFIER = com.schooltrack.parent_app.RunnerTests;'),
+        pbx.contains('PRODUCT_BUNDLE_IDENTIFIER = com.schooltrack.parentApp.RunnerTests;'),
         isTrue,
       );
+      expect(pbx.contains('PRODUCT_BUNDLE_IDENTIFIER = com.schooltrack.parent_app;'), isFalse);
       expect(pbx.contains('com.schooltrack.parentapp.parentApp'), isFalse);
+    });
+
+    test('Android Firebase config uses the parent app id', () {
+      final googleServices = File('android/app/google-services.json').readAsStringSync();
+      expect(googleServices.contains('"package_name": "com.schooltrack.parent_app"'), isTrue);
+      expect(googleServices.contains('1:465945931477:android:5a06937b146c6c6b5cbc5c'), isTrue);
+      expect(googleServices.contains('1:465945931477:android:a75da1dd2c4c55965cbc5c'), isFalse);
+    });
+
+    test('iOS GoogleService-Info.plist uses parentApp bundle id', () {
+      final plist = File('ios/Runner/GoogleService-Info.plist').readAsStringSync();
+      expect(plist.contains('<string>com.schooltrack.parentApp</string>'), isTrue);
+      expect(plist.contains('1:465945931477:ios:98205baf8a938a245cbc5c'), isTrue);
+      expect(plist.contains('com.schooltrack.parent_app'), isFalse);
+    });
+
+    test('firebase_options.dart uses the parent Android and iOS app ids', () {
+      final options = File('lib/firebase_options.dart').readAsStringSync();
+      expect(options.contains('1:465945931477:android:5a06937b146c6c6b5cbc5c'), isTrue);
+      expect(options.contains('1:465945931477:android:a75da1dd2c4c55965cbc5c'), isFalse);
+      expect(options.contains('iosBundleId: \'com.schooltrack.parentApp\''), isTrue);
+      expect(options.contains('1:465945931477:ios:98205baf8a938a245cbc5c'), isTrue);
+      expect(options.contains('1:465945931477:ios:31f21deeba1d0ef35cbc5c'), isFalse);
     });
   });
 

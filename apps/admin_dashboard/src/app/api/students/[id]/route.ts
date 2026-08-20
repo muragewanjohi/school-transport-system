@@ -11,6 +11,7 @@ import {
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { haversineDistanceMeters, parseGeoPoint } from "@/lib/geoUtils";
 import { duplicateGuardianPhoneError } from "@/lib/studentGuardians";
+import { matchParentIdForGuardians } from "@/lib/parentChildren";
 import {
   mapStudentProfile,
   studentDbWriteFields,
@@ -300,6 +301,22 @@ export async function PUT(
     }
 
     const updatePayload = studentDbWriteFields(result.data);
+
+    if (result.data.guardians) {
+      const { data: parentRows } = await client
+        .from("profiles")
+        .select("id, phone")
+        .eq("role", "parent")
+        .eq("tenant_id", scope.tenantId);
+      const parentId = matchParentIdForGuardians(
+        result.data.guardians,
+        (parentRows ?? []).map((row) => ({
+          id: String(row.id),
+          phone: typeof row.phone === "string" ? row.phone : null,
+        }))
+      );
+      if (parentId) updatePayload.parent_id = parentId;
+    }
 
     const { data: studentUpdate, error } = await client
       .from("students")

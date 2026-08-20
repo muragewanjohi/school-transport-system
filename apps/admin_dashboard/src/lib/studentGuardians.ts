@@ -34,6 +34,26 @@ export function canonicalizeGuardianPhone(phone: string): string {
   return digits ? `+${digits}` : "";
 }
 
+/** Digit form used to match guardian JSON phones to parent profiles (Kenyan 0… → 254…). */
+export function canonicalPhoneDigits(phone: string): string {
+  let digits = normalizeGuardianPhone(phone);
+  if (digits.startsWith("0") && digits.length >= 9) {
+    digits = `254${digits.slice(1)}`;
+  }
+  return digits;
+}
+
+export function guardianPhonesMatch(left: string, right: string): boolean {
+  const a = canonicalPhoneDigits(left);
+  const b = canonicalPhoneDigits(right);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.length >= 9 && b.length >= 9) {
+    return a.endsWith(b) || b.endsWith(a);
+  }
+  return false;
+}
+
 export type ParentPhotoSource = {
   phone?: string | null;
   avatar_url?: string | null;

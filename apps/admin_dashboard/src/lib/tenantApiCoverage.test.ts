@@ -35,6 +35,7 @@ const operationalRoutes = [
   "src/app/api/driver/trips/route.ts",
   "src/app/api/driver/telemetry/route.ts",
   "src/app/api/driver/stop-visits/route.ts",
+  "src/app/api/driver/school-arrival/route.ts",
   "src/app/api/alerts/route.ts",
   "src/app/api/demo/go-live/route.ts",
 ];

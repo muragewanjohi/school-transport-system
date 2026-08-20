@@ -36,7 +36,7 @@ String attendanceDoneWord({required bool isPickup}) => isPickup ? 'picked' : 'dr
 String boardingActionLabel({required bool isPickup}) =>
     isPickup ? 'Boarded' : 'Dropped off';
 
-enum StudentListAttendance { pending, actioned, absent }
+enum StudentListAttendance { pending, boarded, droppedOff, absent }
 
 /// Trip-manifest attendance for a student row (not roster Present/Absent alone).
 StudentListAttendance studentListAttendance(
@@ -44,10 +44,44 @@ StudentListAttendance studentListAttendance(
   required bool isPickup,
 }) {
   final attendance = (student['attendance'] ?? 'pending').toString();
-  if (attendance == 'absent') return StudentListAttendance.absent;
-  if (isPickup && attendance == 'boarded') return StudentListAttendance.actioned;
-  if (!isPickup && attendance == 'dropped_off') return StudentListAttendance.actioned;
+  if (attendance == 'absent' || attendance == 'no_show') {
+    return StudentListAttendance.absent;
+  }
+  if (attendance == 'dropped_off') return StudentListAttendance.droppedOff;
+  if (attendance == 'boarded') return StudentListAttendance.boarded;
   return StudentListAttendance.pending;
+}
+
+/// Visible status chip on the Students tab / contact sheet.
+String studentListStatusLabel(StudentListAttendance attendance) {
+  return switch (attendance) {
+    StudentListAttendance.absent => 'Absent',
+    StudentListAttendance.boarded => 'Boarded',
+    StudentListAttendance.droppedOff => 'Dropped off',
+    StudentListAttendance.pending => 'Pending',
+  };
+}
+
+/// Whether the trip-phase action for this row is already complete.
+bool studentListActionComplete(
+  StudentListAttendance attendance, {
+  required bool isPickup,
+}) {
+  if (attendance == StudentListAttendance.absent) return true;
+  if (isPickup) return attendance == StudentListAttendance.boarded;
+  return attendance == StudentListAttendance.droppedOff;
+}
+
+/// Show Boarded / Dropped off CTA (still geofence-gated by the caller).
+bool studentListShowsActionButton(
+  StudentListAttendance attendance, {
+  required bool isPickup,
+}) {
+  if (studentListActionComplete(attendance, isPickup: isPickup)) return false;
+  if (isPickup) return attendance == StudentListAttendance.pending;
+  // Drop-off: campus-boarded (or leftover pending) can still be marked dropped at home stop.
+  return attendance == StudentListAttendance.boarded ||
+      attendance == StudentListAttendance.pending;
 }
 
 class GuardianContact {
@@ -163,6 +197,135 @@ List<Map<String, dynamic>> mergeManifestAttendance({
   }).toList();
 }
 
+const dropoffStartBlockedMessage = 'Board or mark absent every student first.';
+const markRemainingAbsentLabel = 'Mark remaining absent';
+const campusToggleHint = 'Switch on if the student boarded. Switch off to mark absent.';
+const campusSavingLabel = 'Saving…';
+const campusStartingTripLabel = 'Starting trip…';
+
+enum CampusToggleSelection { pending, boarded, absent }
+
+CampusToggleSelection campusToggleSelection(String? attendance) {
+  final value = (attendance ?? 'pending').toString();
+  if (value == 'boarded') return CampusToggleSelection.boarded;
+  if (value == 'absent' || value == 'no_show') return CampusToggleSelection.absent;
+  return CampusToggleSelection.pending;
+}
+
+bool campusSwitchIsOn(CampusToggleSelection selection) {
+  return selection == CampusToggleSelection.boarded;
+}
+
+String campusSwitchStatusLabel(CampusToggleSelection selection) {
+  return switch (selection) {
+    CampusToggleSelection.boarded => 'Boarded',
+    CampusToggleSelection.absent => 'Absent',
+    CampusToggleSelection.pending => 'Pending',
+  };
+}
+
+List<Map<String, dynamic>> pendingCampusRows(List<Map<String, dynamic>> students) {
+  return students
+      .where((row) => campusToggleSelection(row['attendance']?.toString()) == CampusToggleSelection.pending)
+      .toList();
+}
+
+bool _isCampusResolvedAttendance(String attendance) {
+  return attendance == 'boarded' || attendance == 'absent' || attendance == 'no_show';
+}
+
+/// Drop-off may start when every manifest is boarded, absent, or no_show. Empty roster is ready.
+bool dropoffTripReadyToStart(List<dynamic> rows) {
+  return rows.every((row) {
+    if (row is! Map) return true;
+    return _isCampusResolvedAttendance((row['attendance'] ?? 'pending').toString());
+  });
+}
+
+bool dropoffTripReadyFromCounts({int? pendingCount, List<dynamic>? rows}) {
+  if (pendingCount != null) return pendingCount <= 0;
+  if (rows != null) return dropoffTripReadyToStart(rows);
+  return false;
+}
+
+int? parseCount(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value?.toString() ?? '');
+}
+
+class CampusBoardingCounts {
+  final int boarded;
+  final int absent;
+  final int pending;
+  final int total;
+
+  const CampusBoardingCounts({
+    required this.boarded,
+    required this.absent,
+    required this.pending,
+    required this.total,
+  });
+
+  String get progressLabel => '$boarded boarded · $absent absent · $pending remaining';
+}
+
+CampusBoardingCounts campusBoardingCounts(List<dynamic> rows) {
+  var boarded = 0;
+  var absent = 0;
+  var pending = 0;
+  for (final row in rows) {
+    if (row is! Map) {
+      pending += 1;
+      continue;
+    }
+    final attendance = (row['attendance'] ?? 'pending').toString();
+    if (attendance == 'boarded') {
+      boarded += 1;
+    } else if (attendance == 'absent' || attendance == 'no_show') {
+      absent += 1;
+    } else {
+      pending += 1;
+    }
+  }
+  return CampusBoardingCounts(
+    boarded: boarded,
+    absent: absent,
+    pending: pending,
+    total: rows.length,
+  );
+}
+
+/// Home card roster CTA. Drop-off campus roll-call is Board Students.
+String homeManifestCtaLabel({required bool isPickup}) {
+  return isPickup ? 'PICKUP STUDENTS' : 'BOARD STUDENTS';
+}
+
+/// Campus roll-call: Present → boarded, Absent → absent (not dropped_off).
+String attendanceForCampusBoarding(String status) {
+  return status == 'Present' ? 'boarded' : 'absent';
+}
+
+List<Map<String, dynamic>> flattenTripManifestRows(List<dynamic> manifests) {
+  final out = <Map<String, dynamic>>[];
+  for (final row in manifests) {
+    if (row is! Map) continue;
+    final nested = row['student'];
+    final student = nested is Map ? Map<String, dynamic>.from(nested) : <String, dynamic>{};
+    final studentId = (student['id'] ?? row['student_id'] ?? '').toString();
+    if (studentId.isEmpty) continue;
+    out.add({
+      ...student,
+      'id': studentId,
+      'student_id': studentId,
+      'manifest_id': row['id']?.toString() ?? '',
+      'attendance': (row['attendance'] ?? student['attendance'] ?? 'pending').toString(),
+      'guardians': student['guardians'] ?? row['guardians'],
+    });
+  }
+  return out;
+}
+
 /// Primary Trip CTA label from run type.
 String tripBoardingCtaLabel(String runType) {
   return runType.toUpperCase() == 'DROPOFF' ? 'DropOff Students' : 'Pickup Students';
@@ -206,6 +369,83 @@ List<String> orderedStopIdsFrom(List<dynamic> stops) {
       .map((s) => s['id']?.toString() ?? '')
       .where((id) => id.isNotEmpty)
       .toList();
+}
+
+Map<String, dynamic>? sequencedStopAt({
+  required List<dynamic> stops,
+  required bool last,
+}) {
+  final ordered = sortedStopsBySequence(stops).whereType<Map>().toList();
+  if (ordered.isEmpty) return null;
+  return Map<String, dynamic>.from(last ? ordered.last : ordered.first);
+}
+
+Map<String, dynamic>? firstSequencedStop(List<dynamic> stops) {
+  return sequencedStopAt(stops: stops, last: false);
+}
+
+Map<String, dynamic>? lastSequencedStop(List<dynamic> stops) {
+  return sequencedStopAt(stops: stops, last: true);
+}
+
+/// Drop-off first sequenced stop is school origin. Pickup first stop is not.
+bool isSchoolOriginStop({
+  required Map<String, dynamic> stop,
+  required List<dynamic> stops,
+  required bool isPickup,
+}) {
+  if (isPickup) return false;
+  final first = firstSequencedStop(stops);
+  return first != null && first['id']?.toString() == stop['id']?.toString();
+}
+
+/// Pickup last sequenced stop is school destination. Drop-off last stop is not.
+bool isSchoolDestinationStop({
+  required Map<String, dynamic> stop,
+  required List<dynamic> stops,
+  required bool isPickup,
+}) {
+  if (!isPickup) return false;
+  final last = lastSequencedStop(stops);
+  return last != null && last['id']?.toString() == stop['id']?.toString();
+}
+
+bool shouldSkipBoardingDrawer({
+  required Map<String, dynamic>? stop,
+  required List<dynamic> stops,
+  required bool isPickup,
+  required int studentsAtStop,
+}) {
+  if (stop == null) return true;
+  if (studentsAtStop <= 0) return true;
+  if (isSchoolOriginStop(stop: stop, stops: stops, isPickup: isPickup)) return true;
+  if (isSchoolDestinationStop(stop: stop, stops: stops, isPickup: isPickup)) return true;
+  return false;
+}
+
+bool shouldAutoCompletePickupAtSchool({
+  required Map<String, dynamic>? arrivedStop,
+  required List<dynamic> stops,
+  required bool isPickup,
+}) {
+  if (!isPickup || arrivedStop == null) return false;
+  return isSchoolDestinationStop(stop: arrivedStop, stops: stops, isPickup: true);
+}
+
+int durationSecondsFromRange(DateTime? startedAt, DateTime completedAt) {
+  if (startedAt == null) return 0;
+  final secs = completedAt.difference(startedAt).inSeconds;
+  return secs < 0 ? 0 : secs;
+}
+
+String formatTripDurationMinutes(int seconds) {
+  if (seconds <= 0) return '0 min';
+  final mins = (seconds / 60).ceil();
+  return '$mins min';
+}
+
+String tripCompleteSnackLabel(int durationSeconds) {
+  return 'Trip complete · ${formatTripDurationMinutes(durationSeconds)}';
 }
 
 /// Students assigned to [stopId] for this run direction.
@@ -355,6 +595,69 @@ String formatDistanceAway(double? km) {
   if (km == null) return '';
   if (km < 0.1) return '${(km * 1000).round()} m away';
   return '${km.toStringAsFixed(1)} km away';
+}
+
+/// Home active-trip attendance row title.
+String homeAttendanceProgressTitle({required bool isPickup}) =>
+    isPickup ? 'STUDENTS PICKED UP' : 'STUDENTS DROPPED OFF';
+
+String formatAttendanceCount(int boarded, int total) => '$boarded / $total';
+
+String formatAttendancePercentLabel(int boarded, int total) {
+  if (total <= 0) return '0% completed';
+  final pct = ((boarded / total) * 100).round().clamp(0, 100);
+  return '$pct% completed';
+}
+
+double attendanceProgressFraction(int boarded, int total) {
+  if (total <= 0) return 0;
+  return (boarded / total).clamp(0.0, 1.0);
+}
+
+/// Compact next-stop meta: `3 min • 1.2 km`.
+String formatNextStopMeta({required int? etaMinutes, required double? distanceKm}) {
+  final parts = <String>[];
+  if (etaMinutes != null) parts.add(formatEtaLabel(etaMinutes));
+  if (distanceKm != null) {
+    if (distanceKm < 0.1) {
+      parts.add('${(distanceKm * 1000).round()} m');
+    } else {
+      parts.add('${distanceKm.toStringAsFixed(1)} km');
+    }
+  }
+  if (parts.isEmpty) return 'Awaiting GPS';
+  return parts.join(' • ');
+}
+
+String formatEstimatedArrivalClock(int? etaMinutes, {DateTime? now}) {
+  if (etaMinutes == null) return '--:--';
+  final arrival = (now ?? DateTime.now()).add(Duration(minutes: etaMinutes));
+  final hh = arrival.hour.toString().padLeft(2, '0');
+  final mm = arrival.minute.toString().padLeft(2, '0');
+  return '$hh:$mm';
+}
+
+/// Trip-level punctuality from start vs scheduled departure (not stop timetable).
+String homeArrivalStatusLabel({
+  required int? etaMinutes,
+  DateTime? startedAt,
+  String? departureTime,
+  DateTime? now,
+}) {
+  if (etaMinutes == null) return 'Awaiting GPS';
+  final clock = now ?? DateTime.now();
+  if (startedAt == null || departureTime == null || departureTime.isEmpty) {
+    return 'On time';
+  }
+  final parts = departureTime.split(':');
+  if (parts.length < 2) return 'On time';
+  final hour = int.tryParse(parts[0]);
+  final minute = int.tryParse(parts[1]);
+  if (hour == null || minute == null) return 'On time';
+  final scheduled = DateTime(clock.year, clock.month, clock.day, hour, minute);
+  final lateBy = startedAt.difference(scheduled).inMinutes;
+  if (lateBy <= 5) return 'On time';
+  return 'Running late';
 }
 
 String studentsWaitingLabel({required int count, required bool isPickup}) {

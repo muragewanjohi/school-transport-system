@@ -10,6 +10,7 @@ import {
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { duplicateGuardianPhoneError, attachGuardianPhotos, parentPhotoIndex } from "@/lib/studentGuardians";
 import { studentDbWriteFields } from "@/lib/studentRecord";
+import { matchParentIdForGuardians } from "@/lib/parentChildren";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -216,11 +217,25 @@ export async function POST(request: Request) {
     const client = scope.client;
     const tenantId = scope.tenantId;
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       id: crypto.randomUUID(),
       tenant_id: tenantId,
       ...studentDbWriteFields(result.data),
     };
+
+    const { data: parentRows } = await client
+      .from("profiles")
+      .select("id, phone")
+      .eq("role", "parent")
+      .eq("tenant_id", tenantId);
+    const parentId = matchParentIdForGuardians(
+      result.data.guardians,
+      (parentRows ?? []).map((row) => ({
+        id: String(row.id),
+        phone: typeof row.phone === "string" ? row.phone : null,
+      }))
+    );
+    if (parentId) payload.parent_id = parentId;
 
     const { data: studentInsert, error } = await client
       .from("students")

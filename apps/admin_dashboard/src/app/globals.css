@@ -111,12 +111,20 @@ code, pre {
   box-shadow: var(--shadow-sm);
 }
 
+.mobile-shell-bar,
+.sidebar-backdrop,
+.sidebar-close-btn {
+  display: none;
+}
+
 .sidebar-brand {
   padding: 16px 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-bottom: 1px solid var(--border-default);
+  position: relative;
+  gap: 8px;
 }
 
 .brand-logo {
@@ -152,6 +160,8 @@ code, pre {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
+  overflow-y: auto;
+  min-height: 0;
 }
 
 .menu-item {
@@ -959,6 +969,12 @@ code, pre {
   }
   .dash-mid-grid,
   .dash-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .dash-kpi-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -4021,3 +4037,281 @@ select.form-input option {
   margin-top: 8px;
   justify-self: start;
 }
+
+/* —— Admin console mobile shell (≤900px) —— */
+@media (max-width: 900px) {
+  .app-container {
+    display: block;
+    width: 100%;
+    max-width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .mobile-shell-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    padding: 0 12px;
+    z-index: 40;
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    border-bottom: 1px solid var(--border-default);
+  }
+
+  .mobile-nav-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid var(--border-default);
+    background: var(--bg-base);
+    color: var(--text-primary);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .mobile-nav-toggle:hover {
+    background: var(--bg-surface-hover);
+  }
+
+  .mobile-shell-logo {
+    height: 32px;
+    width: auto;
+    max-width: 140px;
+    display: block;
+  }
+
+  .mobile-shell-spacer {
+    flex: 1;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 45;
+    border: none;
+    padding: 0;
+    margin: 0;
+    background: rgba(15, 23, 42, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    cursor: pointer;
+  }
+
+  .sidebar-backdrop.is-visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(300px, 88vw);
+    z-index: 50;
+    transform: translateX(-105%);
+    transition: transform 0.22s ease;
+    box-shadow: var(--shadow-xl);
+  }
+
+  .sidebar.is-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-close-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    border: 1px solid var(--border-default);
+    background: var(--bg-base);
+    color: var(--text-primary);
+    cursor: pointer;
+  }
+
+  .sidebar-brand .brand-logo {
+    max-width: 160px;
+    height: 48px;
+  }
+
+  .main-content {
+    width: 100%;
+    max-width: 100vw;
+    height: 100%;
+    padding-top: 56px !important;
+    overflow-x: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .top-bar,
+  .main-header {
+    min-height: 56px;
+    height: auto;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .header-title,
+  .top-bar-title {
+    font-size: 1.05rem;
+  }
+
+  .top-bar-actions {
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .school-chip {
+    max-width: min(100%, 220px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dash-home {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .dashboard-grid {
+    padding: 12px;
+    gap: 12px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dashboard-content-layout {
+    grid-template-columns: minmax(0, 1fr) !important;
+    padding: 0 12px 12px;
+    gap: 12px;
+  }
+
+  .panel {
+    padding: 14px;
+    min-width: 0;
+  }
+
+  .dash-kpi {
+    padding: 14px;
+    min-height: 0;
+  }
+
+  .dash-kpi-value {
+    font-size: 1.5rem;
+  }
+
+  .dash-map {
+    min-height: 220px;
+    height: 240px;
+  }
+
+  .dash-attendance {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 16px;
+  }
+
+  .dash-stop-item {
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .dash-stop-eta {
+    grid-column: 2;
+  }
+
+  .data-table-wrap,
+  .table-scroll,
+  .student-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .data-table,
+  .student-table {
+    min-width: 640px;
+  }
+
+  .drawer-content {
+    width: 100% !important;
+    max-width: 100vw;
+    border-left: none;
+  }
+
+  .form-grid,
+  .student-stop-pair {
+    grid-template-columns: 1fr !important;
+  }
+
+  .roster-card,
+  .bus-card,
+  .student-card {
+    min-width: 0;
+  }
+}
+
+@media (max-width: 600px) {
+  .profile-name,
+  .profile-role {
+    display: none;
+  }
+
+  .user-profile .profile-avatar {
+    margin: 0;
+  }
+
+  .header-subtitle {
+    font-size: 0.68rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .sidebar-backdrop {
+    transition: none;
+  }
+}
+
+/* Demo banner + mobile shell: keep both visible without overlapping */
+@media (max-width: 900px) {
+  body:has(.demo-tenant-banner) {
+    display: flex;
+    flex-direction: column;
+  }
+
+  body:has(.demo-tenant-banner) .demo-tenant-banner {
+    position: relative;
+    top: auto;
+    flex-shrink: 0;
+    z-index: 55;
+  }
+
+  body:has(.demo-tenant-banner) .app-container {
+    flex: 1;
+    min-height: 0;
+    height: auto;
+  }
+}
+

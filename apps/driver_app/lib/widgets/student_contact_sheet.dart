@@ -37,11 +37,8 @@ class StudentContactSheet extends StatelessWidget {
     final grade = (student['grade'] ?? student['class_name'] ?? '').toString();
     final attendance = studentListAttendance(student, isPickup: isPickup);
     final guardians = parseStudentGuardians(student['guardians']);
-    final statusLabel = switch (attendance) {
-      StudentListAttendance.absent => 'Absent',
-      StudentListAttendance.actioned => isPickup ? 'Boarded' : 'Dropped off',
-      StudentListAttendance.pending => 'Pending',
-    };
+    final statusLabel = studentListStatusLabel(attendance);
+    final isComplete = studentListActionComplete(attendance, isPickup: isPickup);
 
     return SafeArea(
       child: Padding(
@@ -81,9 +78,11 @@ class StudentContactSheet extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: attendance == StudentListAttendance.absent
                       ? AppColors.dangerSoft
-                      : attendance == StudentListAttendance.actioned
+                      : isComplete
                           ? AppColors.softGreen
-                          : const Color(0xFFDBEAFE),
+                          : attendance == StudentListAttendance.boarded
+                              ? AppColors.softGreen
+                              : const Color(0xFFDBEAFE),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
@@ -93,7 +92,7 @@ class StudentContactSheet extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     color: attendance == StudentListAttendance.absent
                         ? AppColors.dangerInk
-                        : attendance == StudentListAttendance.actioned
+                        : isComplete || attendance == StudentListAttendance.boarded
                             ? AppColors.primaryGreen
                             : const Color(0xFF1D4ED8),
                   ),

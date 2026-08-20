@@ -188,6 +188,32 @@ void main() {
         isFalse,
       );
     });
+
+    test('does not open at a school terminal', () {
+      expect(
+        shouldAutoOpenBoardingDrawer(
+          arrivedStopId: 'school',
+          nextStopId: 'school',
+          alreadyOpenedStopId: null,
+          drawerOpen: false,
+          skipSchoolTerminal: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('does not open when the stop roster is empty', () {
+      expect(
+        shouldAutoOpenBoardingDrawer(
+          arrivedStopId: 's1',
+          nextStopId: 's1',
+          alreadyOpenedStopId: null,
+          drawerOpen: false,
+          studentsAtStop: 0,
+        ),
+        isFalse,
+      );
+    });
   });
 
   group('firstUnresolvedStop', () {

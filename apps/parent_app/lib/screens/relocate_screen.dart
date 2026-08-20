@@ -136,9 +136,9 @@ class _RelocateScreenState extends State<RelocateScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: Text(
-          'Relocate ${widget.studentName}\'s Home',
-          style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18),
+        title: const Text(
+          'Home Location',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 18),
         ),
         backgroundColor: const Color(0xFF0A0E1A),
         foregroundColor: Colors.white,

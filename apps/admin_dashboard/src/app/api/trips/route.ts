@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { z } from "zod";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
+import {
+  DROPOFF_START_BLOCKED_MESSAGE,
+  shouldBlockDropoffStart,
+} from "@/lib/dropoffCampusBoarding";
+import { durationSecondsFromRange } from "@/lib/schoolArrival";
 
 const tripCreateSchema = z.object({
   schedule_id: z.string().min(1, "Invalid Schedule selection"),
@@ -21,10 +26,16 @@ const manifestUpdateSchema = z.object({
   status: z.enum(["scheduled", "in_progress", "completed", "cancelled"]).optional(),
   student_id: z.string().optional(),
   attendance: z.enum(["pending", "boarded", "dropped_off", "absent", "no_show"]).optional(),
+  finalize_campus_boarding: z.boolean().optional(),
   status_override: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
   custom_departure_time: z.string().optional().nullable(),
 });
+
+export const mockScheduleDirections: Record<string, string> = {
+  "sched-1-1": "HOME_TO_SCHOOL",
+  "sched-dropoff": "SCHOOL_TO_HOME",
+};
 
 export const mockTrips = [
   {
@@ -38,7 +49,31 @@ export const mockTrips = [
     status: "in_progress",
     started_at: "2026-06-21T06:35:00Z",
     completed_at: null,
-  }
+  },
+  {
+    id: "trip-dropoff",
+    schedule_id: "sched-dropoff",
+    route_id: "route-1",
+    vehicle_id: "veh-1",
+    driver_id: "driver-1",
+    conductor_1_id: "cond-1",
+    trip_date: "2026-06-21",
+    status: "scheduled",
+    started_at: null,
+    completed_at: null,
+  },
+  {
+    id: "trip-dropoff-ready",
+    schedule_id: "sched-dropoff",
+    route_id: "route-1",
+    vehicle_id: "veh-1",
+    driver_id: "driver-1",
+    conductor_1_id: "cond-1",
+    trip_date: "2026-06-21",
+    status: "scheduled",
+    started_at: null,
+    completed_at: null,
+  },
 ];
 
 export const mockTripManifests = [
@@ -73,8 +108,62 @@ export const mockTripManifests = [
       pickup_stop_id: "stop-1-2",
       dropoff_stop_id: "stop-1-1"
     }
+  },
+  {
+    id: "manifest-dropoff-1",
+    trip_id: "trip-dropoff",
+    student_id: "std-1",
+    attendance: "pending",
+    boarded_at: null,
+    dropped_off_at: null,
+    student: {
+      id: "std-1",
+      name: "Liam Mwangi",
+      grade: "Grade 4",
+      class_name: "4 Blue",
+      pickup_stop_id: "stop-1-1",
+      dropoff_stop_id: "stop-1-2"
+    }
+  },
+  {
+    id: "manifest-dropoff-ready-1",
+    trip_id: "trip-dropoff-ready",
+    student_id: "std-1",
+    attendance: "boarded",
+    boarded_at: "2026-06-21T14:05:00Z",
+    dropped_off_at: null,
+    student: {
+      id: "std-1",
+      name: "Liam Mwangi",
+      grade: "Grade 4",
+      class_name: "4 Blue",
+      pickup_stop_id: "stop-1-1",
+      dropoff_stop_id: "stop-1-2"
+    }
+  },
+  {
+    id: "manifest-dropoff-ready-2",
+    trip_id: "trip-dropoff-ready",
+    student_id: "std-4",
+    attendance: "absent",
+    boarded_at: null,
+    dropped_off_at: null,
+    student: {
+      id: "std-4",
+      name: "Ava Ndwiga",
+      grade: "Grade 4",
+      class_name: "4 Blue",
+      pickup_stop_id: "stop-1-2",
+      dropoff_stop_id: "stop-1-1"
+    }
   }
 ];
+
+function mockDirectionForTrip(tripId: string): string {
+  const trip = mockTrips.find((row) => row.id === tripId);
+  if (!trip) return "HOME_TO_SCHOOL";
+  return mockScheduleDirections[trip.schedule_id] ?? "HOME_TO_SCHOOL";
+}
 
 export async function GET(request: Request) {
   try {
@@ -115,7 +204,8 @@ export async function GET(request: Request) {
             grade,
             class_name,
             pickup_stop_id,
-            dropoff_stop_id
+            dropoff_stop_id,
+            guardians
           )
         `)
         .eq("trip_id", tripId)
@@ -130,7 +220,7 @@ export async function GET(request: Request) {
     }
 
     // List all trips
-    let query = client.from("trips").select("id, tenant_id, schedule_id, route_id, vehicle_id, driver_id, conductor_1_id, trip_date, status, started_at, completed_at, created_at, status_override, description, custom_departure_time").eq("tenant_id", scope.tenantId);
+    let query = client.from("trips").select("id, tenant_id, schedule_id, route_id, vehicle_id, driver_id, conductor_1_id, trip_date, status, started_at, completed_at, duration_seconds, created_at, status_override, description, custom_departure_time").eq("tenant_id", scope.tenantId);
     
     if (scheduleId) {
       query = query.eq("schedule_id", scheduleId);
@@ -331,8 +421,51 @@ export async function PUT(request: Request) {
     }
 
     if (!isSupabaseConfigured) {
+      if (result.data.trip_id && result.data.finalize_campus_boarding) {
+        const updated = mockTripManifests
+          .filter((row) => row.trip_id === result.data.trip_id)
+          .map((row) => ({
+            ...row,
+            attendance: row.attendance === "pending" ? "absent" : row.attendance,
+          }));
+        return NextResponse.json({ success: true, source: "mock", data: updated });
+      }
       if (result.data.trip_id && result.data.status === "in_progress") {
+        const manifests = mockTripManifests.filter((row) => row.trip_id === result.data.trip_id);
+        if (
+          shouldBlockDropoffStart({
+            direction: mockDirectionForTrip(result.data.trip_id),
+            manifests,
+          })
+        ) {
+          return NextResponse.json(
+            { success: false, error: DROPOFF_START_BLOCKED_MESSAGE },
+            { status: 409 }
+          );
+        }
         console.log(`[Notification Simulator] All parents of students on trip ${result.data.trip_id}'s route have been notified: Bus has left school.`);
+      }
+      if (result.data.trip_id && result.data.status === "completed") {
+        const mockTrip = mockTrips.find((row) => row.id === result.data.trip_id);
+        const completedAt = new Date();
+        return NextResponse.json({
+          success: true,
+          source: "mock",
+          data: {
+            ...result.data,
+            completed_at: completedAt.toISOString(),
+            duration_seconds: durationSecondsFromRange(mockTrip?.started_at ?? null, completedAt),
+          },
+        });
+      }
+      const hasTripPatch =
+        result.data.status !== undefined ||
+        result.data.status_override !== undefined ||
+        result.data.description !== undefined ||
+        result.data.custom_departure_time !== undefined ||
+        Boolean(result.data.manifest_id && result.data.attendance);
+      if (result.data.trip_id && !hasTripPatch) {
+        return NextResponse.json({ success: false, error: "Nothing to update" }, { status: 400 });
       }
       return NextResponse.json({ success: true, source: "mock", data: result.data });
     }
@@ -368,14 +501,87 @@ export async function PUT(request: Request) {
       return NextResponse.json({ success: true, source: "supabase", data: manifestUpdate });
     }
 
+    if (result.data.trip_id && result.data.finalize_campus_boarding) {
+      const { data: finalized, error: finalizeError } = await client
+        .from("trip_manifests")
+        .update({ attendance: "absent" })
+        .eq("trip_id", result.data.trip_id)
+        .eq("tenant_id", scope.tenantId)
+        .eq("attendance", "pending")
+        .select();
+
+      if (finalizeError) {
+        return NextResponse.json({ success: false, error: finalizeError.message }, { status: 400 });
+      }
+
+      return NextResponse.json({ success: true, source: "supabase", data: finalized ?? [] });
+    }
+
     if (result.data.trip_id) {
-      const updateData: Record<string, any> = {};
+      if (result.data.status === "in_progress") {
+        const { data: tripRow, error: tripLookupError } = await client
+          .from("trips")
+          .select("id, schedule_id")
+          .eq("id", result.data.trip_id)
+          .eq("tenant_id", scope.tenantId)
+          .maybeSingle();
+
+        if (tripLookupError) {
+          return NextResponse.json({ success: false, error: tripLookupError.message }, { status: 400 });
+        }
+        if (!tripRow) {
+          return NextResponse.json({ success: false, error: "Trip not found" }, { status: 404 });
+        }
+
+        let direction = "HOME_TO_SCHOOL";
+        if (tripRow.schedule_id) {
+          const { data: schedule } = await client
+            .from("schedules")
+            .select("direction")
+            .eq("id", tripRow.schedule_id)
+            .maybeSingle();
+          if (schedule && typeof schedule.direction === "string") {
+            direction = schedule.direction;
+          }
+        }
+
+        const { data: manifests, error: manifestLookupError } = await client
+          .from("trip_manifests")
+          .select("attendance")
+          .eq("trip_id", result.data.trip_id)
+          .eq("tenant_id", scope.tenantId);
+
+        if (manifestLookupError) {
+          return NextResponse.json({ success: false, error: manifestLookupError.message }, { status: 400 });
+        }
+
+        if (shouldBlockDropoffStart({ direction, manifests: manifests ?? [] })) {
+          return NextResponse.json(
+            { success: false, error: DROPOFF_START_BLOCKED_MESSAGE },
+            { status: 409 }
+          );
+        }
+      }
+
+      const updateData: Record<string, string | number | null> = {};
       if (result.data.status !== undefined) {
         updateData.status = result.data.status;
         if (result.data.status === "in_progress") {
           updateData.started_at = new Date().toISOString();
         } else if (result.data.status === "completed") {
-          updateData.completed_at = new Date().toISOString();
+          const completedAt = new Date();
+          updateData.completed_at = completedAt.toISOString();
+          const { data: existingTrip } = await client
+            .from("trips")
+            .select("started_at")
+            .eq("id", result.data.trip_id)
+            .eq("tenant_id", scope.tenantId)
+            .maybeSingle();
+          const startedAt =
+            existingTrip && typeof (existingTrip as { started_at?: string | null }).started_at === "string"
+              ? (existingTrip as { started_at: string }).started_at
+              : null;
+          updateData.duration_seconds = durationSecondsFromRange(startedAt, completedAt);
         }
       }
       if (result.data.status_override !== undefined) {
@@ -386,6 +592,10 @@ export async function PUT(request: Request) {
       }
       if (result.data.custom_departure_time !== undefined) {
         updateData.custom_departure_time = result.data.custom_departure_time;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        return NextResponse.json({ success: false, error: "Nothing to update" }, { status: 400 });
       }
 
       const { data: tripUpdate, error: tripError } = await client

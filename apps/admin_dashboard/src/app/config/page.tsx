@@ -23,6 +23,10 @@ import {
   ShieldAlert,
   Key
 } from "lucide-react";
+import {
+  DEFAULT_ABSENT_CAMPUS_TEMPLATE,
+  DEFAULT_ABSENT_STOP_TEMPLATE,
+} from "@/lib/absentParentAlert";
 
 interface Holiday {
   label: string;
@@ -52,10 +56,14 @@ export default function ConfigConsole() {
   const [notifyTripStart, setNotifyTripStart] = useState(true);
   const [notifyGeofenceEntry, setNotifyGeofenceEntry] = useState(true);
   const [notifyBoarded, setNotifyBoarded] = useState(true);
+  const [notifyAbsentStop, setNotifyAbsentStop] = useState(true);
+  const [notifyAbsentCampus, setNotifyAbsentCampus] = useState(true);
   const [smsTemplateGeofence, setSmsTemplateGeofence] = useState("Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. Please prepare {student_name}.");
   const [smsTemplateBoarded, setSmsTemplateBoarded] = useState("Hi {parent_name}, {student_name} has safely boarded the school bus {vehicle_plate}.");
   const [smsTemplateTripStart, setSmsTemplateTripStart] = useState("Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} has started. Bus {vehicle_plate} is active.");
   const [smsTemplateTripStatus, setSmsTemplateTripStatus] = useState("Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} is {status_override} due to {trip_description}. Bus {vehicle_plate}.");
+  const [smsTemplateAbsentStop, setSmsTemplateAbsentStop] = useState(DEFAULT_ABSENT_STOP_TEMPLATE);
+  const [smsTemplateAbsentCampus, setSmsTemplateAbsentCampus] = useState(DEFAULT_ABSENT_CAMPUS_TEMPLATE);
   const [googleMapsApiKey, setGoogleMapsApiKey] = useState("");
   const [mapboxAccessToken, setMapboxAccessToken] = useState("");
 
@@ -93,10 +101,14 @@ export default function ConfigConsole() {
           setNotifyTripStart(config.notify_on_trip_start !== false);
           setNotifyGeofenceEntry(config.notify_on_geofence_entry !== false);
           setNotifyBoarded(config.notify_on_boarded !== false);
+          setNotifyAbsentStop(config.notify_on_absent_stop !== false);
+          setNotifyAbsentCampus(config.notify_on_absent_campus !== false);
           setSmsTemplateGeofence(config.sms_template_geofence || "Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. Please prepare {student_name}.");
           setSmsTemplateBoarded(config.sms_template_boarded || "Hi {parent_name}, {student_name} has safely boarded the school bus {vehicle_plate}.");
           setSmsTemplateTripStart(config.sms_template_trip_start || "Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} has started. Bus {vehicle_plate} is active.");
           setSmsTemplateTripStatus(config.sms_template_trip_status || "Hi {parent_name}, Bus Schedule Alert: Today's trip {trip_name} for {student_name} is {status_override} due to {trip_description}. Bus {vehicle_plate}.");
+          setSmsTemplateAbsentStop(config.sms_template_absent_stop || DEFAULT_ABSENT_STOP_TEMPLATE);
+          setSmsTemplateAbsentCampus(config.sms_template_absent_campus || DEFAULT_ABSENT_CAMPUS_TEMPLATE);
           setOperatingHoursStart(config.operating_hours_start?.slice(0, 5) || "06:00");
           setOperatingHoursEnd(config.operating_hours_end?.slice(0, 5) || "18:00");
           setOperatingDays(config.operating_days || ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
@@ -133,10 +145,14 @@ export default function ConfigConsole() {
       notify_on_trip_start: notifyTripStart,
       notify_on_geofence_entry: notifyGeofenceEntry,
       notify_on_boarded: notifyBoarded,
+      notify_on_absent_stop: notifyAbsentStop,
+      notify_on_absent_campus: notifyAbsentCampus,
       sms_template_geofence: smsTemplateGeofence,
       sms_template_boarded: smsTemplateBoarded,
       sms_template_trip_start: smsTemplateTripStart,
       sms_template_trip_status: smsTemplateTripStatus,
+      sms_template_absent_stop: smsTemplateAbsentStop,
+      sms_template_absent_campus: smsTemplateAbsentCampus,
       operating_hours_start: operatingHoursStart + ":00",
       operating_hours_end: operatingHoursEnd + ":00",
       operating_days: operatingDays,
@@ -571,6 +587,56 @@ export default function ConfigConsole() {
                         Variables supported: <code>{"{parent_name}"}</code>, <code>{"{student_name}"}</code>, <code>{"{route_name}"}</code>, <code>{"{vehicle_plate}"}</code>, <code>{"{trip_name}"}</code>, <code>{"{status_override}"}</code>, <code>{"{trip_description}"}</code>, <code>{"{departure_time}"}</code>.
                       </span>
                     </div>
+
+                    <div className="form-group" style={{ gridColumn: "span 2" }}>
+                      <label>SMS Template: Absent at Stop</label>
+                      <textarea
+                        disabled={!canEdit}
+                        rows={3}
+                        value={smsTemplateAbsentStop}
+                        onChange={(e) => setSmsTemplateAbsentStop(e.target.value)}
+                        placeholder={DEFAULT_ABSENT_STOP_TEMPLATE}
+                        style={{
+                          width: "100%",
+                          background: "var(--background-card)",
+                          border: "1px solid var(--border-default)",
+                          borderRadius: "8px",
+                          padding: "10px",
+                          color: "var(--text-primary)",
+                          fontSize: "0.85rem",
+                          outline: "none",
+                          fontFamily: "monospace"
+                        }}
+                      />
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
+                        Variables supported: <code>{"{vehicle_plate}"}</code>, <code>{"{bus_number_plate}"}</code>, <code>{"{stop_name}"}</code>, <code>{"{stage_name}"}</code>, <code>{"{student_name}"}</code>, <code>{"{time}"}</code>, <code>{"{parent_name}"}</code>.
+                      </span>
+                    </div>
+
+                    <div className="form-group" style={{ gridColumn: "span 2" }}>
+                      <label>SMS Template: Absent at Drop-off Campus Boarding</label>
+                      <textarea
+                        disabled={!canEdit}
+                        rows={3}
+                        value={smsTemplateAbsentCampus}
+                        onChange={(e) => setSmsTemplateAbsentCampus(e.target.value)}
+                        placeholder={DEFAULT_ABSENT_CAMPUS_TEMPLATE}
+                        style={{
+                          width: "100%",
+                          background: "var(--background-card)",
+                          border: "1px solid var(--border-default)",
+                          borderRadius: "8px",
+                          padding: "10px",
+                          color: "var(--text-primary)",
+                          fontSize: "0.85rem",
+                          outline: "none",
+                          fontFamily: "monospace"
+                        }}
+                      />
+                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
+                        Variables supported: <code>{"{vehicle_plate}"}</code>, <code>{"{student_name}"}</code>, <code>{"{time}"}</code>, <code>{"{parent_name}"}</code>, <code>{"{stop_name}"}</code>.
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
@@ -846,6 +912,32 @@ export default function ConfigConsole() {
                           <div>
                             <span>Student Boarding & Dropoff Receipts</span>
                             <p>Notify parents instantly when their child is scanned onto/off the bus by the conductor checklist.</p>
+                          </div>
+                        </label>
+
+                        <label className="checkbox-row" style={{ border: notifyAbsentStop ? "1px solid var(--accent-primary)" : "1px solid var(--border-default)", background: notifyAbsentStop ? "rgba(16, 185, 129, 0.03)" : "var(--background-card)" }}>
+                          <input
+                            type="checkbox"
+                            disabled={!canEdit}
+                            checked={notifyAbsentStop}
+                            onChange={(e) => setNotifyAbsentStop(e.target.checked)}
+                          />
+                          <div>
+                            <span>Student Absent at Stop</span>
+                            <p>Notify parents when a child is marked absent at a pickup or drop-off stage after the trip has started.</p>
+                          </div>
+                        </label>
+
+                        <label className="checkbox-row" style={{ border: notifyAbsentCampus ? "1px solid var(--accent-primary)" : "1px solid var(--border-default)", background: notifyAbsentCampus ? "rgba(16, 185, 129, 0.03)" : "var(--background-card)" }}>
+                          <input
+                            type="checkbox"
+                            disabled={!canEdit}
+                            checked={notifyAbsentCampus}
+                            onChange={(e) => setNotifyAbsentCampus(e.target.checked)}
+                          />
+                          <div>
+                            <span>Student Absent at Drop-off Campus Boarding</span>
+                            <p>Notify parents when a child is marked absent before a school-to-home trip leaves campus.</p>
                           </div>
                         </label>
                       </div>

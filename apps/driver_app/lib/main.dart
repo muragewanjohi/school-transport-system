@@ -10,17 +10,19 @@ import 'package:driver_app/services/supabase_service.dart';
 import 'package:driver_app/services/location_service.dart';
 import 'package:driver_app/screens/login_screen.dart';
 import 'package:driver_app/services/driver_api_auth.dart';
+import 'package:driver_app/screens/campus_boarding_screen.dart';
 import 'package:driver_app/screens/student_selection_screen.dart';
 import 'package:driver_app/screens/trip_screen.dart';
 import 'package:driver_app/config/api_config.dart';
-import 'package:driver_app/widgets/route_map_widget.dart';
 import 'package:driver_app/utils/geo_utils.dart';
 import 'package:driver_app/utils/gps_replay.dart';
 import 'package:driver_app/utils/stop_visit_logic.dart';
 import 'package:driver_app/utils/trip_ui_logic.dart';
 import 'package:driver_app/providers/trip_providers.dart';
 import 'package:driver_app/services/stop_navigation_service.dart';
+import 'package:driver_app/widgets/campus_boarding_panel.dart';
 import 'package:driver_app/widgets/guardian_photo_thumbnail.dart';
+import 'package:driver_app/widgets/active_trip_home_summary.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_core/firebase_core.dart';
@@ -232,84 +234,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         ),
       );
     }
-  }
-
-  Widget _buildNextStopNavCard(TelemetryCoords? telemetry) {
-    final nextStop = _nextNavStop(telemetry);
-    final arrived = _arrivedStopFor(telemetry);
-    final stopName = (nextStop?['name'] ?? 'No further stops').toString();
-    final subtitle = arrived != null
-        ? 'At ${arrived.name}. Navigate to the next stop when ready.'
-        : (nextStop != null
-            ? 'Turn-by-turn directions in Google Maps'
-            : 'You are at the last stop on this route');
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFFFFF),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFE2E8F0), width: 1.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.navigation, color: Color(0xFF10B981), size: 22),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      nextStop != null ? 'NEXT STOP' : 'ROUTE COMPLETE',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF64748B),
-                        letterSpacing: 0.5,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      stopName,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Color(0xFF0B1C30),
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(fontSize: 12, color: Color(0xFF94A3B8)),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          if (nextStop != null) ...[
-            const SizedBox(height: 12),
-            ElevatedButton.icon(
-              onPressed: () => _navigateToStop(nextStop),
-              icon: const Icon(Icons.directions),
-              label: const Text(
-                'Navigate',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0B1C30),
-                foregroundColor: Colors.white,
-                minimumSize: const Size(double.infinity, 48),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
   }
 
   void _applyTelemetry({
@@ -973,7 +897,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     });
   }
 
-  Future<void> _handleStartTrip(String tripId, String routeId, String scheduleId) async {
+  Future<bool> _handleStartTrip(String tripId, String routeId, String scheduleId) async {
     setState(() => _isLoadingDriverTrips = true);
     try {
       final baseUrl = _getApiBaseUrl();
@@ -1004,19 +928,77 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
         // Refresh trips from server
         await _fetchDriverTrips();
+        return true;
       } else {
-        if (!mounted) return;
+        if (!mounted) return false;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to start trip: ${result['error'] ?? 'Server error'}')),
         );
+        return false;
       }
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return false;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Network error: Failed to start trip. $e')),
       );
+      return false;
     } finally {
       setState(() => _isLoadingDriverTrips = false);
+    }
+  }
+
+  Future<int?> _handleSchoolArrival(String stopId) async {
+    final tripId = _activeTrip is Map ? _activeTrip['id']?.toString() : null;
+    if (tripId == null || tripId.isEmpty) return null;
+    setState(() => _isLoadingDriverTrips = true);
+    try {
+      final baseUrl = _getApiBaseUrl();
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/api/driver/school-arrival'),
+            headers: await DriverApiAuth.headers(),
+            body: json.encode({
+              'trip_id': tripId,
+              'stop_id': stopId,
+            }),
+          )
+          .timeout(const Duration(seconds: 8));
+
+      final result = json.decode(response.body);
+      if (response.statusCode == 200 && result['success'] == true) {
+        final duration = parseCount(
+              result is Map && result['data'] is Map ? result['data']['duration_seconds'] : null,
+            ) ??
+            0;
+        await _endTrip();
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('route_id');
+        await prefs.remove('trip_id');
+        setState(() {
+          _selectedRouteId = null;
+          _selectedTripId = null;
+        });
+        await _fetchDriverTrips();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(tripCompleteSnackLabel(duration))),
+          );
+        }
+        return duration;
+      }
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to complete school arrival: ${result['error'] ?? 'Server error'}')),
+      );
+      return null;
+    } catch (e) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Network error: Failed to complete school arrival. $e')),
+      );
+      return null;
+    } finally {
+      if (mounted) setState(() => _isLoadingDriverTrips = false);
     }
   }
 
@@ -1442,18 +1424,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             final dropoffName = dropoffStop != null ? dropoffStop['name'] as String : 'Home / Default Stop';
 
             dynamic rawGuardians = student['guardians'];
-            List<dynamic> guardiansList = [];
-            if (rawGuardians != null) {
-              if (rawGuardians is String) {
-                try {
-                  guardiansList = json.decode(rawGuardians) as List<dynamic>;
-                } catch (e) {
-                  debugPrint("Error parsing guardians string: $e");
-                }
-              } else if (rawGuardians is List) {
-                guardiansList = rawGuardians;
-              }
-            }
+            final guardians = parseStudentGuardians(rawGuardians);
 
             return Padding(
               padding: EdgeInsets.only(
@@ -1547,26 +1518,38 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                               onTap: () {},
                             ),
                             const Divider(height: 1, color: Color(0xFFE2E8F0)),
-                            if (guardiansList.isEmpty)
+                            if (guardians.isEmpty)
                               const ListTile(
-                                leading: Icon(Icons.phone, color: Color(0xFF64748B)),
+                                leading: Icon(Icons.person_outline, color: Color(0xFF64748B)),
                                 title: Text('Parent / Guardian', style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
                                 subtitle: Text('No parent / guardian registered', style: TextStyle(fontSize: 14, color: Color(0xFF0B1C30))),
                               )
                             else
-                              ...guardiansList.map((guardian) {
-                                final gName = guardian['name'] ?? 'Parent';
-                                final gPhone = guardian['phone'] ?? 'N/A';
+                              ...guardians.map((guardian) {
                                 return Column(
                                   children: [
                                     ListTile(
-                                      leading: const Icon(Icons.phone, color: Color(0xFF10B981)),
-                                      title: Text('Parent / Guardian ($gName)', style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8))),
-                                      subtitle: Text(gPhone, style: const TextStyle(fontSize: 14, color: Color(0xFF0B1C30), fontWeight: FontWeight.bold)),
+                                      leading: GuardianPhotoThumbnail(
+                                        name: guardian.name,
+                                        photoUrl: guardian.photoUrl,
+                                        radius: 20,
+                                      ),
+                                      title: Text(
+                                        'Parent / Guardian (${guardian.name})',
+                                        style: const TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                                      ),
+                                      subtitle: Text(
+                                        guardian.phone,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          color: Color(0xFF0B1C30),
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                                       trailing: IconButton(
                                         icon: const Icon(Icons.phone_in_talk, color: Color(0xFF10B981)),
                                         onPressed: () {
-                                          _callGuardian(gPhone.toString());
+                                          _callGuardian(guardian.phone);
                                         },
                                       ),
                                     ),
@@ -1994,37 +1977,65 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                     height: 1.3
                   ),
                 ),
-                const SizedBox(height: 20),
-                ElevatedButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _currentTab = 1; // Switch to active trip tracking tab
-                    });
-                  },
-                  icon: const Icon(Icons.map_outlined),
-                  label: const Text('View Active Tracking Console', style: TextStyle(fontWeight: FontWeight.bold)),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    minimumSize: const Size(double.infinity, 50),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                ),
               ],
             ),
           ),
-          if (_selectedRouteId != null) ...[
-            const SizedBox(height: 16),
-            RouteMapWidget(
-              routeId: _selectedRouteId!,
-              liveLatitude: telemetry?.latitude,
-              liveLongitude: telemetry?.longitude,
-              vehiclePlate: _vehiclePlate,
-              arrivedStopId: _arrivedStopFor(telemetry)?.id,
-            ),
-            const SizedBox(height: 12),
-            _buildNextStopNavCard(telemetry),
-          ],
+          const SizedBox(height: 12),
+          Builder(
+            builder: (context) {
+              final progress = computeAttendanceProgress(
+                _studentsList,
+                isPickup: _isPickupRun,
+              );
+              final nextStop = _nextNavStop(telemetry);
+              final nextPoint = nextStop == null ? null : stopLatLng(nextStop);
+              final remainingStops = orderedStopIdsFrom(_stopsList)
+                  .where((id) => !_stopOutcomes.containsKey(id))
+                  .length;
+              final scheduleDuration = (_activeTrip['estimated_duration'] as num?)?.toInt() ??
+                  (_activeTrip['schedule']?['estimated_duration'] as num?)?.toInt();
+              final fallbackEta = (scheduleDuration != null && remainingStops > 0)
+                  ? (scheduleDuration / remainingStops).ceil()
+                  : scheduleDuration;
+              final eta = estimateEtaMinutes(
+                busLat: telemetry?.latitude,
+                busLng: telemetry?.longitude,
+                stopLat: nextPoint?.latitude,
+                stopLng: nextPoint?.longitude,
+                speedMetersPerSec: telemetry?.speed ?? 0,
+                fallbackMinutes: fallbackEta,
+              );
+              final distKm = distanceKmToStop(
+                busLat: telemetry?.latitude,
+                busLng: telemetry?.longitude,
+                stopLat: nextPoint?.latitude,
+                stopLng: nextPoint?.longitude,
+              );
+              final startedRaw = _activeTrip['started_at']?.toString();
+              DateTime? startedAt;
+              if (startedRaw != null && startedRaw.isNotEmpty) {
+                startedAt = DateTime.tryParse(startedRaw)?.toLocal();
+              }
+              final departure = _activeTrip['schedule']?['departure_time']?.toString();
+
+              return ActiveTripHomeSummary(
+                isPickup: _isPickupRun,
+                boarded: progress.boarded,
+                total: progress.total,
+                nextStopName: (nextStop?['name'] ?? 'No further stops').toString(),
+                etaMinutes: nextStop == null ? null : eta,
+                distanceKm: nextStop == null ? null : distKm,
+                arrivalClock: formatEstimatedArrivalClock(nextStop == null ? null : eta),
+                arrivalStatus: homeArrivalStatusLabel(
+                  etaMinutes: nextStop == null ? null : eta,
+                  startedAt: startedAt,
+                  departureTime: departure,
+                ),
+                onNavigate: nextStop == null ? null : () => _navigateToStop(nextStop),
+                onOpenTripConsole: () => setState(() => _currentTab = 1),
+              );
+            },
+          ),
         ] else if (_nextTrip != null) ...[
           // LIST OF SCHEDULED TRIPS (ACCORDION STYLE)
           const Text(
@@ -2153,6 +2164,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           await _endTrip();
         }
       },
+      onSchoolArrival: (stopId) => _handleSchoolArrival(stopId),
       onMapRefresh: () {
         if (_selectedRouteId != null && _selectedTripId != null) {
           _fetchTripDetails(_selectedRouteId!, _selectedTripId!);
@@ -2201,7 +2213,6 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
 
     final telemetry = ref.watch(telemetryCoordsProvider);
     final arrived = _arrivedStopFor(telemetry);
-    final tripGuardians = uniqueTripGuardians(_studentsList);
     final filteredStudents = _studentsList.whereType<Map>().where((student) {
       return studentMatchesQuery(Map<String, dynamic>.from(student), _studentsSearchQuery);
     }).toList();
@@ -2220,7 +2231,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             controller: _studentsSearchController,
             style: const TextStyle(color: Color(0xFF0B1C30)),
             decoration: InputDecoration(
-              hintText: 'Search students or guardians...',
+              hintText: 'Search students...',
               hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 14),
               prefixIcon: const Icon(Icons.search, color: Color(0xFF64748B)),
               suffixIcon: _studentsSearchQuery.isNotEmpty
@@ -2257,7 +2268,9 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             ),
           ),
           child: Text(
-            'Trip roster — all students and guardians. Boarded / Dropped off still requires the child’s stop geofence.',
+            arrived != null
+                ? 'At ${arrived.name}. Mark Boarded / Dropped off for students at this stop.'
+                : 'Trip roster. Boarded / Dropped off still requires the child’s stop geofence. Tap a student for guardians.',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
@@ -2265,57 +2278,12 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             ),
           ),
         ),
-        const SizedBox(height: 16),
-
-        Row(
-          children: [
-            const Icon(Icons.family_restroom, color: Color(0xFF10B981), size: 20),
-            const SizedBox(width: 8),
-            const Text(
-              'GUARDIANS',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
-            ),
-            const Spacer(),
-            Text(
-              '${tripGuardians.length}',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
-            ),
-          ],
+        const SizedBox(height: 12),
+        Text(
+          '${filteredStudents.length} of ${_studentsList.length} students',
+          style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
         ),
-        const SizedBox(height: 8),
-        if (tripGuardians.isEmpty)
-          const Padding(
-            padding: EdgeInsets.only(bottom: 8),
-            child: Text(
-              'No guardians registered on this trip.',
-              style: TextStyle(color: Color(0xFF94A3B8), fontSize: 14),
-            ),
-          )
-        else
-          ...tripGuardians.map(
-            (g) => GuardianContactTile(
-              contact: g,
-              onCall: () => _callGuardian(g.phone),
-            ),
-          ),
-        const SizedBox(height: 16),
-
-        Row(
-          children: [
-            const Icon(Icons.people, color: Color(0xFF10B981), size: 20),
-            const SizedBox(width: 8),
-            Text(
-              _isPickupRun ? 'PICKUP MANIFEST' : 'DROPOFF MANIFEST',
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0B1C30)),
-            ),
-            const Spacer(),
-            Text(
-              '${filteredStudents.length} of ${_studentsList.length}',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontWeight: FontWeight.bold),
-            ),
-          ],
-        ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
 
         if (filteredStudents.isEmpty) ...[
           Center(
@@ -2323,7 +2291,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               padding: const EdgeInsets.symmetric(vertical: 40.0),
               child: Text(
                 _studentsSearchQuery.isNotEmpty
-                    ? 'No matching students or guardians.'
+                    ? 'No matching students.'
                     : 'No students on this trip.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 15),
@@ -2342,8 +2310,19 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
               final String grade = student['grade'] ?? 'N/A';
               final attendance = studentListAttendance(student, isPickup: _isPickupRun);
               final int studentIndex = index + 1;
-              final studentGuardians = parseStudentGuardians(student['guardians']);
-              final actioned = attendance == StudentListAttendance.actioned;
+              final atStudentStop = studentAllowedAtStop(
+                student: student,
+                arrivedStopId: arrived?.id,
+                isBoardAction: _isPickupRun,
+              );
+              // Drop-off campus-boarded rows show Boarded until the home-stop geofence.
+              final showAction = studentListShowsActionButton(
+                    attendance,
+                    isPickup: _isPickupRun,
+                  ) &&
+                  (_isPickupRun || atStudentStop);
+              final highlight = attendance == StudentListAttendance.boarded ||
+                  attendance == StudentListAttendance.droppedOff;
 
               return Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -2352,17 +2331,14 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
+                child: Row(
                   children: [
                     Text(
                       '$studentIndex',
                       style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: actioned ? const Color(0xFF10B981) : const Color(0xFF0B1C30),
+                        color: highlight ? const Color(0xFF10B981) : const Color(0xFF0B1C30),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -2373,7 +2349,8 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                           children: [
                             CircleAvatar(
                               radius: 20,
-                              backgroundColor: actioned ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                              backgroundColor:
+                                  highlight ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
                               child: Text(
                                 _getInitials(studentName),
                                 style: const TextStyle(
@@ -2411,15 +2388,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                         ),
                       ),
                     ),
-                    if (attendance == StudentListAttendance.pending)
+                    if (showAction)
                       ElevatedButton(
                         onPressed: () {
-                          final allowed = studentAllowedAtStop(
-                            student: student,
-                            arrivedStopId: arrived?.id,
-                            isBoardAction: _isPickupRun,
-                          );
-                          if (!allowed) {
+                          if (!atStudentStop) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
@@ -2461,9 +2433,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                           ),
                         ),
                         child: Text(
-                          attendance == StudentListAttendance.absent
-                              ? 'Absent'
-                              : boardingActionLabel(isPickup: _isPickupRun),
+                          studentListStatusLabel(attendance),
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.bold,
@@ -2474,46 +2444,14 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                         ),
                       ),
                     const SizedBox(width: 4),
-                    const Icon(
-                      Icons.chevron_right,
-                      color: Color(0xFF64748B),
-                      size: 20,
-                    ),
-                  ],
-                    ),
-                    if (studentGuardians.isNotEmpty) ...[
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 10,
-                        runSpacing: 8,
-                        children: studentGuardians
-                            .map(
-                              (g) => InkWell(
-                                onTap: () => _callGuardian(g.phone),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    GuardianPhotoThumbnail(
-                                      name: g.name,
-                                      photoUrl: g.photoUrl,
-                                      radius: 14,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      g.name,
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF0B1C30),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            )
-                            .toList(),
+                    InkWell(
+                      onTap: () => _showStudentDetailsPopup(student),
+                      child: const Icon(
+                        Icons.chevron_right,
+                        color: Color(0xFF64748B),
+                        size: 20,
                       ),
-                    ],
+                    ),
                   ],
                 ),
               );
@@ -2961,46 +2899,70 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
             ),
           ],
           const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (context) => StudentSelectionScreen(
-                    routeId: route['id'],
-                    tenantId: _tenantController.text.trim(),
-                    tripId: schedule['id'],
-                    stops: _stopsList,
-                    runType: isPickup ? 'PICKUP' : 'DROPOFF',
+          if (isPickup) ...[
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => StudentSelectionScreen(
+                      routeId: route['id'],
+                      tenantId: _tenantController.text.trim(),
+                      tripId: schedule['id'],
+                      stops: _stopsList,
+                      runType: 'PICKUP',
+                    ),
                   ),
-                ),
-              );
-            },
-            icon: Icon(isPickup ? Icons.login : Icons.logout, size: 24),
-            label: Text(
-              isPickup ? 'PICKUP STUDENTS' : 'DROPOFF STUDENTS',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                );
+              },
+              icon: const Icon(Icons.login, size: 24),
+              label: Text(
+                homeManifestCtaLabel(isPickup: true),
+                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF1F5F9),
+                foregroundColor: const Color(0xFF0B1C30),
+                side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
+                minimumSize: const Size(double.infinity, 54),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
             ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFF1F5F9),
-              foregroundColor: const Color(0xFF0B1C30),
-              side: const BorderSide(color: Color(0xFFE2E8F0), width: 1.5),
-              minimumSize: const Size(double.infinity, 54),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            const SizedBox(height: 10),
+            ElevatedButton.icon(
+              onPressed: () => _handleStartTrip(trip['id'], route['id'], schedule['id']),
+              icon: const Icon(Icons.play_arrow, size: 24),
+              label: const Text('START TRIP', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF10B981),
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 54),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                elevation: 2,
+              ),
             ),
-          ),
-          const SizedBox(height: 10),
-          ElevatedButton.icon(
-            onPressed: () => _handleStartTrip(trip['id'], route['id'], schedule['id']),
-            icon: const Icon(Icons.play_arrow, size: 24),
-            label: const Text('START TRIP', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF10B981),
-              foregroundColor: Colors.white,
-              minimumSize: const Size(double.infinity, 54),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              elevation: 2,
+          ] else
+            DropoffHomeActions(
+              readyToStart: dropoffTripReadyFromCounts(
+                pendingCount: parseCount(trip['pending_count']),
+              ),
+              onBoardStudents: () async {
+                final tripRunId = trip['id']?.toString() ?? '';
+                if (tripRunId.isEmpty) return;
+                final started = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(
+                    builder: (context) => CampusBoardingScreen(
+                      tripId: tripRunId,
+                      onStartTrip: () => _handleStartTrip(tripRunId, route['id'], schedule['id']),
+                    ),
+                  ),
+                );
+                if (started == true && mounted) {
+                  setState(() => _currentTab = 1);
+                }
+                await _fetchDriverTrips();
+              },
+              onStartTrip: () => _handleStartTrip(trip['id'], route['id'], schedule['id']),
             ),
-          ),
         ],
       ),
     );

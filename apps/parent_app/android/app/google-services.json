@@ -7,7 +7,7 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:465945931477:android:a75da1dd2c4c55965cbc5c",
+        "mobilesdk_app_id": "1:465945931477:android:5a06937b146c6c6b5cbc5c",
         "android_client_info": {
           "package_name": "com.schooltrack.parent_app"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyClDS4aDEX43Tk5v_rnG5NB3Ew6vKtIVaQ"
+          "current_key": "AIzaSyA66uKBRXsvKD0D8H1YyI2LHonhuascLPE"
         }
       ],
       "services": {

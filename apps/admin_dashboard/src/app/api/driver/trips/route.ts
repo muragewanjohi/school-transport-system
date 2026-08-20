@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
+import { tallyManifestAttendance } from "@/lib/dropoffCampusBoarding";
 
 const mockDriverTrips = [
   {
@@ -23,6 +24,9 @@ const mockDriverTrips = [
     },
     stops_count: 5,
     students_count: 12,
+    pending_count: 12,
+    boarded_count: 0,
+    absent_count: 0,
     estimated_duration: 35
   },
   {
@@ -45,6 +49,9 @@ const mockDriverTrips = [
     },
     stops_count: 5,
     students_count: 12,
+    pending_count: 12,
+    boarded_count: 0,
+    absent_count: 0,
     estimated_duration: 35
   }
 ];
@@ -253,20 +260,23 @@ export async function GET(request: Request) {
         .eq("route_id", (trip.route as any).id)
         .eq("tenant_id", tenantId);
 
-      // Fetch students count for trip manifest
-      const { count: studentsCount } = await client
+      const { data: manifestRows } = await client
         .from("trip_manifests")
-        .select("id", { count: "exact", head: true })
+        .select("attendance")
         .eq("trip_id", trip.id)
         .eq("tenant_id", tenantId);
 
+      const tally = tallyManifestAttendance(manifestRows ?? []);
       const resolvedStopsCount = stopsCount || 0;
-      const resolvedStudentsCount = studentsCount || 0;
+      const resolvedStudentsCount = tally.students_count;
 
       processedTrips.push({
         ...trip,
         stops_count: resolvedStopsCount,
         students_count: resolvedStudentsCount,
+        pending_count: tally.pending_count,
+        boarded_count: tally.boarded_count,
+        absent_count: tally.absent_count,
         estimated_duration: (resolvedStopsCount * 4) + 15 + resolvedStudentsCount
       });
     }

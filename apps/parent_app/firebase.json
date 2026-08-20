@@ -1,0 +1,30 @@
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "school-transport-system-f606a",
+          "appId": "1:465945931477:android:5a06937b146c6c6b5cbc5c",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "school-transport-system-f606a",
+          "appId": "1:465945931477:ios:98205baf8a938a245cbc5c",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "school-transport-system-f606a",
+          "configurations": {
+            "android": "1:465945931477:android:5a06937b146c6c6b5cbc5c",
+            "ios": "1:465945931477:ios:98205baf8a938a245cbc5c"
+          }
+        }
+      }
+    }
+  }
+}

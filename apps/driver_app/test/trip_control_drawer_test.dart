@@ -164,4 +164,26 @@ void main() {
     await tester.pump();
     expect(ended, isTrue);
   });
+
+  testWidgets('no Boarded/Dropped off drawer at school origin', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        const TripControlDrawer(
+          progress: TripAttendanceProgress(boarded: 12, total: 12),
+          isPickup: false,
+          runType: 'DROPOFF',
+          nextStopName: 'Campus',
+          nextStopNumber: 1,
+          studentsAtStop: 12,
+          upcomingStopNumber: 2,
+          hideBoardingCta: true,
+        ),
+      ),
+    );
+
+    expect(find.text('DropOff Students'), findsNothing);
+    expect(find.text('Boarded'), findsNothing);
+    expect(find.text('Dropped off'), findsNothing);
+    expect(find.text('Hold to end trip'), findsOneWidget);
+  });
 }

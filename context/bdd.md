@@ -4,49 +4,36 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Parent onboarding and log out |
-| **Stack** | `flutter` (`apps/parent_app`) |
-| **Owner path(s)** | `apps/parent_app/lib/screens/onboarding_screen.dart`, `apps/parent_app/lib/utils/parent_onboarding_pages.dart`, `apps/parent_app/lib/widgets/logout_button.dart`, `apps/parent_app/lib/main.dart` |
-| **Started** | 2026-08-18 |
+| **Name** | Parent live map finds active drop-off trip |
+| **Stack** | Next.js + Flutter |
+| **Owner path(s)** | `apps/admin_dashboard/src/app/api/parent/live`, `apps/parent_app/lib/services/parent_live_service.dart` |
+| **Started** | 2026-08-20 |
 | **Status** | `passing` |
 
 ## Goal
 
-First launch shows three OnTheBus parent onboarding screens (live map, trip alerts, peace of mind) before login. Skip or Get started marks onboarding done and opens login. Profile always has a **Log out** button, including when no children are linked.
+When a child has an in-progress trip (e.g. Lower Class DropOff), the parent Map shows an active trip. Works via `/api/parent/live` when deployed, or Supabase Auth fallback when that route is missing.
 
 ## Scenarios
 
 ```gherkin
-Feature: Parent onboarding and log out
+Feature: Parent live trip detection
 
-  Scenario: First launch shows the live-map onboarding page
-    Given the parent has not finished onboarding
-    When the app opens logged out
-    Then the first screen title is Follow the bus
-    And it is page 1 of 3
+  Scenario: EWKB live coordinates parse to lat/lng
+    Given PostGIS returns an EWKB hex point
+    When the live coordinate parser runs
+    Then lat and lng are returned
 
-  Scenario: Last page uses Get started
-    Given the parent is on onboarding page 3
-    When they read the primary action
-    Then the label is Get started
-    And pages 1 and 2 use Next
-
-  Scenario: Skip completes onboarding
-    Given the parent is on an onboarding page
-    When they tap Skip
-    Then onboarding is marked complete
-
-  Scenario: Profile always offers Log out
-    Given the parent is on the Profile tab
-    When the screen is shown
-    Then a Log out action is visible
+  Scenario: Parent live API rejects another family's child
+    Given a signed parent session
+    And a student linked to a different parent
+    When GET /api/parent/live is called
+    Then the response is 403
 ```
 
 ## Automation map
 
 | Scenario | Test path | Status |
 | :--- | :--- | :--- |
-| First launch shows the live-map onboarding page | `apps/parent_app/test/parent_onboarding_test.dart` | passing |
-| Last page uses Get started | `apps/parent_app/test/parent_onboarding_test.dart` | passing |
-| Skip completes onboarding | `apps/parent_app/test/parent_onboarding_test.dart` | passing |
-| Profile always offers Log out | `apps/parent_app/test/logout_button_test.dart` | passing |
+| EWKB live coordinates parse to lat/lng | `src/lib/parentLive.test.ts`, `apps/parent_app/test/parent_map_logic_test.dart` | passing |
+| Parent live API rejects another family's child | `src/app/api/parent/live/route.test.ts` | passing |

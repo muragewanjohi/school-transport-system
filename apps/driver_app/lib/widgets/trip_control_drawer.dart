@@ -32,6 +32,7 @@ class TripControlDrawer extends StatelessWidget {
   final int skipWaitSeconds;
   final int dwellSecondsElapsed;
   final int minStopDwellSeconds;
+  final bool hideBoardingCta;
 
   const TripControlDrawer({
     super.key,
@@ -59,6 +60,7 @@ class TripControlDrawer extends StatelessWidget {
     this.skipWaitSeconds = 0,
     this.dwellSecondsElapsed = 0,
     this.minStopDwellSeconds = defaultMinStopDwellSeconds,
+    this.hideBoardingCta = false,
   });
 
   @override
@@ -151,24 +153,27 @@ class TripControlDrawer extends StatelessWidget {
                 const SizedBox(height: 12),
                 Row(
                   children: [
-                    Expanded(
-                      child: ElevatedButton(
-                        onPressed: nextStopName == null ? null : onBoardStudents,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.actionGreen,
-                          foregroundColor: Colors.white,
-                          disabledBackgroundColor: AppColors.mutedLight,
-                          minimumSize: const Size(0, 52),
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                        ),
-                        child: Text(
-                          cta,
-                          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                    if (!hideBoardingCta) ...[
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: nextStopName == null ? null : onBoardStudents,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppColors.actionGreen,
+                            foregroundColor: Colors.white,
+                            disabledBackgroundColor: AppColors.mutedLight,
+                            minimumSize: const Size(0, 52),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                          ),
+                          child: Text(
+                            cta,
+                            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
+                      const SizedBox(width: 10),
+                    ],
+                    if (hideBoardingCta) const Spacer(),
                     _OverflowMenu(
                       onNavigate: nextStopName == null ? null : onNavigate,
                       onViewStudents: onViewStudents,

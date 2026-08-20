@@ -176,7 +176,11 @@ bool shouldAutoOpenBoardingDrawer({
   required String? nextStopId,
   required String? alreadyOpenedStopId,
   required bool drawerOpen,
+  bool skipSchoolTerminal = false,
+  int studentsAtStop = 1,
 }) {
+  if (skipSchoolTerminal) return false;
+  if (studentsAtStop <= 0) return false;
   if (drawerOpen) return false;
   if (arrivedStopId == null || nextStopId == null) return false;
   if (arrivedStopId != nextStopId) return false;

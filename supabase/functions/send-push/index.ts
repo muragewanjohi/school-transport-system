@@ -1,14 +1,26 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.47.10";
 
-// Helper to sign JWT and fetch Google OAuth Access Token using Web Crypto API
-async function getGoogleAccessToken(serviceAccount: any): Promise<string> {
+type FirebaseServiceAccount = {
+  project_id: string;
+  private_key: string;
+  client_email: string;
+};
+
+type NotificationRecord = {
+  user_id?: string;
+  title?: string;
+  message?: string;
+  notification_type?: string;
+};
+
+async function getGoogleAccessToken(serviceAccount: FirebaseServiceAccount): Promise<string> {
   const pemHeader = "-----BEGIN PRIVATE KEY-----";
   const pemFooter = "-----END PRIVATE KEY-----";
   const pem = serviceAccount.private_key
     .replace(pemHeader, "")
     .replace(pemFooter, "")
     .replace(/\s/g, "");
-  
+
   const binaryDerString = atob(pem);
   const binaryDer = new Uint8Array(binaryDerString.length);
   for (let i = 0; i < binaryDerString.length; i++) {
@@ -60,15 +72,14 @@ async function getGoogleAccessToken(serviceAccount: any): Promise<string> {
     }).toString(),
   });
 
-  const data = await response.json();
-  if (!response.ok) {
+  const data = (await response.json()) as { access_token?: string };
+  if (!response.ok || !data.access_token) {
     throw new Error(`Failed to obtain Google access token: ${JSON.stringify(data)}`);
   }
   return data.access_token;
 }
 
 Deno.serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response("ok", {
       headers: {
@@ -80,8 +91,11 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const body = await req.json();
-    const record = body.record;
+    const body: unknown = await req.json();
+    const record =
+      typeof body === "object" && body !== null && "record" in body
+        ? (body as { record?: NotificationRecord }).record
+        : undefined;
     if (!record) {
       return new Response(JSON.stringify({ error: "Missing notification record" }), {
         status: 400,
@@ -100,20 +114,28 @@ Deno.serve(async (req) => {
     }
 
     if (!firebaseJson) {
-      // If service account key is missing, log warning and complete gracefully so webhook doesn't crash
       console.warn("FCM push notification skipped: FIREBASE_SERVICE_ACCOUNT environment variable is not configured.");
-      return new Response(JSON.stringify({ 
-        success: false, 
-        error: "FIREBASE_SERVICE_ACCOUNT is not configured. Push skipped." 
+      return new Response(JSON.stringify({
+        success: false,
+        error: "FIREBASE_SERVICE_ACCOUNT is not configured. Push skipped.",
       }), {
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
     }
 
-    const serviceAccount = JSON.parse(firebaseJson);
+    const parsedAccount: unknown = JSON.parse(firebaseJson);
+    if (
+      typeof parsedAccount !== "object" ||
+      parsedAccount === null ||
+      typeof (parsedAccount as FirebaseServiceAccount).project_id !== "string" ||
+      typeof (parsedAccount as FirebaseServiceAccount).private_key !== "string" ||
+      typeof (parsedAccount as FirebaseServiceAccount).client_email !== "string"
+    ) {
+      throw new Error("FIREBASE_SERVICE_ACCOUNT is not a valid service account JSON");
+    }
+    const serviceAccount = parsedAccount as FirebaseServiceAccount;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Fetch user push tokens
     const { data: tokenRows, error: tokenError } = await supabase
       .from("user_fcm_tokens")
       .select("token")
@@ -124,19 +146,18 @@ Deno.serve(async (req) => {
     }
 
     if (!tokenRows || tokenRows.length === 0) {
-      return new Response(JSON.stringify({ 
-        success: true, 
-        message: "No registered FCM tokens found for this user. Push skipped." 
+      return new Response(JSON.stringify({
+        success: true,
+        message: "No registered FCM tokens found for this user. Push skipped.",
       }), {
-        headers: { "Content-Type": "application/json" }
+        headers: { "Content-Type": "application/json" },
       });
     }
 
-    // Authenticate with Google APIs
     const accessToken = await getGoogleAccessToken(serviceAccount);
     const fcmUrl = `https://fcm.googleapis.com/v1/projects/${serviceAccount.project_id}/messages:send`;
 
-    const sendPromises = tokenRows.map(async (row) => {
+    const sendPromises = tokenRows.map(async (row: { token: string }) => {
       const payload = {
         message: {
           token: row.token,
@@ -146,42 +167,43 @@ Deno.serve(async (req) => {
           },
           data: {
             notification_type: notification_type || "general",
-            click_action: "FLUTTER_NOTIFICATION_CLICK"
-          }
-        }
+            click_action: "FLUTTER_NOTIFICATION_CLICK",
+          },
+        },
       };
 
       try {
         const response = await fetch(fcmUrl, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${accessToken}`,
+            Authorization: `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
         });
 
-        const resData = await response.json();
+        const resData: unknown = await response.json();
         if (!response.ok) {
           console.error(`FCM send error for token ${row.token.substring(0, 10)}...:`, resData);
         }
-        return { token: row.token, ok: response.ok, result: resData };
-      } catch (e: any) {
-        console.error(`FCM dispatch network error for token ${row.token.substring(0, 10)}...:`, e.message);
-        return { token: row.token, ok: false, error: e.message };
+        return { ok: response.ok };
+      } catch (e: unknown) {
+        const errorMessage = e instanceof Error ? e.message : "network error";
+        console.error(`FCM dispatch network error for token ${row.token.substring(0, 10)}...:`, errorMessage);
+        return { ok: false, error: errorMessage };
       }
     });
 
     const results = await Promise.all(sendPromises);
 
-    return new Response(JSON.stringify({ 
-      success: true, 
-      message: "Push notifications dispatch completed", 
-      results 
+    return new Response(JSON.stringify({
+      success: true,
+      message: "Push notifications dispatch completed",
+      sent: results.filter((row) => row.ok).length,
+      failed: results.filter((row) => !row.ok).length,
     }), {
       headers: { "Content-Type": "application/json" },
     });
-
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
     console.error("FCM Edge Function Error:", errorMessage);

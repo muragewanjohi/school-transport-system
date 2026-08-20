@@ -16,6 +16,8 @@ import 'package:parent_app/widgets/delete_account_link.dart';
 import 'package:parent_app/widgets/logout_button.dart';
 import 'package:parent_app/services/parent_etas_service.dart';
 import 'package:parent_app/services/parent_notifications_service.dart';
+import 'package:parent_app/services/parent_children_service.dart';
+import 'package:parent_app/utils/parent_children_logic.dart';
 import 'package:parent_app/services/parent_push_service.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -402,83 +404,96 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  void _applyStudentRoster(List<dynamic> nextStudents) {
+    _students = nextStudents;
+    if (_selectedStudentIndex >= _students.length) {
+      _selectedStudentIndex = 0;
+    }
+    if (_students.isEmpty || _selectedStudentIndex >= _students.length) return;
+    final sel = _students[_selectedStudentIndex];
+    if (sel is! Map) return;
+    final rawGuardians = sel['guardians'];
+    if (rawGuardians is! List || rawGuardians.isEmpty) return;
+    final guardian = rawGuardians.length > 1 ? rawGuardians[1] : rawGuardians[0];
+    if (guardian is Map) {
+      _guardian = Map<String, dynamic>.from(guardian);
+    }
+  }
+
+  Future<List<dynamic>?> _fetchStudentsFromSupabase() async {
+    if (_parentId.isEmpty || !isParentUuid(_parentId)) return null;
+
+    final nested = await awaitOrNull(
+      SupabaseService.client
+          .from('students')
+          .select(
+            'id, name, grade, class_name, address, route_id, status, guardians, avatar_url, transit_status, tenant:tenants(id, name), pickup_stop:stops!students_pickup_stop_id_fkey(id, name, location), dropoff_stop:stops!students_dropoff_stop_id_fkey(id, name, location), route:routes(id, name)',
+          )
+          .eq('parent_id', _parentId),
+    );
+    if (nested is List) return nested;
+
+    final simple = await awaitOrNull(
+      SupabaseService.client
+          .from('students')
+          .select(
+            'id, name, grade, class_name, address, route_id, status, guardians, avatar_url, transit_status',
+          )
+          .eq('parent_id', _parentId),
+    );
+    return simple is List ? simple : null;
+  }
+
+  Future<void> _refreshProfile() async {
+    if (_parentId.isEmpty || !isParentUuid(_parentId)) return;
+    final profileRes = await awaitOrNull(
+      SupabaseService.client
+          .from('profiles')
+          .select('id, name, phone, email, avatar_url')
+          .eq('id', _parentId)
+          .maybeSingle(),
+    );
+    if (!mounted || profileRes == null) return;
+    setState(() {
+      if (profileRes['name'] != null) _parentName = profileRes['name'];
+      if (profileRes['avatar_url'] != null) _parentAvatarUrl = profileRes['avatar_url'];
+      if (profileRes['phone'] != null) _parentPhone = profileRes['phone'];
+      if (profileRes['email'] != null) _parentEmail = profileRes['email'];
+    });
+  }
+
   Future<void> _loadSessionAndData() async {
-    setState(() => _isLoading = true);
+    if (mounted) setState(() => _isLoading = true);
     try {
       final prefs = await SharedPreferences.getInstance();
       _parentId = prefs.getString('parent_id') ?? '';
       _parentName = prefs.getString('parent_name') ?? 'Parent';
 
-      // Load cached students first
       final cachedJson = prefs.getString('children_json');
       if (cachedJson != null) {
-        setState(() {
-          _students = json.decode(cachedJson);
-        });
+        _applyStudentRoster(json.decode(cachedJson) as List<dynamic>);
       }
 
-      // Fetch fresh data from Supabase (with vehicle, driver, and conductor joins)
-      final bool isValidUuid = RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(_parentId);
-      if (_parentId.isNotEmpty && isValidUuid) {
-        try {
-          final profileRes = await SupabaseService.client
-              .from('profiles')
-              .select('id, name, phone, email, avatar_url')
-              .eq('id', _parentId)
-              .maybeSingle();
+      // HMAC parent login often has no usable Supabase session. Never block Home
+      // on PostgREST (default client wait is ~60s per query).
+      if (mounted) setState(() => _isLoading = false);
 
-          if (profileRes != null) {
-            setState(() {
-              if (profileRes['name'] != null) _parentName = profileRes['name'];
-              if (profileRes['avatar_url'] != null) _parentAvatarUrl = profileRes['avatar_url'];
-              if (profileRes['phone'] != null) _parentPhone = profileRes['phone'];
-              if (profileRes['email'] != null) _parentEmail = profileRes['email'];
-            });
-          }
-        } catch (_) {}
+      final apiChildren = await ParentChildrenService.fetchChildren();
+      final supabaseChildren =
+          apiChildren == null ? await _fetchStudentsFromSupabase() : null;
+      final nextStudents = resolveParentChildren(
+        cached: _students,
+        apiChildren: apiChildren,
+        supabaseChildren: supabaseChildren,
+      );
 
-        try {
-          final List<dynamic> response = await SupabaseService.client
-              .from('students')
-              .select('id, name, grade, class_name, school_name, admission_no, dob, gender, address, pickup_stage_name, pickup_stage_address, route_id, status, guardians, tenant:tenants(id, name), pickup_stop:stops!students_pickup_stop_id_fkey(id, name, location), dropoff_stop:stops!students_dropoff_stop_id_fkey(id, name, location), route:routes(id, name)')
-              .eq('parent_id', _parentId);
-
-          setState(() {
-            _students = response;
-            if (_selectedStudentIndex >= _students.length) {
-              _selectedStudentIndex = 0;
-            }
-            if (_students.isNotEmpty && _selectedStudentIndex < _students.length) {
-              final sel = _students[_selectedStudentIndex];
-              if (sel['guardians'] != null && (sel['guardians'] as List).isNotEmpty) {
-                final gList = sel['guardians'] as List;
-                if (gList.length > 1) {
-                  _guardian = Map<String, dynamic>.from(gList[1]);
-                } else if (gList.isNotEmpty) {
-                  _guardian = Map<String, dynamic>.from(gList[0]);
-                }
-              }
-            }
-          });
-          await prefs.setString('children_json', json.encode(response));
-          _startEtaPolling();
-        } catch (e) {
-          // Fallback query if relationships aren't deeply configured in cache
-          final List<dynamic> fallback = await SupabaseService.client
-              .from('students')
-              .select('*')
-              .eq('parent_id', _parentId);
-          setState(() {
-            _students = fallback;
-            if (_selectedStudentIndex >= _students.length) {
-              _selectedStudentIndex = 0;
-            }
-          });
-          _startEtaPolling();
-        }
-      }
+      if (!mounted) return;
+      setState(() => _applyStudentRoster(nextStudents));
+      await prefs.setString('children_json', json.encode(nextStudents));
+      _startEtaPolling();
+      await _refreshProfile();
     } catch (e) {
-      print('Error loading parent dashboard data: $e');
+      debugPrint('Error loading parent dashboard data');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);

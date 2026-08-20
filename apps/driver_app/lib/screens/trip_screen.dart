@@ -119,6 +119,7 @@ class TripScreen extends ConsumerStatefulWidget {
   final VoidCallback onViewStudents;
   final VoidCallback onGoHome;
   final Future<void> Function() onEndTrip;
+  final Future<int?> Function(String stopId)? onSchoolArrival;
   final VoidCallback? onMapRefresh;
   final bool gpsReplayActive;
   final String? gpsReplayLabel;
@@ -143,6 +144,7 @@ class TripScreen extends ConsumerStatefulWidget {
     required this.onViewStudents,
     required this.onGoHome,
     required this.onEndTrip,
+    this.onSchoolArrival,
     this.onMapRefresh,
     this.gpsReplayActive = false,
     this.gpsReplayLabel,
@@ -157,6 +159,7 @@ class _TripScreenState extends ConsumerState<TripScreen> {
   bool _drawerOpen = false;
   String? _openedForStopId;
   Timer? _dwellTicker;
+  bool _schoolArrivalHandled = false;
 
   bool get _isPickup => isPickupRunType(widget.runType);
 
@@ -189,6 +192,7 @@ class _TripScreenState extends ConsumerState<TripScreen> {
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _maybeAutoCompleteSchoolArrival();
       _maybeAutoOpenDrawer();
     });
   }
@@ -204,20 +208,91 @@ class _TripScreenState extends ConsumerState<TripScreen> {
     super.didUpdateWidget(oldWidget);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      _maybeAutoCompleteSchoolArrival();
       _maybeAutoOpenDrawer();
       _maybeDismissDrawerAfterLeave();
     });
+  }
+
+  Map<String, dynamic>? _stopById(String? id) {
+    if (id == null || id.isEmpty) return null;
+    for (final s in widget.stops) {
+      if (s is Map && s['id']?.toString() == id) {
+        return Map<String, dynamic>.from(s);
+      }
+    }
+    return null;
+  }
+
+  bool _skipBoardingAt(Map<String, dynamic>? stop) {
+    final stopId = stop?['id']?.toString();
+    final studentsAtStop = stopId == null
+        ? 0
+        : studentsForStop(students: widget.students, stopId: stopId, isPickup: _isPickup).length;
+    return shouldSkipBoardingDrawer(
+      stop: stop,
+      stops: widget.stops,
+      isPickup: _isPickup,
+      studentsAtStop: studentsAtStop,
+    );
+  }
+
+  void _maybeAutoCompleteSchoolArrival() {
+    if (_schoolArrivalHandled || widget.onSchoolArrival == null) return;
+    final arrived = _arrived;
+    if (arrived == null) return;
+    final stop = _stopById(arrived.id);
+    if (!shouldAutoCompletePickupAtSchool(
+      arrivedStop: stop,
+      stops: widget.stops,
+      isPickup: _isPickup,
+    )) {
+      return;
+    }
+    _completeSchoolArrival(arrived.id);
+  }
+
+  Future<void> _completeSchoolArrival(String stopId) async {
+    if (_schoolArrivalHandled) return;
+    final callback = widget.onSchoolArrival;
+    if (callback == null) return;
+    setState(() => _schoolArrivalHandled = true);
+    final duration = await callback(stopId);
+    if (duration == null && mounted) {
+      setState(() => _schoolArrivalHandled = false);
+    }
+  }
+
+  Future<void> _handleHoldToEnd() async {
+    final arrived = _arrived;
+    final stop = arrived == null ? null : _stopById(arrived.id);
+    if (shouldAutoCompletePickupAtSchool(
+          arrivedStop: stop,
+          stops: widget.stops,
+          isPickup: _isPickup,
+        ) &&
+        widget.onSchoolArrival != null) {
+      await _completeSchoolArrival(arrived!.id);
+      return;
+    }
+    await widget.onEndTrip();
   }
 
   void _maybeAutoOpenDrawer() {
     final arrived = _arrived;
     final next = _nextStop;
     final nextId = next?['id']?.toString();
+    final skip = _skipBoardingAt(next);
+    final studentsAtStop = nextId == null
+        ? 0
+        : studentsForStop(students: widget.students, stopId: nextId, isPickup: _isPickup).length;
     if (!shouldAutoOpenBoardingDrawer(
       arrivedStopId: arrived?.id,
       nextStopId: nextId,
       alreadyOpenedStopId: _openedForStopId,
       drawerOpen: _drawerOpen,
+      skipSchoolTerminal: skip,
+      studentsAtStop: studentsAtStop,
     )) {
       return;
     }
@@ -236,6 +311,7 @@ class _TripScreenState extends ConsumerState<TripScreen> {
   Future<void> _openBoardingDrawer({bool requireArrival = true}) async {
     final stop = _nextStop;
     if (stop == null) return;
+    if (_skipBoardingAt(stop)) return;
     final stopId = stop['id']?.toString() ?? '';
     if (stopId.isEmpty) return;
     final arrived = _arrived;
@@ -565,11 +641,14 @@ class _TripScreenState extends ConsumerState<TripScreen> {
           skipWaitSeconds: skipWait,
           dwellSecondsElapsed: dwellElapsed,
           minStopDwellSeconds: widget.minStopDwellSeconds,
-          onBoardStudents: () => _openBoardingDrawer(),
+          hideBoardingCta: _skipBoardingAt(next),
+          onBoardStudents: _skipBoardingAt(next) ? null : () => _openBoardingDrawer(),
           onSkipStop: next == null ? null : _skipCurrentStop,
           onNavigate: next == null ? null : _navigateToNextStop,
           onViewStudents: widget.onViewStudents,
-          onEndTrip: widget.onEndTrip,
+          onEndTrip: () {
+            _handleHoldToEnd();
+          },
           onToggleGpsReplay: widget.onToggleGpsReplay,
           gpsReplayActive: widget.gpsReplayActive,
         ),

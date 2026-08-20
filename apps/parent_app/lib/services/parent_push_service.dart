@@ -96,7 +96,9 @@ class ParentPushService {
         messaging.onTokenRefresh.listen(upsertToken);
         _fcmReady = true;
       }
-      final token = await messaging.getToken();
+      final token = await messaging.getToken().timeout(
+        const Duration(seconds: 8),
+      );
       if (token == null || token.isEmpty) return;
       await upsertToken(token);
       final prefs = await SharedPreferences.getInstance();

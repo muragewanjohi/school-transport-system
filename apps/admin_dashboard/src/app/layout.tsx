@@ -4,6 +4,7 @@ import "./globals.css";
 import AuthProvider from "@/components/AuthProvider";
 import ThemeProvider from "@/components/ThemeProvider";
 import DemoGoLiveProvider from "@/components/DemoGoLiveProvider";
+import MobileNavProvider from "@/components/MobileNavProvider";
 
 const outfit = Outfit({
   variable: "--font-sans",
@@ -55,7 +56,9 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <AuthProvider>
-            <DemoGoLiveProvider>{children}</DemoGoLiveProvider>
+            <MobileNavProvider>
+              <DemoGoLiveProvider>{children}</DemoGoLiveProvider>
+            </MobileNavProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

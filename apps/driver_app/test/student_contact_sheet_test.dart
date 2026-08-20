@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:driver_app/widgets/guardian_photo_thumbnail.dart';
 import 'package:driver_app/widgets/student_contact_sheet.dart';
 
 void main() {
@@ -30,6 +31,9 @@ void main() {
     expect(find.text('Amina'), findsOneWidget);
     expect(find.text('Jane'), findsOneWidget);
     expect(find.text('+254700000002'), findsOneWidget);
+    expect(find.byType(GuardianPhotoThumbnail), findsOneWidget);
+    expect(find.text('J'), findsOneWidget);
+    expect(find.byIcon(Icons.phone), findsNothing);
 
     await tester.tap(find.text('Call'));
     await tester.pump();

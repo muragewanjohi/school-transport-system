@@ -1,6 +1,5 @@
-// Shared Firebase project with the driver app. Parent Android/iOS apps
-// should be registered in the same project; override app IDs at build time
-// with --dart-define if the console IDs differ.
+// Generated for the parent Firebase apps in school-transport-system-f606a.
+// Do not reuse driver app IDs. Override at build time with --dart-define if needed.
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
     show defaultTargetPlatform, kIsWeb, TargetPlatform;
@@ -23,11 +22,11 @@ class DefaultFirebaseOptions {
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: String.fromEnvironment(
       'FIREBASE_ANDROID_API_KEY',
-      defaultValue: 'AIzaSyClDS4aDEX43Tk5v_rnG5NB3Ew6vKtIVaQ',
+      defaultValue: 'AIzaSyA66uKBRXsvKD0D8H1YyI2LHonhuascLPE',
     ),
     appId: String.fromEnvironment(
       'FIREBASE_ANDROID_APP_ID',
-      defaultValue: '1:465945931477:android:a75da1dd2c4c55965cbc5c',
+      defaultValue: '1:465945931477:android:5a06937b146c6c6b5cbc5c',
     ),
     messagingSenderId: '465945931477',
     projectId: 'school-transport-system-f606a',
@@ -37,15 +36,15 @@ class DefaultFirebaseOptions {
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: String.fromEnvironment(
       'FIREBASE_IOS_API_KEY',
-      defaultValue: 'AIzaSyClDS4aDEX43Tk5v_rnG5NB3Ew6vKtIVaQ',
+      defaultValue: 'AIzaSyA1G2_9Ob__51bTf8P2chtU5q3syA_526k',
     ),
     appId: String.fromEnvironment(
       'FIREBASE_IOS_APP_ID',
-      defaultValue: '1:465945931477:ios:31f21deeba1d0ef35cbc5c',
+      defaultValue: '1:465945931477:ios:98205baf8a938a245cbc5c',
     ),
     messagingSenderId: '465945931477',
     projectId: 'school-transport-system-f606a',
     storageBucket: 'school-transport-system-f606a.firebasestorage.app',
-    iosBundleId: 'com.schooltrack.parent_app',
+    iosBundleId: 'com.schooltrack.parentApp',
   );
 }

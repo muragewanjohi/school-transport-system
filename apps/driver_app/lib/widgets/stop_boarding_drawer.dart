@@ -117,7 +117,9 @@ class _StopBoardingDrawerBodyState extends State<_StopBoardingDrawerBody> {
       final id = s['id']?.toString() ?? '';
       if (id.isEmpty) continue;
       _intents[id] = switch (studentListAttendance(s, isPickup: widget.isPickup)) {
-        StudentListAttendance.actioned => BoardingIntent.present,
+        StudentListAttendance.droppedOff => BoardingIntent.present,
+        StudentListAttendance.boarded =>
+          widget.isPickup ? BoardingIntent.present : BoardingIntent.pending,
         StudentListAttendance.absent => BoardingIntent.absent,
         StudentListAttendance.pending => BoardingIntent.pending,
       };
