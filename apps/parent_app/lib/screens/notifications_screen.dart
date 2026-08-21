@@ -4,7 +4,7 @@ import 'package:parent_app/utils/parent_notification_logic.dart';
 
 class NotificationsScreen extends StatefulWidget {
   final Future<ParentNotificationsInbox> Function()? loader;
-  final Future<void> Function()? onClearAll;
+  final Future<bool> Function()? onClearAll;
 
   /// When true (bottom-nav tab), hide the back button.
   final bool isEmbedded;
@@ -69,7 +69,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         content: const Text(
-          'Mark all notifications as read?',
+          'Remove all notifications from your inbox?',
           style: TextStyle(color: Color(0xFF94A3B8)),
         ),
         actions: [
@@ -80,29 +80,26 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           TextButton(
             onPressed: () async {
               Navigator.of(context).pop();
-              final clear = widget.onClearAll ?? ParentNotificationsService.markAllRead;
-              await clear();
+              final clear = widget.onClearAll ?? ParentNotificationsService.clearAll;
+              final ok = await clear();
               if (!mounted) return;
+              if (!ok) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Could not clear notifications. Try again.'),
+                    backgroundColor: Color(0xFFEF4444),
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+                return;
+              }
               setState(() {
-                _notifications = _notifications
-                    .map(
-                      (item) => ParentInboxItem(
-                        id: item.id,
-                        time: item.time,
-                        title: item.title,
-                        subtitle: item.subtitle,
-                        type: item.type,
-                        dateGroup: item.dateGroup,
-                        read: true,
-                      ),
-                    )
-                    .toList();
+                _notifications = [];
               });
               widget.onUnreadCountChanged?.call(0);
-              if (!mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Notifications marked as read.'),
+                  content: Text('Notifications cleared.'),
                   backgroundColor: Color(0xFF10B981),
                   behavior: SnackBarBehavior.floating,
                 ),

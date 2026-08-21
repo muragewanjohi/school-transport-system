@@ -158,6 +158,8 @@ Deno.serve(async (req) => {
     const fcmUrl = `https://fcm.googleapis.com/v1/projects/${serviceAccount.project_id}/messages:send`;
 
     const sendPromises = tokenRows.map(async (row: { token: string }) => {
+      // Include notification + Android/APNs priority so the OS shows the alert
+      // when the parent app is backgrounded or killed (not only while open).
       const payload = {
         message: {
           token: row.token,
@@ -166,8 +168,29 @@ Deno.serve(async (req) => {
             body: message,
           },
           data: {
-            notification_type: notification_type || "general",
+            notification_type: String(notification_type || "general"),
+            title: String(title ?? ""),
+            message: String(message ?? ""),
             click_action: "FLUTTER_NOTIFICATION_CLICK",
+          },
+          android: {
+            priority: "HIGH",
+            notification: {
+              channel_id: "parent_trip_alerts",
+              sound: "default",
+              default_vibrate_timings: true,
+            },
+          },
+          apns: {
+            headers: {
+              "apns-priority": "10",
+            },
+            payload: {
+              aps: {
+                sound: "default",
+                "content-available": 1,
+              },
+            },
           },
         },
       };

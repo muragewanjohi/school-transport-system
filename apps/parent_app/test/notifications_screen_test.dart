@@ -74,6 +74,80 @@ void main() {
 
     expect(find.byIcon(Icons.arrow_back_rounded), findsOneWidget);
   });
+
+  testWidgets('Clear All removes rows from the inbox', (tester) async {
+    var cleared = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotificationsScreen(
+          loader: () async => const ParentNotificationsInbox(
+            unreadCount: 1,
+            items: [
+              ParentInboxItem(
+                id: 'n1',
+                time: '11:07 AM',
+                title: 'Trip started',
+                subtitle: 'Bus is active',
+                type: 'bus',
+                dateGroup: 'Today',
+                read: false,
+              ),
+            ],
+          ),
+          onClearAll: () async {
+            cleared = true;
+            return true;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Clear Notifications'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove all notifications from your inbox?'), findsOneWidget);
+
+    await tester.tap(find.text('Clear All'));
+    await tester.pumpAndSettle();
+
+    expect(cleared, isTrue);
+    expect(find.text('No Notifications'), findsOneWidget);
+    expect(find.text('Trip started'), findsNothing);
+    expect(find.text('Notifications cleared.'), findsOneWidget);
+  });
+
+  testWidgets('Clear All failure keeps the list and shows error', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotificationsScreen(
+          loader: () async => const ParentNotificationsInbox(
+            unreadCount: 1,
+            items: [
+              ParentInboxItem(
+                id: 'n1',
+                time: '11:07 AM',
+                title: 'Trip started',
+                subtitle: 'Bus is active',
+                type: 'bus',
+                dateGroup: 'Today',
+                read: false,
+              ),
+            ],
+          ),
+          onClearAll: () async => false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Clear Notifications'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Clear All'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Trip started'), findsOneWidget);
+    expect(find.textContaining('Could not clear notifications'), findsOneWidget);
+  });
 }
 
 Future<ParentNotificationsInbox> _emptyInbox() async {

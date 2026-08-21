@@ -29,7 +29,8 @@ class ParentNotificationsService {
     return inbox.unreadCount;
   }
 
-  static Future<void> markAllRead() async {
+  /// Marks all rows read. Prefer [clearAll] for the Clear All button.
+  static Future<bool> markAllRead() async {
     try {
       final headers = await ParentApiAuth.headers();
       if (headers['Authorization'] != null) {
@@ -37,13 +38,41 @@ class ParentNotificationsService {
         final response = await http
             .patch(uri, headers: headers, body: json.encode({'all': true}))
             .timeout(const Duration(seconds: 10));
-        if (response.statusCode == 200) return;
+        if (response.statusCode == 200) return true;
       }
     } catch (_) {}
 
     final userId = SupabaseService.client.auth.currentUser?.id;
-    if (userId == null) return;
-    await SupabaseService.client.from('notifications').update({'read': true}).eq('user_id', userId);
+    if (userId == null) return false;
+    try {
+      await SupabaseService.client.from('notifications').update({'read': true}).eq('user_id', userId);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Hard-deletes the parent's inbox rows (Clear All).
+  static Future<bool> clearAll() async {
+    try {
+      final headers = await ParentApiAuth.headers();
+      if (headers['Authorization'] != null) {
+        final uri = Uri.parse('${ApiConfig.baseUrl}/api/parent/notifications');
+        final response = await http
+            .delete(uri, headers: headers)
+            .timeout(const Duration(seconds: 10));
+        if (response.statusCode == 200) return true;
+      }
+    } catch (_) {}
+
+    final userId = SupabaseService.client.auth.currentUser?.id;
+    if (userId == null) return false;
+    try {
+      await SupabaseService.client.from('notifications').delete().eq('user_id', userId);
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<ParentNotificationsInbox?> _fetchViaApi({DateTime? nowUtc}) async {

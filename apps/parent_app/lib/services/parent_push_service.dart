@@ -29,9 +29,18 @@ class ParentPushService {
     await _local.initialize(
       const InitializationSettings(android: android, iOS: ios),
     );
-    await _local
-        .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>()
-        ?.requestNotificationsPermission();
+    final androidPlugin =
+        _local.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+    await androidPlugin?.requestNotificationsPermission();
+    // Create the high-importance channel before FCM delivers background pushes.
+    await androidPlugin?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        'parent_trip_alerts',
+        'Trip alerts',
+        description: 'Campus exit, approach, delay, boarding, and trip-start alerts',
+        importance: Importance.high,
+      ),
+    );
     _localReady = true;
   }
 
