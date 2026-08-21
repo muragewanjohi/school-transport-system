@@ -13,6 +13,7 @@ import 'package:parent_app/screens/notifications_screen.dart';
 import 'package:parent_app/screens/student_info_screen.dart';
 import 'package:parent_app/utils/eta_utils.dart';
 import 'package:parent_app/widgets/eta_display.dart';
+import 'package:parent_app/widgets/crew_contact_card.dart';
 import 'package:parent_app/widgets/delete_account_link.dart';
 import 'package:parent_app/widgets/logout_button.dart';
 import 'package:parent_app/services/parent_etas_service.dart';
@@ -22,8 +23,10 @@ import 'package:parent_app/utils/parent_children_logic.dart';
 import 'package:parent_app/services/parent_push_service.dart';
 import 'package:parent_app/services/parent_live_service.dart';
 import 'package:parent_app/utils/parent_attendance_logic.dart';
+import 'package:parent_app/utils/parent_avatar_logic.dart';
 import 'package:parent_app/utils/parent_grade_label.dart';
 import 'package:parent_app/utils/parent_map_logic.dart';
+import 'package:parent_app/utils/parent_trip_details.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -71,7 +74,128 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String? get _attendanceTripDirection => _homeLive?.direction;
   String? get _attendanceManifest => _homeLive?.attendance;
 
-  Future<void> _showPhotoPickerModal(String id, String targetTable, String name, String? currentAvatarUrl) async {
+  Future<void> _showPhotoPickerModal(
+    String id,
+    String targetTable,
+    String name,
+    String? currentAvatarUrl, {
+    String? guardianPhone,
+    String? studentIdForGuardian,
+  }) async {
+    final isGuardianJson = targetTable == 'guardian_json';
+
+    Future<void> applyPicked(XFile image) async {
+      final bytes = await image.readAsBytes();
+      String? publicUrl;
+      if (isGuardianJson) {
+        final phone = guardianPhone ?? '';
+        final studentId = studentIdForGuardian ?? '';
+        if (phone.isEmpty || studentId.isEmpty) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Could not update guardian photo.'),
+              backgroundColor: Color(0xFFEF4444),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          return;
+        }
+        publicUrl = await SupabaseService.uploadGuardianAvatar(
+          studentId: studentId,
+          guardianPhone: phone,
+          imageBytes: bytes,
+          fileName: image.name,
+        );
+      } else {
+        publicUrl = await SupabaseService.uploadAvatar(
+          id: id,
+          targetTable: targetTable,
+          imageBytes: bytes,
+          fileName: image.name,
+        );
+      }
+
+      if (!mounted) return;
+      if (publicUrl == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not update photo. Try again.'),
+            backgroundColor: Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      setState(() {
+        if (targetTable == 'profiles' && id == _parentId) {
+          _parentAvatarUrl = publicUrl;
+        } else if (targetTable == 'students') {
+          for (var s in _students) {
+            if (s['id'] == id) s['avatar_url'] = publicUrl;
+          }
+        } else if (isGuardianJson && _guardian != null) {
+          _guardian!['avatar_url'] = publicUrl;
+          final sid = studentIdForGuardian;
+          if (sid != null) {
+            for (var s in _students) {
+              if (s['id'] != sid) continue;
+              final list = s['guardians'];
+              if (list is List) {
+                s['guardians'] = withGuardianAvatarUrl(
+                  guardians: list,
+                  guardianPhone: guardianPhone ?? '',
+                  avatarUrl: publicUrl,
+                );
+              }
+            }
+          }
+        }
+      });
+      _loadSessionAndData();
+    }
+
+    Future<void> removePhoto() async {
+      bool success = false;
+      if (isGuardianJson) {
+        success = await SupabaseService.deleteGuardianAvatar(
+          studentId: studentIdForGuardian ?? '',
+          guardianPhone: guardianPhone ?? '',
+          currentAvatarUrl: currentAvatarUrl ?? '',
+        );
+      } else {
+        success = await SupabaseService.deleteAvatar(
+          id: id,
+          targetTable: targetTable,
+          currentAvatarUrl: currentAvatarUrl ?? '',
+        );
+      }
+      if (!mounted) return;
+      if (!success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not remove photo. Try again.'),
+            backgroundColor: Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+      setState(() {
+        if (targetTable == 'profiles' && id == _parentId) {
+          _parentAvatarUrl = null;
+        } else if (targetTable == 'students') {
+          for (var s in _students) {
+            if (s['id'] == id) s['avatar_url'] = null;
+          }
+        } else if (isGuardianJson && _guardian != null) {
+          _guardian!['avatar_url'] = null;
+        }
+      });
+      _loadSessionAndData();
+    }
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF151C2C),
@@ -96,30 +220,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 onTap: () async {
                   Navigator.of(context).pop();
                   final picker = ImagePicker();
-                  final XFile? image = await picker.pickImage(source: ImageSource.camera, imageQuality: 80);
-                  if (image != null) {
-                    final bytes = await image.readAsBytes();
-                    final publicUrl = await SupabaseService.uploadAvatar(
-                      id: id,
-                      targetTable: targetTable,
-                      imageBytes: bytes,
-                      fileName: image.name,
-                    );
-                    if (publicUrl != null) {
-                      setState(() {
-                        if (targetTable == 'profiles' && id == _parentId) {
-                          _parentAvatarUrl = publicUrl;
-                        } else if (targetTable == 'students') {
-                          for (var s in _students) {
-                            if (s['id'] == id) s['avatar_url'] = publicUrl;
-                          }
-                        } else if (_guardian != null && _guardian!['id'] == id) {
-                          _guardian!['avatar_url'] = publicUrl;
-                        }
-                      });
-                      _loadSessionAndData();
-                    }
-                  }
+                  final XFile? image =
+                      await picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+                  if (image != null) await applyPicked(image);
                 },
               ),
               ListTile(
@@ -128,30 +231,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 onTap: () async {
                   Navigator.of(context).pop();
                   final picker = ImagePicker();
-                  final XFile? image = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-                  if (image != null) {
-                    final bytes = await image.readAsBytes();
-                    final publicUrl = await SupabaseService.uploadAvatar(
-                      id: id,
-                      targetTable: targetTable,
-                      imageBytes: bytes,
-                      fileName: image.name,
-                    );
-                    if (publicUrl != null) {
-                      setState(() {
-                        if (targetTable == 'profiles' && id == _parentId) {
-                          _parentAvatarUrl = publicUrl;
-                        } else if (targetTable == 'students') {
-                          for (var s in _students) {
-                            if (s['id'] == id) s['avatar_url'] = publicUrl;
-                          }
-                        } else if (_guardian != null && _guardian!['id'] == id) {
-                          _guardian!['avatar_url'] = publicUrl;
-                        }
-                      });
-                      _loadSessionAndData();
-                    }
-                  }
+                  final XFile? image =
+                      await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+                  if (image != null) await applyPicked(image);
                 },
               ),
               if (currentAvatarUrl != null && currentAvatarUrl.isNotEmpty) ...[
@@ -161,25 +243,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   title: const Text('Remove Photo', style: TextStyle(color: Color(0xFFEF4444))),
                   onTap: () async {
                     Navigator.of(context).pop();
-                    final success = await SupabaseService.deleteAvatar(
-                      id: id,
-                      targetTable: targetTable,
-                      currentAvatarUrl: currentAvatarUrl,
-                    );
-                    if (success) {
-                      setState(() {
-                        if (targetTable == 'profiles' && id == _parentId) {
-                          _parentAvatarUrl = null;
-                        } else if (targetTable == 'students') {
-                          for (var s in _students) {
-                            if (s['id'] == id) s['avatar_url'] = null;
-                          }
-                        } else if (_guardian != null && _guardian!['id'] == id) {
-                          _guardian!['avatar_url'] = null;
-                        }
-                      });
-                      _loadSessionAndData();
-                    }
+                    await removePhoto();
                   },
                 ),
               ],
@@ -463,7 +527,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       SupabaseService.client
           .from('students')
           .select(
-            'id, name, grade, class_name, address, route_id, status, guardians, avatar_url, transit_status, tenant:tenants(id, name), pickup_stop:stops!students_pickup_stop_id_fkey(id, name, location), dropoff_stop:stops!students_dropoff_stop_id_fkey(id, name, location), route:routes(id, name)',
+            'id, name, grade, class_name, address, route_id, status, guardians, avatar_url, transit_status, tenant:tenants(id, name), pickup_stop:stops!students_pickup_stop_id_fkey(id, name, location), dropoff_stop:stops!students_dropoff_stop_id_fkey(id, name, location), route:routes(id, name, schedules(id, name, departure_time, direction, days_of_week))',
           )
           .eq('parent_id', _parentId),
     );
@@ -872,12 +936,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
     final live = _homeLive;
     final String transitStatusText = () {
-      final fromLive = live?.transitStatus?.trim();
-      if (fromLive != null && fromLive.isNotEmpty) return fromLive;
+      if (live != null) {
+        return parentChildStatusLabel(
+          live.transitStatus,
+          attendance: live.attendance,
+          direction: live.direction ?? live.nextTrip?.direction,
+          tripActive: live.tripActive,
+        );
+      }
       return parentChildStatusLabel(
         student['transit_status']?.toString(),
-        attendance: live?.attendance,
-        direction: live?.direction,
+        tripActive: false,
       );
     }();
 
@@ -892,37 +961,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
       return '—';
     }();
 
-    final String staffName = () {
-      final driver = live?.driverName?.trim();
-      if (driver != null && driver.isNotEmpty) return driver;
+    final ParentCrewContact? driverContact = () {
+      if (live?.driver != null && live!.driver!.hasAnyDetail) return live.driver;
+      final name = live?.driverName?.trim();
+      if (name != null && name.isNotEmpty) {
+        return ParentCrewContact(name: name);
+      }
+      try {
+        final vehicle = student['route']?['vehicle'];
+        if (vehicle is Map) {
+          final drv = vehicle['driver'];
+          if (drv is Map) {
+            return ParentCrewContact(
+              name: drv['name']?.toString(),
+              phone: drv['phone']?.toString(),
+              avatarUrl: drv['avatar_url']?.toString(),
+            );
+          }
+        }
+      } catch (_) {}
+      return null;
+    }();
+
+    final ParentCrewContact? conductorContact = () {
+      if (live?.conductor != null && live!.conductor!.hasAnyDetail) {
+        return live.conductor;
+      }
       try {
         final vehicle = student['route']?['vehicle'];
         if (vehicle is Map) {
           final cond = vehicle['conductor'];
-          if (cond is Map && cond['name'] != null) return cond['name'].toString();
-          final drv = vehicle['driver'];
-          if (drv is Map && drv['name'] != null) return drv['name'].toString();
+          if (cond is Map) {
+            final c = ParentCrewContact(
+              name: cond['name']?.toString(),
+              phone: cond['phone']?.toString(),
+              avatarUrl: cond['avatar_url']?.toString(),
+            );
+            if (c.hasAnyDetail) return c;
+          }
         }
       } catch (_) {}
-      return '—';
+      return null;
     }();
 
-    final String staffLabel = live?.driverName != null && live!.driverName!.trim().isNotEmpty
-        ? 'Driver'
-        : 'Conductor';
-
-    String? staffPhone;
-    try {
-      final vehicle = student['route']?['vehicle'];
-      if (vehicle is Map) {
-        final cond = vehicle['conductor'];
-        if (cond is Map && cond['phone'] != null) staffPhone = cond['phone'].toString();
-        final drv = vehicle['driver'];
-        if (staffPhone == null && drv is Map && drv['phone'] != null) {
-          staffPhone = drv['phone'].toString();
-        }
-      }
-    } catch (_) {}
+    final bool tripActive = live?.tripActive == true;
 
     final String nextStopName = live?.nextStopName?.trim().isNotEmpty == true
         ? live!.nextStopName!
@@ -1255,55 +1337,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        const Divider(color: Color(0xFFA7F3D0), height: 1),
-                        const SizedBox(height: 10),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Flexible(
-                              child: Row(
-                                children: [
-                                  Text(
-                                    '$staffLabel: ',
-                                    style: const TextStyle(
-                                      fontSize: 14,
-                                      color: Color(0xFF475569),
-                                    ),
-                                  ),
-                                  Flexible(
-                                    child: Text(
-                                      staffName,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        color: Color(0xFF0F172A),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                        if (tripActive &&
+                            ((driverContact?.hasAnyDetail ?? false) ||
+                                (conductorContact?.hasAnyDetail ?? false))) ...[
+                          const SizedBox(height: 12),
+                          const Divider(color: Color(0xFFA7F3D0), height: 1),
+                          const SizedBox(height: 10),
+                          if (driverContact != null && driverContact.hasAnyDetail)
+                            CrewContactCard(
+                              roleLabel: 'DRIVER',
+                              contact: driverContact,
+                              onCall: (driverContact.phone?.trim().isNotEmpty == true)
+                                  ? () => _callConductor(driverContact.phone!)
+                                  : null,
                             ),
-                            if (staffPhone != null && staffPhone.isNotEmpty)
-                              InkWell(
-                                onTap: () => _callConductor(staffPhone!),
-                                child: Container(
-                                  width: 36,
-                                  height: 36,
-                                  decoration: const BoxDecoration(
-                                    color: Colors.white,
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.phone,
-                                    color: Color(0xFF2563EB),
-                                    size: 20,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
+                          if (driverContact != null &&
+                              driverContact.hasAnyDetail &&
+                              conductorContact != null &&
+                              conductorContact.hasAnyDetail)
+                            const SizedBox(height: 8),
+                          if (conductorContact != null && conductorContact.hasAnyDetail)
+                            CrewContactCard(
+                              roleLabel: 'CONDUCTOR',
+                              contact: conductorContact,
+                              onCall: (conductorContact.phone?.trim().isNotEmpty == true)
+                                  ? () => _callConductor(conductorContact.phone!)
+                                  : null,
+                            ),
+                        ],
                       ],
                     ),
                   ),
@@ -1578,35 +1639,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
         ? '${student['grade']} ${student['class_name'] ?? ''}'.trim() 
         : 'Grade 1 Nile';
     final String homeAddress = student['address'] ?? student['home_address'] ?? 'Kiambu Road, Nairobi';
-    final String pickupStageName = student['pickup_stop']?['name'] ?? student['pickup_stage_name'] ?? student['pickup_stage'] ?? 'Kiambu Rd Stage';
-    final String pickupStageAddress = student['pickup_stop']?['name'] != null
-        ? '${student['pickup_stop']['name']} Stop'
-        : (student['pickup_stage_address'] ?? student['pickup_stage_description'] ?? 'Kiambu Rd Stage (Near Shell Petrol Station)');
     final String? studentAvatarUrl = student['avatar_url'] as String?;
-    
-    // Conductor & Bus details
-    String conductorName = 'John Kamau';
-    String conductorPhone = '+254 712 345 678';
-    String vehiclePlate = 'KDD 123A';
-    String vehicleBusNo = 'Bus 12';
-    
-    try {
-      if (student['route'] != null && student['route']['vehicle'] != null) {
-        final vehicle = student['route']['vehicle'];
-        if (vehicle['license_plate'] != null) vehiclePlate = vehicle['license_plate'];
-        if (vehicle['bus_number'] != null) vehicleBusNo = 'Bus ${vehicle['bus_number']}';
-        
-        if (vehicle['conductor'] != null) {
-          final cond = vehicle['conductor'];
-          if (cond['name'] != null) conductorName = cond['name'];
-          if (cond['phone'] != null) conductorPhone = cond['phone'];
-        } else if (vehicle['driver'] != null) {
-          final drv = vehicle['driver'];
-          if (drv['name'] != null) conductorName = drv['name'];
-          if (drv['phone'] != null) conductorPhone = drv['phone'];
-        }
-      }
-    } catch (_) {}
+
+    final route = student['route'];
+    final schedules = route is Map ? route['schedules'] as List? : null;
+    final pickupSchedule = scheduleForDirection(schedules, 'HOME_TO_SCHOOL');
+    final dropoffSchedule = scheduleForDirection(schedules, 'SCHOOL_TO_HOME');
+    final pickupTripSubtitle = parentTripDetailSubtitle(
+      stopName: student['pickup_stop']?['name']?.toString(),
+      schedule: pickupSchedule,
+      emptyLabel: 'No pickup trip assigned',
+    );
+    final dropoffTripSubtitle = parentTripDetailSubtitle(
+      stopName: student['dropoff_stop']?['name']?.toString(),
+      schedule: dropoffSchedule,
+      emptyLabel: 'No drop-off trip assigned',
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -1768,15 +1816,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     final bool isSelected = index == _selectedStudentIndex;
                     final String name = childItem['name'] ?? 'Child';
                     final String grade = childItem['grade'] ?? 'Grade 1';
-                    final String transit = childItem['transit_status'] ?? 'On the Bus';
+                    final String transit = parentChildStatusLabel(
+                      childItem['transit_status']?.toString(),
+                      tripActive: isSelected && (_homeLive?.tripActive ?? false),
+                      direction: isSelected ? _homeLive?.direction : null,
+                      attendance: isSelected ? _homeLive?.attendance : null,
+                    );
                     final String? childAvatar = childItem['avatar_url'] as String?;
 
                     Color statusColor = const Color(0xFF16A34A);
                     Color statusBg = const Color(0xFFDCFCE7);
-                    if (transit == 'At School') {
+                    if (transit == 'At school' || transit == 'At School') {
                       statusColor = const Color(0xFF2563EB);
                       statusBg = const Color(0xFFDBEAFE);
-                    } else if (transit == 'Dropped Home' || transit == 'Dropped') {
+                    } else if (transit == 'Waiting for pickup') {
+                      statusColor = const Color(0xFFD97706);
+                      statusBg = const Color(0xFFFEF3C7);
+                    } else if (transit == 'Dropped Home' ||
+                        transit == 'Dropped' ||
+                        transit == 'Dropped off') {
                       statusColor = const Color(0xFF9333EA);
                       statusBg = const Color(0xFFF3E8FF);
                     }
@@ -1960,82 +2018,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 16),
-
-                    // Soft Green Bus & Conductor Info Bar (Responsive Overflow-Free Row)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF0FDF4),
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFDCFCE7)),
-                      ),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            flex: 4,
-                            child: Row(
-                              children: [
-                                const Icon(Icons.directions_bus_rounded, color: Color(0xFF10B981), size: 20),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Text(vehicleBusNo, overflow: TextOverflow.ellipsis, maxLines: 1, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF64748B))),
-                                      Text(vehiclePlate, overflow: TextOverflow.ellipsis, maxLines: 1, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            flex: 5,
-                            child: Row(
-                              children: [
-                                const Icon(Icons.person_outline_rounded, color: Color(0xFF10B981), size: 20),
-                                const SizedBox(width: 6),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Text('Conductor', overflow: TextOverflow.ellipsis, maxLines: 1, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF64748B))),
-                                      Text(conductorName, overflow: TextOverflow.ellipsis, maxLines: 1, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                                    ],
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            flex: 5,
-                            child: Row(
-                              children: [
-                                const Icon(Icons.location_on_outlined, color: Color(0xFF10B981), size: 20),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Text('Pickup Stage', overflow: TextOverflow.ellipsis, maxLines: 1, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: Color(0xFF64748B))),
-                                      Text(pickupStageName, overflow: TextOverflow.ellipsis, maxLines: 1, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                                    ],
-                                  ),
-                                ),
-                                const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 18),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
                     const SizedBox(height: 24),
 
                     // Home & Transport Section
@@ -2093,12 +2075,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 ],
                               ),
                             ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(color: const Color(0xFFF0FDF4), borderRadius: BorderRadius.circular(12)),
-                              child: const Text('150 m • 2 min walk', style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Color(0xFF16A34A))),
-                            ),
-                            const SizedBox(width: 8),
                             const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 22),
                           ],
                         ),
@@ -2107,7 +2083,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                     const Divider(color: Color(0xFFF1F5F9)),
 
-                    // Pickup Stage Tile
+                    // Pickup trip
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       child: Row(
@@ -2115,26 +2091,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle),
-                            child: const Icon(Icons.location_on_rounded, size: 20, color: Color(0xFF8B5CF6)),
+                            child: const Icon(Icons.wb_sunny_outlined, size: 20, color: Color(0xFFD97706)),
                           ),
                           const SizedBox(width: 14),
                           Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text('Pickup Stage', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                                Text(pickupStageAddress, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                                const Text('Pickup trip', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                                Text(pickupTripSubtitle, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 22),
                         ],
                       ),
                     ),
 
                     const Divider(color: Color(0xFFF1F5F9)),
 
-                    // Transport Schedule Tile
+                    // Drop-off trip
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 10),
                       child: Row(
@@ -2142,19 +2117,18 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           Container(
                             padding: const EdgeInsets.all(8),
                             decoration: const BoxDecoration(color: Color(0xFFF1F5F9), shape: BoxShape.circle),
-                            child: const Icon(Icons.calendar_today_rounded, size: 20, color: Color(0xFF2563EB)),
+                            child: const Icon(Icons.nights_stay_outlined, size: 20, color: Color(0xFF8B5CF6)),
                           ),
                           const SizedBox(width: 14),
-                          const Expanded(
+                          Expanded(
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Transport Schedule', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
-                                Text('Mon - Fri (Morning & Afternoon)', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                                const Text('Drop-off trip', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF0F172A))),
+                                Text(dropoffTripSubtitle, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
                               ],
                             ),
                           ),
-                          const Icon(Icons.chevron_right_rounded, color: Color(0xFF94A3B8), size: 22),
                         ],
                       ),
                     ),
@@ -2243,6 +2217,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       iconBg: const Color(0xFFDCFCE7),
                       iconColor: const Color(0xFF16A34A),
                       iconData: Icons.call_rounded,
+                      avatarUrl: _parentAvatarUrl,
                       onPhotoTap: () => _showPhotoPickerModal(_parentId, 'profiles', _parentName, _parentAvatarUrl),
                     ),
                     const SizedBox(height: 10),
@@ -2256,7 +2231,24 @@ class _DashboardScreenState extends State<DashboardScreen> {
                         iconBg: const Color(0xFFFEF3C7),
                         iconColor: const Color(0xFFD97706),
                         iconData: Icons.person_outline_rounded,
-                        onPhotoTap: () => _showPhotoPickerModal(_guardian!['id'], 'guardians', _guardian!['name'], _guardian!['avatar_url']),
+                        avatarUrl: _guardian!['avatar_url']?.toString(),
+                        onPhotoTap: () {
+                          final student = _students.isNotEmpty &&
+                                  _selectedStudentIndex < _students.length
+                              ? _students[_selectedStudentIndex]
+                              : null;
+                          final studentId = student is Map
+                              ? student['id']?.toString() ?? ''
+                              : '';
+                          _showPhotoPickerModal(
+                            studentId,
+                            'guardian_json',
+                            _guardian!['name']?.toString() ?? 'Guardian',
+                            _guardian!['avatar_url']?.toString(),
+                            guardianPhone: _guardian!['phone']?.toString(),
+                            studentIdForGuardian: studentId,
+                          );
+                        },
                         onDelete: () {
                           showDialog(
                             context: context,
@@ -2307,6 +2299,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     required Color iconBg,
     required Color iconColor,
     required IconData iconData,
+    String? avatarUrl,
     VoidCallback? onPhotoTap,
     VoidCallback? onDelete,
   }) {
@@ -2319,11 +2312,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
       ),
       child: Row(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
-            child: Icon(iconData, color: iconColor, size: 20),
+          GestureDetector(
+            onTap: onPhotoTap,
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: iconBg,
+                shape: BoxShape.circle,
+                image: avatarUrl != null && avatarUrl.isNotEmpty
+                    ? DecorationImage(image: NetworkImage(avatarUrl), fit: BoxFit.cover)
+                    : null,
+              ),
+              child: avatarUrl != null && avatarUrl.isNotEmpty
+                  ? null
+                  : Icon(iconData, color: iconColor, size: 20),
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(

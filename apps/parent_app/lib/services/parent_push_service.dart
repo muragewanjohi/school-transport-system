@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show Color;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
@@ -24,7 +25,8 @@ class ParentPushService {
 
   static Future<void> initLocal() async {
     if (_localReady) return;
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+    // Small status icon must be a white silhouette drawable (not the full-color launcher).
+    const android = AndroidInitializationSettings('@drawable/ic_stat_onthebus');
     const ios = DarwinInitializationSettings();
     await _local.initialize(
       const InitializationSettings(android: android, iOS: ios),
@@ -53,6 +55,9 @@ class ParentPushService {
         channelDescription: 'Campus exit, approach, delay, and boarding alerts',
         importance: Importance.high,
         priority: Priority.high,
+        icon: '@drawable/ic_stat_onthebus',
+        largeIcon: DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+        color: Color(0xFF10B981),
       );
       await _local.show(
         DateTime.now().millisecondsSinceEpoch.remainder(100000),

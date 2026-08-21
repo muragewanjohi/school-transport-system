@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android status-bar / small notification icon.
+  White silhouette on transparent — system tints with notification accent color.
+  OnTheBus brand shape: location pin with open circle.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M12,2C8.13,2 5,5.13 5,9c0,5.25 7,13 7,13s7,-7.75 7,-13c0,-3.87 -3.13,-7 -7,-7zM12,12.2c-1.77,0 -3.2,-1.43 -3.2,-3.2s1.43,-3.2 3.2,-3.2 3.2,1.43 3.2,3.2 -1.43,3.2 -3.2,3.2z" />
+</vector>

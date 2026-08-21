@@ -14,12 +14,15 @@ Driver and conductor login uses a two-screen phone OTP flow: (1) Kenyan mobile n
 
 ### Parent mobile authentication
 
-Parent login uses the same two-screen phone OTP flow as the driver app: (1) Kenyan mobile number entry with **Send OTP** and a school-support path, then (2) six individual verification-code fields with back navigation, a 24-second resend countdown, and **Verify & Continue**. Copy says **Parent App** (never driver/conductor). If the phone is not registered as a parent, the app shows guidance to contact the school. Visual treatment matches the driver login: OnTheBus branding, emerald actions, daylight white surfaces, and a security reassurance card.
+Parent login uses the same two-screen phone OTP flow as the driver app: (1) Kenyan mobile number entry with **Send OTP** and a school-support path, then (2) six individual verification-code fields with back navigation, a 24-second resend countdown, and **Verify & Continue**. Copy says **Parent App** (never driver/conductor). If the phone is not registered as a parent, the app shows guidance to contact the school. Paid and per-lead demo tenants receive a fresh 15-minute OTP by SMS (Africa's Talking live). A **Dev OTP** snackbar appears only when the API dry-runs and returns `sandbox_otp` (local/Preview). Visual treatment matches the driver login: OnTheBus branding, emerald actions, daylight white surfaces, and a security reassurance card.
 
 ### Parent Map vs Home Location
 
-- **Map tab** is live transit only: when an in-progress trip exists for the selected child, show the live bus marker (from `/api/parent/live` + `live_coordinates`), plate/driver, child transit status, next stop, distance, and est. arrival — layout patterned after the driver active-trip summary. Idle state is “No Active Trip” (not a home-edit surface). Home/stage pins may appear for context; parents do not update home from Map.
+- **Map tab** is live transit only for the **selected child**: when an in-progress trip exists, show the live bus marker (from `/api/parent/live` + `live_coordinates`), plate/driver, child transit status, next stop, distance, and est. arrival — layout patterned after the driver active-trip summary. When there is **no** in-progress trip, **do not show Google Map**; show a schedule card with today’s next **Depart** time, bus plate/number, countdown to departure, and schedule est. trip duration (driver Home scheduled-card fields). If nothing is scheduled today, show “No trip scheduled today”.
+- Parent-facing status must never be **“On the Bus”** unless `trip_active` is true (in-progress trip) and the child is boarded. Idle home/profile chips use Waiting for pickup / At school.
+- **Home (active trip):** status banner includes clickable **Driver** and optional **Conductor** cards (name, phone, photo/initials). Tap opens a dialog with an enlarged photo (initials fallback when no URL).
 - **Home Location** is `RelocateScreen` opened from Profile → Home Location: search, drag pin, save pickup coordinates.
+- **Profile child card:** Student Information is a single chevron row (no bus / conductor / pickup-stage bar). Under **Home & Transport**, show Home Location plus **Pickup trip** and **Drop-off trip** rows (assigned stop name and schedule departure when available), then today’s riding status.
 
 ## Marketing Landing Tokens
 

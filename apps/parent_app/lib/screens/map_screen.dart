@@ -43,7 +43,7 @@ class _MapScreenState extends State<MapScreen> {
   LatLng _homeLocation = const LatLng(-1.2721, 36.7981);
   LatLng? _pickupStageLocation;
   String _pickupStageName = 'Kiambu Rd Stage';
-  String _transitStatus = 'On the Bus';
+  String _transitStatus = 'Waiting for pickup';
 
   // Vehicle & Conductor info
   String _licensePlate = 'Bus 12';
@@ -53,6 +53,7 @@ class _MapScreenState extends State<MapScreen> {
   ParentLiveSnapshot _live = ParentLiveSnapshot.idle();
   StreamSubscription? _liveSubscription;
   Timer? _livePollTimer;
+  Timer? _idleTickTimer;
 
   // Live ETA: HMAC poll + optional Realtime
   String? _targetStopId;
@@ -68,12 +69,17 @@ class _MapScreenState extends State<MapScreen> {
     _subscribeToLiveTelemetry();
     _startLivePolling();
     _startEtaPolling();
+    _idleTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!mounted || _isTripActive) return;
+      setState(() {});
+    });
   }
 
   @override
   void dispose() {
     _liveSubscription?.cancel();
     _livePollTimer?.cancel();
+    _idleTickTimer?.cancel();
     _etaPollTimer?.cancel();
     _etaRealtimeSub?.cancel();
     _mapController?.dispose();
@@ -228,7 +234,7 @@ class _MapScreenState extends State<MapScreen> {
         .order('created_at', ascending: false)
         .limit(1)
         .listen((List<Map<String, dynamic>> data) {
-      if (data.isEmpty || !mounted) return;
+      if (data.isEmpty || !mounted || !_isTripActive) return;
       final latest = data.first;
       final point = parseCoordinatePayload(latest['coordinates']);
       if (point == null) return;
@@ -249,6 +255,7 @@ class _MapScreenState extends State<MapScreen> {
           transitStatus: _live.transitStatus,
           attendance: _live.attendance,
           direction: _live.direction,
+          nextTrip: _live.nextTrip,
         );
       });
       _mapController?.animateCamera(
@@ -421,6 +428,43 @@ class _MapScreenState extends State<MapScreen> {
         ? LatLng(_live.lat!, _live.lng!)
         : (_pickupStageLocation ?? _homeLocation);
 
+    if (!_isTripActive) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: _isLoadingRoute
+            ? const Center(child: CircularProgressIndicator(color: Color(0xFF2563EB)))
+            : SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Text(
+                        widget.studentName,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Upcoming trip',
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                      Expanded(child: _buildIdleScheduleCard()),
+                    ],
+                  ),
+                ),
+              ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
       body: _isLoadingRoute
@@ -430,7 +474,7 @@ class _MapScreenState extends State<MapScreen> {
                 GoogleMap(
                   initialCameraPosition: CameraPosition(
                     target: cameraTarget,
-                    zoom: _isTripActive ? 15.2 : 14.5,
+                    zoom: 15.2,
                   ),
                   myLocationButtonEnabled: false,
                   zoomControlsEnabled: false,
@@ -453,12 +497,10 @@ class _MapScreenState extends State<MapScreen> {
                   top: _live.isEmergency ? 72 : 50,
                   left: 16,
                   right: 16,
-                  child: _isTripActive
-                      ? _buildLiveHeaderCard()
-                      : _buildIdleHeaderCard(),
+                  child: _buildLiveHeaderCard(),
                 ),
 
-                if (_isTripActive && _live.hasBusFix)
+                if (_live.hasBusFix)
                   Positioned(
                     right: 16,
                     bottom: 230,
@@ -488,13 +530,156 @@ class _MapScreenState extends State<MapScreen> {
                         )
                       ],
                     ),
-                    child: !_isTripActive
-                        ? _buildIdleTripBottomCard()
-                        : _buildLiveTripBottomCard(),
+                    child: _buildLiveTripBottomCard(),
                   ),
                 ),
               ],
             ),
+    );
+  }
+
+  Widget _buildIdleScheduleCard() {
+    final next = _live.nextTrip;
+    if (next == null || next.departureTime.isEmpty) {
+      return Container(
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.event_busy_outlined, size: 52, color: Color(0xFF94A3B8)),
+            const SizedBox(height: 14),
+            Text(
+              noTripScheduledTitle(),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              noTripScheduledSubtitle(),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 13, height: 1.4, color: Color(0xFF64748B)),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.05),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFEFF6FF),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.directions_bus_filled, color: Color(0xFF2563EB)),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      next.scheduleName?.trim().isNotEmpty == true
+                          ? next.scheduleName!
+                          : (next.direction == 'SCHOOL_TO_HOME'
+                              ? 'Home run'
+                              : 'School run'),
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      next.busLabel,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 28),
+          Row(
+            children: [
+              Expanded(
+                child: _ScheduleStat(
+                  label: 'DEPART',
+                  value: next.departureTime,
+                ),
+              ),
+              Expanded(
+                child: _ScheduleStat(
+                  label: 'EST. TIME',
+                  value: formatEstTripDuration(next.estimatedDurationMinutes),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 22),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Text(
+              countdownToDeparture(next.departureTime),
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ),
+          const Spacer(),
+          Text(
+            idleTripSubtitle(),
+            style: const TextStyle(fontSize: 12, height: 1.35, color: Color(0xFF94A3B8)),
+          ),
+        ],
+      ),
     );
   }
 
@@ -566,89 +751,6 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  Widget _buildIdleHeaderCard() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          )
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: const BoxDecoration(
-              color: Color(0xFFEFF6FF),
-              shape: BoxShape.circle,
-            ),
-            child: const Icon(
-              Icons.map_rounded,
-              color: Color(0xFF2563EB),
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.studentName,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  idleTripTitle(),
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildIdleTripBottomCard() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.directions_bus_outlined, size: 48, color: Color(0xFF94A3B8)),
-        const SizedBox(height: 10),
-        Text(
-          idleTripTitle(),
-          style: const TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF0F172A),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          idleTripSubtitle(),
-          textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 13, height: 1.35, color: Color(0xFF64748B)),
-        ),
-      ],
-    );
-  }
-
   Widget _buildLiveTripBottomCard() {
     final distKm = distanceKmToPoint(
       fromLat: _live.lat,
@@ -682,6 +784,7 @@ class _MapScreenState extends State<MapScreen> {
                     _live.transitStatus ?? _transitStatus,
                     attendance: _live.attendance,
                     direction: _live.direction,
+                    tripActive: true,
                   ),
                   footer: widget.studentName,
                 ),
@@ -763,6 +866,40 @@ class _LiveMetric extends StatelessWidget {
             fontSize: 11,
             fontWeight: FontWeight.w600,
             color: footerColor ?? const Color(0xFF64748B),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ScheduleStat extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _ScheduleStat({required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 0.5,
+            color: Color(0xFF94A3B8),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 28,
+            fontWeight: FontWeight.w800,
+            color: Color(0xFF0F172A),
           ),
         ),
       ],

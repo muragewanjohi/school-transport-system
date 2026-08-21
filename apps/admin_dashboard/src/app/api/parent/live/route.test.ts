@@ -2,15 +2,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const maybeSingle = vi.fn();
 const limit = vi.fn();
+const countHead = vi.fn();
 
-function chain() {
-  const api = {
-    select: () => api,
-    eq: () => api,
-    order: () => api,
-    limit,
-    maybeSingle,
+function chain(options?: { countQuery?: boolean }) {
+  const api: Record<string, unknown> = {};
+  api.select = (cols?: unknown, opts?: { count?: string; head?: boolean }) => {
+    if (opts?.head && opts?.count === "exact") {
+      return {
+        eq: () => ({
+          eq: () => countHead(),
+        }),
+      };
+    }
+    return api;
   };
+  api.eq = () => api;
+  api.order = () => api;
+  api.limit = limit;
+  api.maybeSingle = maybeSingle;
   return api;
 }
 
@@ -48,6 +57,8 @@ describe("GET /api/parent/live", () => {
     process.env.PARENT_SESSION_SECRET = "unit-test-parent-secret";
     maybeSingle.mockReset();
     limit.mockReset();
+    countHead.mockReset();
+    countHead.mockResolvedValue({ count: 0, error: null });
   });
 
   it("GET /api/parent/live › missing token › returns 401", async () => {
@@ -117,7 +128,16 @@ describe("GET /api/parent/live", () => {
             status: "in_progress",
             schedule: { direction: "HOME_TO_SCHOOL" },
             vehicle: { license_plate: "KDD 123A" },
-            driver: { name: "Jane Driver" },
+            driver: {
+              name: "Jane Driver",
+              phone: "+254700000001",
+              avatar_url: "https://cdn/driver.jpg",
+            },
+            conductor: {
+              name: "Tom Conductor",
+              phone: "+254700000099",
+              avatar_url: "https://cdn/cond.jpg",
+            },
           },
         ],
         error: null,
@@ -154,9 +174,97 @@ describe("GET /api/parent/live", () => {
     expect(body.transit_status).toBe("On the Bus");
     expect(body.attendance).toBe("boarded");
     expect(body.trip.vehicle_plate).toBe("KDD 123A");
+    expect(body.trip.driver).toEqual({
+      name: "Jane Driver",
+      phone: "+254700000001",
+      avatar_url: "https://cdn/driver.jpg",
+    });
+    expect(body.trip.conductor).toEqual({
+      name: "Tom Conductor",
+      phone: "+254700000099",
+      avatar_url: "https://cdn/cond.jpg",
+    });
     expect(body.live.lat).toBe(-1.27);
     expect(body.live.lng).toBe(36.8);
     expect(body.next_stop.name).toBe("Greenview Estate");
     expect(body.eta.eta_minutes).toBeGreaterThanOrEqual(7);
+    expect(body.next_trip).toBeNull();
+  });
+
+  it("GET /api/parent/live › idle with scheduled trip › returns next_trip not On the Bus", async () => {
+    const token = signParentSession({ sub: PARENT_ID, tenant_id: TENANT_ID });
+    maybeSingle
+      .mockResolvedValueOnce({
+        data: {
+          id: STUDENT_ID,
+          parent_id: PARENT_ID,
+          tenant_id: TENANT_ID,
+          route_id: ROUTE_ID,
+          pickup_stop_id: STOP_ID,
+          dropoff_stop_id: null,
+          transit_status: "On the Bus",
+          guardians: [],
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { phone: "+254724511201" },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { id: STOP_ID, name: "Greenview Estate" },
+        error: null,
+      });
+
+    limit
+      // in_progress trips
+      .mockResolvedValueOnce({
+        data: [],
+        error: null,
+      })
+      // scheduled trips for next_trip
+      .mockResolvedValueOnce({
+        data: [
+          {
+            id: "22222222-2222-4222-8222-222222222222",
+            custom_departure_time: null,
+            vehicle_id: null,
+            schedule: {
+              name: "Morning",
+              departure_time: "06:45:00",
+              direction: "HOME_TO_SCHOOL",
+            },
+            vehicle: { license_plate: "KDD 123A", bus_number: "12" },
+          },
+        ],
+        error: null,
+      })
+      // live_coordinates (still queried; omitted from response when idle)
+      .mockResolvedValueOnce({
+        data: [],
+        error: null,
+      });
+
+    countHead
+      .mockResolvedValueOnce({ count: 5, error: null })
+      .mockResolvedValueOnce({ count: 10, error: null });
+
+    const res = await GET(authRequest(token));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.trip_active).toBe(false);
+    expect(body.transit_status).toBe("Waiting for pickup");
+    expect(body.attendance).toBeNull();
+    expect(body.live).toBeNull();
+    expect(body.next_stop).toBeNull();
+    expect(body.next_trip).toEqual({
+      departure_time: "06:45",
+      direction: "HOME_TO_SCHOOL",
+      schedule_name: "Morning",
+      vehicle_plate: "KDD 123A",
+      bus_number: "12",
+      estimated_duration_minutes: 5 * 4 + 15 + 10,
+    });
   });
 });

@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:parent_app/utils/parent_avatar_logic.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class SupabaseService {
@@ -110,7 +111,8 @@ class SupabaseService {
         .map((rows) => List<Map<String, dynamic>>.from(rows));
   }
 
-  /// Upload avatar photo to Supabase Storage bucket 'avatars' and update database table
+  /// Upload avatar photo to Supabase Storage bucket 'avatars' and update database table.
+  /// [targetTable] must be `students` or `profiles` (owner-scoped RLS).
   static Future<String?> uploadAvatar({
     required String id,
     required String targetTable,
@@ -118,8 +120,22 @@ class SupabaseService {
     required String fileName,
   }) async {
     try {
-      final String storagePath = 'public/${targetTable}_${id}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-      
+      final uid = client.auth.currentUser?.id;
+      if (uid == null || uid.isEmpty) {
+        print('Error uploading avatar: no Supabase Auth session');
+        return null;
+      }
+      if (targetTable != 'students' && targetTable != 'profiles') {
+        print('Error uploading avatar: unsupported table $targetTable');
+        return null;
+      }
+
+      final storagePath = avatarStoragePath(
+        ownerUserId: uid,
+        targetKey: targetTable,
+        entityId: id,
+      );
+
       await client.storage.from('avatars').uploadBinary(
             storagePath,
             Uint8List.fromList(imageBytes),
@@ -128,14 +144,64 @@ class SupabaseService {
 
       final String publicUrl = client.storage.from('avatars').getPublicUrl(storagePath);
 
-      await client
-          .from(targetTable)
-          .update({'avatar_url': publicUrl})
-          .eq('id', id);
+      await client.from(targetTable).update({'avatar_url': publicUrl}).eq('id', id);
 
       return publicUrl;
     } catch (e) {
       print('Error uploading avatar to Supabase Storage: $e');
+      return null;
+    }
+  }
+
+  /// Upload photo for a secondary guardian stored in `students.guardians` JSONB.
+  static Future<String?> uploadGuardianAvatar({
+    required String studentId,
+    required String guardianPhone,
+    required List<int> imageBytes,
+    required String fileName,
+  }) async {
+    try {
+      final uid = client.auth.currentUser?.id;
+      if (uid == null || uid.isEmpty) {
+        print('Error uploading guardian avatar: no Supabase Auth session');
+        return null;
+      }
+
+      final row = await client
+          .from('students')
+          .select('guardians')
+          .eq('id', studentId)
+          .maybeSingle();
+      final rawGuardians = row?['guardians'];
+      if (rawGuardians is! List ||
+          indexOfGuardianByPhone(rawGuardians, guardianPhone) < 0) {
+        print('Error uploading guardian avatar: guardian not found on student');
+        return null;
+      }
+
+      final storagePath = avatarStoragePath(
+        ownerUserId: uid,
+        targetKey: 'guardian',
+        entityId: studentId,
+      );
+
+      await client.storage.from('avatars').uploadBinary(
+            storagePath,
+            Uint8List.fromList(imageBytes),
+            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
+          );
+
+      final publicUrl = client.storage.from('avatars').getPublicUrl(storagePath);
+      final updated = withGuardianAvatarUrl(
+        guardians: rawGuardians,
+        guardianPhone: guardianPhone,
+        avatarUrl: publicUrl,
+      );
+
+      await client.from('students').update({'guardians': updated}).eq('id', studentId);
+      return publicUrl;
+    } catch (e) {
+      print('Error uploading guardian avatar: $e');
       return null;
     }
   }
@@ -147,19 +213,48 @@ class SupabaseService {
     required String currentAvatarUrl,
   }) async {
     try {
-      if (currentAvatarUrl.contains('/avatars/')) {
-        final String path = currentAvatarUrl.split('/avatars/').last;
+      final path = avatarObjectPathFromPublicUrl(currentAvatarUrl);
+      if (path != null) {
         await client.storage.from('avatars').remove([path]);
       }
 
-      await client
-          .from(targetTable)
-          .update({'avatar_url': null})
-          .eq('id', id);
+      await client.from(targetTable).update({'avatar_url': null}).eq('id', id);
 
       return true;
     } catch (e) {
       print('Error deleting avatar from Supabase Storage: $e');
+      return false;
+    }
+  }
+
+  static Future<bool> deleteGuardianAvatar({
+    required String studentId,
+    required String guardianPhone,
+    required String currentAvatarUrl,
+  }) async {
+    try {
+      final path = avatarObjectPathFromPublicUrl(currentAvatarUrl);
+      if (path != null) {
+        await client.storage.from('avatars').remove([path]);
+      }
+
+      final row = await client
+          .from('students')
+          .select('guardians')
+          .eq('id', studentId)
+          .maybeSingle();
+      final rawGuardians = row?['guardians'];
+      if (rawGuardians is! List) return false;
+
+      final updated = withGuardianAvatarUrl(
+        guardians: rawGuardians,
+        guardianPhone: guardianPhone,
+        avatarUrl: null,
+      );
+      await client.from('students').update({'guardians': updated}).eq('id', studentId);
+      return true;
+    } catch (e) {
+      print('Error deleting guardian avatar: $e');
       return false;
     }
   }

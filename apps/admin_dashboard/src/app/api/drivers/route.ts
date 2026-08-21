@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { assignDriverToVehicle, emptyToNullVehicleId } from "@/lib/assignDriverVehicle";
+import {
+  getAfricasTalkingUsername,
+  sendAfricasTalkingSms,
+  shouldDryRunOtpSms,
+} from "@/lib/africasTalkingSms";
+import { normalizeKenyanPhone } from "@/lib/kenyanPhone";
 import { z } from "zod";
 
 const driverCreateSchema = z.object({
@@ -55,43 +61,21 @@ export async function POST(request: Request) {
     const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
 
-    // Clean and format phone number for Africa's Talking SMS API
-    let cleanPhone = result.data.phone.trim();
-    if (cleanPhone.startsWith("0")) {
-      cleanPhone = `+254${cleanPhone.slice(1)}`;
-    }
-    if (!cleanPhone.startsWith("+")) {
-      cleanPhone = `+${cleanPhone}`;
-    }
-
-    // Try sending SMS OTP via Africa's Talking in the background
-    const atUsername = process.env.AFRICASTALKING_USERNAME || "sandbox";
-    const atApiKey = process.env.AFRICASTALKING_API_KEY;
-    if (atApiKey) {
-      try {
-        const smsParams = new URLSearchParams();
-        smsParams.append("username", atUsername);
-        smsParams.append("to", cleanPhone);
-        smsParams.append("message", `Safaricom Track: You have been registered as a driver. Your login OTP is ${otpCode}.`);
-        
-        fetch("https://api.africastalking.com/version1/messaging", {
-          method: "POST",
-          headers: {
-            "apiKey": atApiKey,
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Accept": "application/json",
-          },
-          body: smsParams.toString(),
-        }).then(res => res.json()).then(data => {
-          console.log("OTP SMS dispatched successfully via AT:", data);
-        }).catch(err => {
-          console.warn("Async OTP SMS API fetch failed:", err);
-        });
-      } catch (smsErr) {
-        console.warn("Background SMS OTP dispatch error:", smsErr);
-      }
-    } else {
-      console.log(`[SANDBOX SMS] OTP for ${cleanPhone} is ${otpCode}`);
+    const cleanPhone = normalizeKenyanPhone(result.data.phone);
+    const atUsername = getAfricasTalkingUsername();
+    const dryRunSms = shouldDryRunOtpSms({
+      atUsername,
+      nodeEnv: process.env.NODE_ENV,
+      vercelEnv: process.env.VERCEL_ENV,
+      otpSmsDryRun: process.env.OTP_SMS_DRY_RUN,
+    });
+    if (!dryRunSms) {
+      void sendAfricasTalkingSms({
+        to: cleanPhone,
+        message: `OnTheBus: You have been registered as a driver. Your login OTP is ${otpCode}.`,
+      }).catch(() => {
+        console.warn("Driver registration OTP SMS failed");
+      });
     }
 
     if (!isSupabaseConfigured) {
@@ -152,13 +136,18 @@ export async function POST(request: Request) {
           success: true,
           source: "supabase",
           data: driverInsert,
-          sandbox_otp: otpCode,
+          ...(dryRunSms ? { sandbox_otp: otpCode } : {}),
           assignment_error: assigned.error,
         });
       }
     }
 
-    return NextResponse.json({ success: true, source: "supabase", data: driverInsert, sandbox_otp: otpCode });
+    return NextResponse.json({
+      success: true,
+      source: "supabase",
+      data: driverInsert,
+      ...(dryRunSms ? { sandbox_otp: otpCode } : {}),
+    });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";

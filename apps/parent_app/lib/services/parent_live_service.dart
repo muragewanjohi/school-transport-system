@@ -74,7 +74,7 @@ class ParentLiveService {
       final tripRows = await client
           .from('trips')
           .select(
-            'id, status, schedule:schedules(direction), vehicle:vehicles(license_plate), driver:profiles!trips_driver_id_fkey(name)',
+            'id, status, schedule:schedules(direction), vehicle:vehicles(license_plate), driver:profiles!trips_driver_id_fkey(name, phone, avatar_url), conductor:profiles!trips_conductor_1_id_fkey(name, phone, avatar_url)',
           )
           .eq('route_id', resolvedRouteId)
           .eq('status', 'in_progress')
@@ -85,7 +85,10 @@ class ParentLiveService {
       if (tripRows is! List || tripRows.isEmpty) {
         return ParentLiveSnapshot(
           tripActive: false,
-          transitStatus: transitStatus,
+          transitStatus: parentChildStatusLabel(
+            transitStatus,
+            tripActive: false,
+          ),
         );
       }
 
@@ -94,9 +97,24 @@ class ParentLiveService {
       final schedule = trip['schedule'];
       final direction = schedule is Map ? schedule['direction']?.toString() : null;
       final vehicle = trip['vehicle'];
-      final driver = trip['driver'];
+      final driverRaw = trip['driver'];
+      final conductorRaw = trip['conductor'];
       final plate = vehicle is Map ? vehicle['license_plate']?.toString() : null;
-      final driverName = driver is Map ? driver['name']?.toString() : null;
+      final driver = driverRaw is Map
+          ? ParentCrewContact(
+              name: driverRaw['name']?.toString(),
+              phone: driverRaw['phone']?.toString(),
+              avatarUrl: driverRaw['avatar_url']?.toString(),
+            )
+          : null;
+      final conductor = conductorRaw is Map
+          ? ParentCrewContact(
+              name: conductorRaw['name']?.toString(),
+              phone: conductorRaw['phone']?.toString(),
+              avatarUrl: conductorRaw['avatar_url']?.toString(),
+            )
+          : null;
+      final driverName = driver?.name;
 
       String? attendance;
       if (tripId != null && tripId.isNotEmpty) {
@@ -174,6 +192,7 @@ class ParentLiveService {
         transitStatus,
         attendance: attendance,
         direction: direction,
+        tripActive: true,
       );
 
       return ParentLiveSnapshot(
@@ -184,6 +203,8 @@ class ParentLiveService {
         isEmergency: isEmergency,
         vehiclePlate: plate,
         driverName: driverName,
+        driver: (driver != null && driver.hasAnyDetail) ? driver : null,
+        conductor: (conductor != null && conductor.hasAnyDetail) ? conductor : null,
         nextStopName: nextStopName,
         etaMinutes: etaMinutes,
         delaySeconds: delaySeconds,

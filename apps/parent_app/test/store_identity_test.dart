@@ -28,6 +28,18 @@ void main() {
       expect(manifest.contains('android:label="OnTheBus"'), isTrue);
     });
 
+    test('Android FCM default notification icon is OnTheBus status drawable', () {
+      final manifest = _normalize(
+        File('android/app/src/main/AndroidManifest.xml').readAsStringSync(),
+      );
+      expect(
+        manifest.contains('com.google.firebase.messaging.default_notification_icon'),
+        isTrue,
+      );
+      expect(manifest.contains('@drawable/ic_stat_onthebus'), isTrue);
+      expect(File('android/app/src/main/res/drawable/ic_stat_onthebus.xml').existsSync(), isTrue);
+    });
+
     test('iOS Info.plist has camera, photos, and export-compliance keys', () {
       final plist = _normalize(File('ios/Runner/Info.plist').readAsStringSync());
       expect(plist.contains('NSCameraUsageDescription'), isTrue);

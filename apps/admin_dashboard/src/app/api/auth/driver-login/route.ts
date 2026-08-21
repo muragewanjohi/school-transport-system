@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { signDriverSession } from "@/lib/driverSession";
+import { phoneVariants } from "@/lib/kenyanPhone";
 import { z } from "zod";
 
 const loginSchema = z.object({
@@ -19,23 +20,6 @@ const mockDriverSession = {
   vehicle_id: "e5015e10-c09a-4c22-901d-5573752e379c",
   route_id: "782cd841-f762-4217-a021-9876251b5bca",
 };
-
-function phoneVariants(phone: string): string[] {
-  const compact = phone.replace(/[\s()-]+/g, "");
-  const normalized = compact.startsWith("0")
-    ? `+254${compact.slice(1)}`
-    : compact.startsWith("+")
-      ? compact
-      : `+${compact}`;
-  const local = normalized.startsWith("+254") ? normalized.slice(4) : "";
-  if (local.length !== 9) return [normalized];
-  return [
-    normalized,
-    `+254 ${local.slice(0, 3)} ${local.slice(3, 6)} ${local.slice(6)}`,
-    `0${local}`,
-    local,
-  ];
-}
 
 function withAccessToken(session: {
   id: string;

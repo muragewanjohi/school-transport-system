@@ -2,6 +2,89 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 /// Pure helpers for the parent live map (active trip + GPS overlay).
+class ParentCrewContact {
+  final String? name;
+  final String? phone;
+  final String? avatarUrl;
+
+  const ParentCrewContact({
+    this.name,
+    this.phone,
+    this.avatarUrl,
+  });
+
+  bool get hasAnyDetail =>
+      (name != null && name!.trim().isNotEmpty) ||
+      (phone != null && phone!.trim().isNotEmpty) ||
+      (avatarUrl != null && avatarUrl!.trim().isNotEmpty);
+
+  String get displayName {
+    final n = name?.trim();
+    if (n != null && n.isNotEmpty) return n;
+    return '—';
+  }
+
+  factory ParentCrewContact.fromJson(Map<String, dynamic>? json) {
+    if (json == null) return const ParentCrewContact();
+    return ParentCrewContact(
+      name: json['name']?.toString(),
+      phone: json['phone']?.toString(),
+      avatarUrl: json['avatar_url']?.toString(),
+    );
+  }
+
+  /// Initials for thumbnail fallback (e.g. "Jane Driver" → "JD").
+  static String initials(String? name) {
+    final parts = (name ?? '')
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    if (parts.isNotEmpty) return parts[0][0].toUpperCase();
+    return '?';
+  }
+}
+
+class ParentNextTrip {
+  final String departureTime;
+  final String? direction;
+  final String? scheduleName;
+  final String? vehiclePlate;
+  final String? busNumber;
+  final int? estimatedDurationMinutes;
+
+  const ParentNextTrip({
+    required this.departureTime,
+    this.direction,
+    this.scheduleName,
+    this.vehiclePlate,
+    this.busNumber,
+    this.estimatedDurationMinutes,
+  });
+
+  factory ParentNextTrip.fromJson(Map<String, dynamic> json) {
+    return ParentNextTrip(
+      departureTime: json['departure_time']?.toString() ?? '',
+      direction: json['direction']?.toString(),
+      scheduleName: json['schedule_name']?.toString(),
+      vehiclePlate: json['vehicle_plate']?.toString(),
+      busNumber: json['bus_number']?.toString(),
+      estimatedDurationMinutes: (json['estimated_duration_minutes'] as num?)?.toInt(),
+    );
+  }
+
+  String get busLabel {
+    final plate = vehiclePlate?.trim();
+    if (plate != null && plate.isNotEmpty) return plate;
+    final bus = busNumber?.trim();
+    if (bus != null && bus.isNotEmpty) return 'Bus $bus';
+    return 'Assigned bus';
+  }
+}
+
 class ParentLiveSnapshot {
   final bool tripActive;
   final double? lat;
@@ -10,6 +93,8 @@ class ParentLiveSnapshot {
   final bool isEmergency;
   final String? vehiclePlate;
   final String? driverName;
+  final ParentCrewContact? driver;
+  final ParentCrewContact? conductor;
   final String? nextStopName;
   final int? etaMinutes;
   final int delaySeconds;
@@ -17,6 +102,7 @@ class ParentLiveSnapshot {
   final String? transitStatus;
   final String? attendance;
   final String? direction;
+  final ParentNextTrip? nextTrip;
 
   const ParentLiveSnapshot({
     required this.tripActive,
@@ -26,6 +112,8 @@ class ParentLiveSnapshot {
     this.isEmergency = false,
     this.vehiclePlate,
     this.driverName,
+    this.driver,
+    this.conductor,
     this.nextStopName,
     this.etaMinutes,
     this.delaySeconds = 0,
@@ -33,6 +121,7 @@ class ParentLiveSnapshot {
     this.transitStatus,
     this.attendance,
     this.direction,
+    this.nextTrip,
   });
 
   bool get hasBusFix => lat != null && lng != null;
@@ -52,6 +141,11 @@ class ParentLiveSnapshot {
     final eta = body['eta'] is Map
         ? Map<String, dynamic>.from(body['eta'] as Map)
         : null;
+    final nextTripJson = body['next_trip'] is Map
+        ? Map<String, dynamic>.from(body['next_trip'] as Map)
+        : null;
+    final nextTrip =
+        nextTripJson != null ? ParentNextTrip.fromJson(nextTripJson) : null;
 
     DateTime? arrival;
     final rawArrival = eta?['predicted_arrival'];
@@ -59,18 +153,34 @@ class ParentLiveSnapshot {
       arrival = DateTime.tryParse(rawArrival.toString())?.toUtc();
     }
 
-    final direction = trip['direction']?.toString();
+    final tripActive = body['trip_active'] == true;
+    final direction =
+        trip['direction']?.toString() ?? nextTrip?.direction;
     final attendance = body['attendance']?.toString();
     final rawTransit = body['transit_status']?.toString();
 
+    final driverJson = trip['driver'] is Map
+        ? Map<String, dynamic>.from(trip['driver'] as Map)
+        : null;
+    final conductorJson = trip['conductor'] is Map
+        ? Map<String, dynamic>.from(trip['conductor'] as Map)
+        : null;
+    var driver = ParentCrewContact.fromJson(driverJson);
+    if (!driver.hasAnyDetail && trip['driver_name'] != null) {
+      driver = ParentCrewContact(name: trip['driver_name']?.toString());
+    }
+    final conductor = ParentCrewContact.fromJson(conductorJson);
+
     return ParentLiveSnapshot(
-      tripActive: body['trip_active'] == true,
+      tripActive: tripActive,
       lat: (live?['lat'] as num?)?.toDouble(),
       lng: (live?['lng'] as num?)?.toDouble(),
       speedMps: (live?['speed'] as num?)?.toDouble() ?? 0,
       isEmergency: live?['is_emergency'] == true,
       vehiclePlate: trip['vehicle_plate']?.toString(),
-      driverName: trip['driver_name']?.toString(),
+      driverName: driver.name ?? trip['driver_name']?.toString(),
+      driver: driver.hasAnyDetail ? driver : null,
+      conductor: conductor.hasAnyDetail ? conductor : null,
       nextStopName: nextStop?['name']?.toString(),
       etaMinutes: (eta?['eta_minutes'] as num?)?.toInt() ??
           etaMinutesFromArrival(arrival),
@@ -80,9 +190,11 @@ class ParentLiveSnapshot {
         rawTransit,
         attendance: attendance,
         direction: direction,
+        tripActive: tripActive,
       ),
       attendance: attendance,
       direction: direction,
+      nextTrip: nextTrip,
     );
   }
 }
@@ -221,6 +333,44 @@ String idleTripTitle() => 'No Active Trip';
 String idleTripSubtitle() =>
     'Live tracking starts when the bus is on a trip for this child.';
 
+String noTripScheduledTitle() => 'No trip scheduled today';
+
+String noTripScheduledSubtitle() =>
+    'When the school schedules a run for this child, departure time and bus details will show here.';
+
+/// Countdown to today's departure clock (HH:MM) in Africa/Nairobi.
+String countdownToDeparture(String departureHhMm, [DateTime? nowUtc]) {
+  final match = RegExp(r'^(\d{1,2}):(\d{2})').firstMatch(departureHhMm.trim());
+  if (match == null) return 'See schedule';
+  final hour = int.tryParse(match.group(1)!);
+  final minute = int.tryParse(match.group(2)!);
+  if (hour == null || minute == null) return 'See schedule';
+
+  final now = (nowUtc ?? DateTime.now()).toUtc();
+  final nairobi = now.add(const Duration(hours: 3));
+  final departNairobi = DateTime.utc(
+    nairobi.year,
+    nairobi.month,
+    nairobi.day,
+    hour,
+    minute,
+  );
+  final departUtc = departNairobi.subtract(const Duration(hours: 3));
+  final diff = departUtc.difference(now);
+  if (diff.inSeconds <= 0) return 'Departing soon';
+  final h = diff.inHours;
+  final m = diff.inMinutes.remainder(60);
+  final s = diff.inSeconds.remainder(60);
+  if (h > 0) return 'Starts in ${h}h ${m}m';
+  if (m > 0) return 'Starts in ${m}m ${s}s';
+  return 'Starts in ${s}s';
+}
+
+String formatEstTripDuration(int? minutes) {
+  if (minutes == null || minutes <= 0) return '--';
+  return '~${minutes}m';
+}
+
 /// Compact next-stop meta borrowed from the driver trip overlay: `3 min • 1.2 km`.
 String formatNextStopMeta({required int? etaMinutes, required double? distanceKm}) {
   final parts = <String>[];
@@ -251,22 +401,34 @@ String parentArrivalStatusLabel({
 
 /// Child column title for the live trip summary.
 /// Prefers trip-manifest attendance when available; never shows raw "pending".
+/// When [tripActive] is false, never returns "On the Bus".
 String parentChildStatusLabel(
   String? transitStatus, {
   String? attendance,
   String? direction,
+  bool tripActive = true,
 }) {
+  final idleByDirection =
+      direction == 'SCHOOL_TO_HOME' ? 'At school' : 'Waiting for pickup';
+
+  if (!tripActive) {
+    return idleByDirection;
+  }
+
   final att = (attendance ?? '').trim().toLowerCase();
   if (att == 'boarded') return 'On the Bus';
   if (att == 'dropped_off') return 'Dropped off';
   if (att == 'absent' || att == 'no_show') return 'Absent';
   if (att == 'pending') {
-    return direction == 'SCHOOL_TO_HOME' ? 'At school' : 'Waiting for pickup';
+    return idleByDirection;
   }
 
   final value = (transitStatus ?? '').trim();
   if (value.isEmpty || value.toLowerCase() == 'pending') {
-    return direction == 'SCHOOL_TO_HOME' ? 'At school' : 'Waiting for pickup';
+    return idleByDirection;
+  }
+  if (value.toLowerCase() == 'on the bus' || value.toLowerCase() == 'boarded') {
+    return 'On the Bus';
   }
   return value;
 }

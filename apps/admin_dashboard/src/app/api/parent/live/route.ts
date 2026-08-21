@@ -6,13 +6,22 @@ import { parentSessionFromRequest } from "@/lib/parentSession";
 import { studentLinkedToParent } from "@/lib/parentChildren";
 import {
   childStopIdForDirection,
+  estimateParentTripDurationMinutes,
   etaMinutesFromPredictedArrival,
   isInProgressTrip,
+  nairobiTripDate,
+  nairobiWeekday,
+  nestedBusNumber,
   nestedDirection,
   nestedName,
   nestedPlate,
   parentChildStatusFromSources,
+  parentCrewContactFromProfile,
   parseLiveCoordinates,
+  pickEarliestNextTrip,
+  scheduleRunsOnWeekday,
+  type ParentNextTripCandidate,
+  type ParentNextTripPayload,
 } from "@/lib/parentLive";
 
 const querySchema = z.object({
@@ -29,6 +38,104 @@ type StudentRow = {
   transit_status: string | null;
   guardians?: unknown;
 };
+
+async function resolveNextTrip(input: {
+  db: NonNullable<ReturnType<typeof getServiceSupabaseClient>>;
+  tenantId: string;
+  routeId: string;
+  now?: Date;
+}): Promise<ParentNextTripPayload | null> {
+  const { db, tenantId, routeId } = input;
+  const now = input.now ?? new Date();
+  const tripDate = nairobiTripDate(now);
+  const weekday = nairobiWeekday(now);
+  const candidates: ParentNextTripCandidate[] = [];
+
+  const { data: scheduledTrips } = await db
+    .from("trips")
+    .select(
+      "id, custom_departure_time, vehicle_id, schedule:schedules(name, departure_time, direction), vehicle:vehicles(license_plate, bus_number)"
+    )
+    .eq("route_id", routeId)
+    .eq("tenant_id", tenantId)
+    .eq("status", "scheduled")
+    .eq("trip_date", tripDate)
+    .limit(20);
+
+  for (const trip of scheduledTrips ?? []) {
+    const row = trip as Record<string, unknown>;
+    const scheduleRaw = row.schedule;
+    const schedule = Array.isArray(scheduleRaw) ? scheduleRaw[0] : scheduleRaw;
+    const scheduleRec =
+      schedule && typeof schedule === "object"
+        ? (schedule as Record<string, unknown>)
+        : null;
+    candidates.push({
+      custom_departure_time:
+        typeof row.custom_departure_time === "string" ? row.custom_departure_time : null,
+      departure_time:
+        typeof scheduleRec?.departure_time === "string" ? scheduleRec.departure_time : null,
+      direction: nestedDirection(schedule),
+      schedule_name: nestedName(schedule),
+      vehicle_plate: nestedPlate(row.vehicle),
+      bus_number: nestedBusNumber(row.vehicle),
+    });
+  }
+
+  if (candidates.length === 0) {
+    const { data: schedules } = await db
+      .from("schedules")
+      .select("id, name, departure_time, direction, days_of_week")
+      .eq("route_id", routeId)
+      .eq("tenant_id", tenantId)
+      .limit(20);
+
+    const { data: routeRow } = await db
+      .from("routes")
+      .select("vehicle_id, vehicle:vehicles(license_plate, bus_number)")
+      .eq("id", routeId)
+      .eq("tenant_id", tenantId)
+      .maybeSingle();
+
+    const routeVehicle = (routeRow as Record<string, unknown> | null)?.vehicle;
+
+    for (const sch of schedules ?? []) {
+      const s = sch as Record<string, unknown>;
+      if (!scheduleRunsOnWeekday(s.days_of_week, weekday)) continue;
+      candidates.push({
+        departure_time: typeof s.departure_time === "string" ? s.departure_time : null,
+        direction: typeof s.direction === "string" ? s.direction : null,
+        schedule_name: typeof s.name === "string" ? s.name : null,
+        vehicle_plate: nestedPlate(routeVehicle),
+        bus_number: nestedBusNumber(routeVehicle),
+      });
+    }
+  }
+
+  const picked = pickEarliestNextTrip(candidates);
+  if (!picked) return null;
+
+  if (picked.estimated_duration_minutes == null) {
+    const [{ count: stopCount }, { count: studentCount }] = await Promise.all([
+      db
+        .from("stops")
+        .select("id", { count: "exact", head: true })
+        .eq("route_id", routeId)
+        .eq("tenant_id", tenantId),
+      db
+        .from("students")
+        .select("id", { count: "exact", head: true })
+        .eq("route_id", routeId)
+        .eq("tenant_id", tenantId),
+    ]);
+    picked.estimated_duration_minutes = estimateParentTripDurationMinutes({
+      stopCount: stopCount ?? 0,
+      studentCount: studentCount ?? 0,
+    });
+  }
+
+  return picked;
+}
 
 export async function GET(request: Request) {
   try {
@@ -59,6 +166,8 @@ export async function GET(request: Request) {
         live: null,
         next_stop: null,
         eta: null,
+        next_trip: null,
+        transit_status: "Waiting for pickup",
       });
     }
 
@@ -110,14 +219,18 @@ export async function GET(request: Request) {
         live: null,
         next_stop: null,
         eta: null,
-        transit_status: row.transit_status,
+        next_trip: null,
+        transit_status: parentChildStatusFromSources({
+          transitStatus: row.transit_status,
+          tripActive: false,
+        }),
       });
     }
 
     const { data: tripRows } = await db
       .from("trips")
       .select(
-        "id, status, route_id, vehicle_id, driver_id, schedule:schedules(direction), vehicle:vehicles(license_plate), driver:profiles!trips_driver_id_fkey(name)"
+        "id, status, route_id, vehicle_id, driver_id, conductor_1_id, schedule:schedules(direction), vehicle:vehicles(license_plate), driver:profiles!trips_driver_id_fkey(name, phone, avatar_url), conductor:profiles!trips_conductor_1_id_fkey(name, phone, avatar_url)"
       )
       .eq("route_id", row.route_id)
       .eq("tenant_id", parent.tenant_id)
@@ -145,10 +258,22 @@ export async function GET(request: Request) {
       }
     }
 
+    let nextTrip: ParentNextTripPayload | null = null;
+    let statusDirection = direction;
+    if (!tripActive) {
+      nextTrip = await resolveNextTrip({
+        db,
+        tenantId: parent.tenant_id,
+        routeId: row.route_id,
+      });
+      statusDirection = nextTrip?.direction ?? direction;
+    }
+
     const childStatus = parentChildStatusFromSources({
       attendance,
       transitStatus: row.transit_status,
-      direction,
+      direction: statusDirection,
+      tripActive,
     });
 
     const { data: liveRows } = await db
@@ -218,6 +343,8 @@ export async function GET(request: Request) {
             direction,
             vehicle_plate: nestedPlate(trip?.vehicle),
             driver_name: nestedName(trip?.driver),
+            driver: parentCrewContactFromProfile(trip?.driver),
+            conductor: parentCrewContactFromProfile(trip?.conductor),
           }
         : null,
       live:
@@ -232,10 +359,11 @@ export async function GET(request: Request) {
               updated_at: liveRow?.created_at ?? null,
             }
           : null,
-      next_stop: nextStop,
+      next_stop: tripActive ? nextStop : null,
       eta,
+      next_trip: tripActive ? null : nextTrip,
       transit_status: childStatus,
-      attendance,
+      attendance: tripActive ? attendance : null,
     });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal Server Error";

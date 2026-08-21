@@ -114,16 +114,14 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Read Africa's Talking credentials
-    const atUsername = Deno.env.get("AFRICASTALKING_USERNAME") || "sandbox";
+    const atUsername = (Deno.env.get("AFRICASTALKING_USERNAME") || "sandbox").trim();
     const atApiKey = Deno.env.get("AFRICASTALKING_API_KEY");
-    const atSenderId = Deno.env.get("AFRICASTALKING_SENDER_ID"); // Optional custom sender ID
+    const atSenderId = Deno.env.get("AFRICASTALKING_SENDER_ID");
 
     if (!atApiKey) {
       throw new Error("Missing AFRICASTALKING_API_KEY environment variable");
     }
 
-    // Clean phone number: Africa's Talking requires international format (e.g., +2547XXXXXXXX)
     let cleanPhone = parentPhone.trim();
     if (cleanPhone.startsWith("0")) {
       cleanPhone = `+254${cleanPhone.slice(1)}`;
@@ -136,11 +134,15 @@ Deno.serve(async (req) => {
     params.append("username", atUsername);
     params.append("to", cleanPhone);
     params.append("message", message);
-    if (atSenderId) {
-      params.append("from", atSenderId);
+    if (atSenderId && atSenderId.trim()) {
+      params.append("from", atSenderId.trim());
     }
 
-    const response = await fetch("https://api.africastalking.com/version1/messaging", {
+    const atUrl = atUsername === "sandbox"
+      ? "https://api.sandbox.africastalking.com/version1/messaging"
+      : "https://api.africastalking.com/version1/messaging";
+
+    const response = await fetch(atUrl, {
       method: "POST",
       headers: {
         "apiKey": atApiKey,
@@ -150,9 +152,22 @@ Deno.serve(async (req) => {
       body: params.toString(),
     });
 
-    const atResult = await response.json();
+    const atResult: unknown = await response.json();
     if (!response.ok) {
-      throw new Error(`Africa's Talking API error: ${JSON.stringify(atResult)}`);
+      throw new Error(`Africa's Talking API error: HTTP ${response.status}`);
+    }
+    const recipient = (
+      atResult as {
+        SMSMessageData?: { Recipients?: Array<{ status?: string; statusCode?: number }> };
+      }
+    ).SMSMessageData?.Recipients?.[0];
+    const accepted =
+      recipient?.status === "Success" ||
+      (typeof recipient?.statusCode === "number" &&
+        recipient.statusCode >= 100 &&
+        recipient.statusCode < 200);
+    if (!accepted) {
+      throw new Error("Africa's Talking did not accept the message");
     }
 
     // Mark enqueued alert record as processed in the database
@@ -165,10 +180,9 @@ Deno.serve(async (req) => {
       console.error(`Failed to update alerts_queue row ${id}:`, updateError.message);
     }
 
-    return new Response(JSON.stringify({ 
-      success: true, 
-      message: "SMS dispatched successfully", 
-      result: atResult 
+    return new Response(JSON.stringify({
+      success: true,
+      message: "SMS dispatched successfully",
     }), {
       headers: { "Content-Type": "application/json" },
     });

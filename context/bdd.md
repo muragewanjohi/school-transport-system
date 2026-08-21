@@ -4,50 +4,54 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Parent trip-start notifications & inbox clear |
-| **Stack** | Postgres + Next.js + Flutter |
-| **Owner path(s)** | `supabase/migrations/20260821120000_fix_parent_trip_start_and_push_webhook.sql`, `supabase/functions/send-push/index.ts`, `apps/admin_dashboard/src/app/api/parent/notifications/route.ts`, `apps/parent_app/lib/services/parent_notifications_service.dart`, `apps/parent_app/lib/screens/notifications_screen.dart` |
+| **Name** | Live Africa's Talking OTP SMS |
+| **Stack** | Next.js + Deno Edge Function |
+| **Owner path(s)** | `apps/admin_dashboard/src/lib/africasTalkingSms.ts`, `apps/admin_dashboard/src/app/api/auth/driver-request-otp/route.ts`, `apps/admin_dashboard/src/app/api/auth/parent-request-otp/route.ts`, `supabase/functions/send-sms/index.ts` |
 | **Started** | 2026-08-21 |
 | **Status** | `passing` |
 
 ## Goal
 
-Parents get an in-app/push alert as soon as a trip becomes `in_progress` (when school config allows). Lock-screen push fires without the app being open. Clear All removes inbox rows instead of only marking them read.
+Production login OTPs for paid and demo tenants are delivered through the Africa's Talking **live** API. Sandbox host/username is not used in production. Operational trip SMS stays dry-run on demo tenants. Play Review keeps OTP `123456` with no SMS.
 
 ## Scenarios
 
 ```gherkin
-Feature: Parent trip-start and inbox clear
+Feature: Live Africa's Talking OTP SMS
 
-  Scenario: Trip start inserts parent notifications immediately
-    Given a scheduled trip for a route with parents
-    And tenant_configs.notify_on_trip_start is true
-    When the trip status changes to in_progress
-    Then each parent receives a notifications row with notification_type trip_start
+  Scenario: Production live credentials send OTP SMS without echoing the code
+    Given AFRICASTALKING_USERNAME is the live app username
+    And NODE_ENV is production and OTP_SMS_DRY_RUN is not true
+    And the phone belongs to a registered parent or driver on a non-play-review tenant
+    When they request an OTP
+    Then the live AT messaging host is called
+    And the response does not include sandbox_otp
 
-  Scenario: Push webhook uses pg_net http_post
-    Given a notifications row is inserted
-    When trigger_push_webhook runs
-    Then it calls net.http_post (not extensions.net_http_post)
+  Scenario: Sandbox username or non-production env dry-runs
+    Given AFRICASTALKING_USERNAME is sandbox, or NODE_ENV is not production, or OTP_SMS_DRY_RUN is true
+    When they request an OTP
+    Then Africa's Talking is not called
+    And sandbox_otp is returned so local apps can still log in
 
-  Scenario: Clear All deletes inbox rows
-    Given a parent has unread notifications
-    When the parent confirms Clear All
-    Then DELETE /api/parent/notifications removes their rows
-    And the inbox UI shows the empty state
+  Scenario: Play Review never sends SMS
+    Given the profile tenant domain is play-review
+    When they request an OTP
+    Then Africa's Talking is not called
+    And the client is told to use 123456
 
-  Scenario: Clear All failure keeps the list
-    Given the clear API returns an error
-    When the parent confirms Clear All
-    Then the list is unchanged and an error snackbar is shown
+  Scenario: Demo login OTP is live; operational SMS stays dry-run
+    Given a tenant with is_demo true
+    When they request a login OTP in production with live AT credentials
+    Then the OTP SMS is dispatched
+    When send-sms handles an alerts_queue row for that tenant
+    Then it marks processed without calling Africa's Talking
 ```
 
 ## Automation map
 
 | Scenario | Test path | Status |
 | :--- | :--- | :--- |
-| Clear All deletes inbox rows | `apps/parent_app/test/notifications_screen_test.dart` | passing |
-| Clear All failure keeps the list | `apps/parent_app/test/notifications_screen_test.dart` | passing |
-| DELETE /api/parent/notifications scoped | `apps/admin_dashboard/src/app/api/parent/notifications/route.test.ts` | passing |
-| Push webhook uses pg_net http_post | live DB verify (`net.http_post` + smoke insert → 200) | passing |
-| Trip start inserts parent notifications | live DB function def contains `trip_start` | passing |
+| Live host + no sandbox_otp | `apps/admin_dashboard/src/lib/africasTalkingSms.test.ts`, `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
+| Dry-run returns sandbox_otp | `apps/admin_dashboard/src/lib/africasTalkingSms.test.ts`, `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
+| Play Review skip SMS | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
+| Demo OTP live vs ops dry-run | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` (OTP); send-sms demo branch unchanged | passing |

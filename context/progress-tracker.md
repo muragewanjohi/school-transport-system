@@ -78,6 +78,8 @@ Before moving an item to **Completed**, confirm:
 
 ## Completed
 
+- **Live Africa's Talking OTP SMS (2026-08-21):** Parent and driver login OTPs share `issuePhoneOtp` + `africasTalkingSms`. Production with a live AT username sends to `api.africastalking.com` and does not return `sandbox_otp`. Demo tenants still get login OTP SMS; operational `send-sms` stays dry-run. Play Review keeps `123456`. `send-sms` picks sandbox vs live host from username. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/africasTalkingSms.test.ts`, `src/lib/issuePhoneOtp.test.ts`, `src/app/api/auth/parent-request-otp/route.test.ts`.
+
 - **Parent notifications (trip start / background push / Clear All):** Trip start now inserts immediate `trip_start` rows when `notify_on_trip_start` is on (no longer waits for campus-exit GPS). Push webhook fixed (`net.http_post` instead of broken `extensions.net_http_post`). Clear All hard-deletes via `DELETE /api/parent/notifications`. BDD in [bdd.md](bdd.md) Status `passing` — `notifications_screen_test.dart`, `route.test.ts`. **Ops:** set `FIREBASE_SERVICE_ACCOUNT` on the `send-push` Edge Function secrets for lock-screen delivery (webhook now reaches the function; smoke test returned 200 with “FIREBASE_SERVICE_ACCOUNT is not configured”).
 - Parent Map live trip detection: production `/api/parent/live` was 404 — Flutter now falls back to Supabase Auth (trips + live_coordinates); EWKB GPS parse + parent trips RLS. BDD in [bdd.md](bdd.md) Status `passing`.
 - Parent Map is live-trip only (driver-style status / next stop / arrival); home updates stay on Profile → Home Location. BDD in [bdd.md](bdd.md) Status `passing` — `apps/parent_app/test/parent_map_logic_test.dart`.

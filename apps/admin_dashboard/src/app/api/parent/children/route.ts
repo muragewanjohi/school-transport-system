@@ -5,7 +5,7 @@ import { parentSessionFromRequest } from "@/lib/parentSession";
 import { mergeParentChildRows } from "@/lib/parentChildren";
 
 const STUDENT_SELECT =
-  "id, name, grade, class_name, address, route_id, status, guardians, avatar_url, transit_status, parent_id, tenant_id, pickup_stop_id, dropoff_stop_id, tenant:tenants(id, name), pickup_stop:stops!students_pickup_stop_id_fkey(id, name, location), dropoff_stop:stops!students_dropoff_stop_id_fkey(id, name, location), route:routes(id, name)";
+  "id, name, grade, class_name, address, route_id, status, guardians, avatar_url, transit_status, parent_id, tenant_id, pickup_stop_id, dropoff_stop_id, tenant:tenants(id, name), pickup_stop:stops!students_pickup_stop_id_fkey(id, name, location), dropoff_stop:stops!students_dropoff_stop_id_fkey(id, name, location), route:routes(id, name, schedules(id, name, departure_time, direction, days_of_week))";
 
 type StudentRow = {
   id: string;

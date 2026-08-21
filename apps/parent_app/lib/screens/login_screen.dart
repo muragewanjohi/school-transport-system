@@ -216,6 +216,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (refresh == null || refresh.isEmpty) return;
     try {
       if (Supabase.instance.isInitialized) {
+        // Exchanges refresh for a live session (uid required for avatar storage RLS).
         await Supabase.instance.client.auth.setSession(refresh);
       }
     } catch (_) {

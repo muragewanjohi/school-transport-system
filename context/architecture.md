@@ -8,7 +8,7 @@
 | **Web & API Host** | Next.js + TypeScript | High-concurrency serverless web environment hosted on Vercel, managing administrative pages and API routes. |
 | **Database Engine** | PostgreSQL + PostGIS | Multi-tenant persistent relational data storage hosted on Supabase. Enforces strict access boundaries via Postgres Row Level Security (RLS) and handles spatial geofencing via PostGIS. |
 | **Real-Time Pipeline** | Supabase Realtime | Establishes low-latency, WebSocket-based real-time channels to broadcast GPS telemetry vectors directly from driver devices to parent map views. |
-| **Comms Gateway** | Africa's Talking REST API | Handles programmatic distribution of transactional Safaricom and Airtel SMS notifications via Supabase Edge Functions. |
+| **Comms Gateway** | Africa's Talking REST API (live) | Transactional Safaricom/Airtel SMS. Login OTPs go out from Next.js; operational alerts go out from the `send-sms` Edge Function. Production uses the live AT app (username ≠ `sandbox`, host `api.africastalking.com`). |
 
 ## System Boundaries
 
@@ -17,6 +17,22 @@
 - `apps/admin_dashboard` — Next.js administrative web console hosted on Vercel. Manages user provisioning, route layouts, NFC card bindings, and exposes secure API Route Handlers.
 - `supabase/migrations/` — Relational database tables, spatial indexes, schema migrations, and SQL Row Level Security (RLS) policies defining data isolation rules.
 - `supabase/functions/` — Deno Edge Functions hosted on Supabase (e.g., Africa's Talking SMS dispatcher trigger).
+
+## Africa's Talking SMS (live vs sandbox)
+
+Production **must not** use the AT sandbox app. Username `sandbox` and host `api.sandbox.africastalking.com` are local/Preview only.
+
+| Channel | Path | Live when |
+| :--- | :--- | :--- |
+| Driver / conductor login OTP | `POST /api/auth/driver-request-otp` | Production + live username + `OTP_SMS_DRY_RUN` not `true` |
+| Parent login OTP | `POST /api/auth/parent-request-otp` | Same |
+| Operational alerts (proximity, delay, boarding, trip start, absent) | Edge Function `send-sms` on `alerts_queue` | Tenant is **not** `is_demo` **and** `sms_notifications_enabled` |
+
+**Kill-switches / dry-run:** `AFRICASTALKING_USERNAME=sandbox`, `OTP_SMS_DRY_RUN=true`, `NODE_ENV` not production, or Vercel Preview/Development. `OTP_SMS_DRY_RUN=false` forces a live send when the username is not `sandbox` (local smoke only). Dry-run responses may include `sandbox_otp` for Flutter; production live sends never echo the code.
+
+**Demo vs Play Review:** Demo tenants receive **login OTP SMS** through the live gateway so the request phone can sign in. Operational trip/proximity SMS on demo remains dry-run inside `send-sms`. Play Review (`domain = play-review`) keeps OTP `123456` and never sends SMS.
+
+**Secrets:** Same live trio on Vercel (`AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`, optional `AFRICASTALKING_SENDER_ID`) and as Supabase Edge Function secrets. Mix-and-match sandbox key + live username fails auth. Omit `from` until the Sender ID is operator-approved.
 
 ## Storage Model
 
@@ -164,7 +180,7 @@ Do **not** store the sole campus coordinates only on `tenants`. Create `campuses
 
 Parent OTP login (`POST /api/auth/parent-login`) returns:
 
-1. **HMAC API token** `par.<payload>.<sig>` (`PARENT_SESSION_SECRET`) for Next.js routes such as `GET /api/parent/children`, `GET /api/parent/live`, `GET /api/parent/etas`, `GET`/`PATCH`/`DELETE /api/parent/notifications`, and `POST`/`DELETE /api/parent/fcm-tokens`. `GET /api/parent/children` is the parent app’s primary child roster (service role, scoped to `parent_id = parent.sub` and tenant, plus guardian-phone matches when `parent_id` is still null). Direct Supabase `SELECT` on `students` is a fallback only — parent RLS is `parent_id = auth.uid()`, so a missing Flutter Auth session must not wipe the roster. `GET /api/parent/live` returns in-progress trip + bus GPS for a child; if that route is unavailable the Flutter map falls back to Supabase Auth (`trips` + `live_coordinates` for the child’s route).
+1. **HMAC API token** `par.<payload>.<sig>` (`PARENT_SESSION_SECRET`) for Next.js routes such as `GET /api/parent/children`, `GET /api/parent/live`, `GET /api/parent/etas`, `GET`/`PATCH`/`DELETE /api/parent/notifications`, and `POST`/`DELETE /api/parent/fcm-tokens`. `GET /api/parent/children` is the parent app’s primary child roster (service role, scoped to `parent_id = parent.sub` and tenant, plus guardian-phone matches when `parent_id` is still null). Direct Supabase `SELECT` on `students` is a fallback only — parent RLS is `parent_id = auth.uid()`, so a missing Flutter Auth session must not wipe the roster. `GET /api/parent/live` returns in-progress trip + bus GPS for a child; when active, `trip` includes `driver` and optional `conductor` contact objects (`name`, `phone`, `avatar_url`) from trip crew profiles. When idle (`trip_active: false`) it also returns `next_trip` (today’s next scheduled departure, vehicle, est. duration) or null. Parent-facing `transit_status` is never “On the Bus” unless the trip is in progress and the child is boarded. If that route is unavailable the Flutter map falls back to Supabase Auth (`trips` + `live_coordinates` for the child’s route).
 2. **Supabase Auth session** (`supabase_access_token` / `supabase_refresh_token`) from `ensureParentAuthSession`: creates/updates `auth.users` with **`id = profiles.id`**, synthetic email `parent+{id}@users.onthebusapp.internal`, and `app_metadata` + `user_metadata` `{ role: parent, tenant_id }`. Flutter calls `auth.setSession(refresh_token)` so Realtime RLS sees `auth.uid()` and `jwt_role() = parent`.
 
 Live notifications:
@@ -178,9 +194,11 @@ Live notifications:
 
 Live ETA:
 
-- Primary resilient path: poll `GET /api/parent/etas?student_id=` with Bearer `par.*` (service role, ownership-checked).
-- When a Supabase Auth session is present, the map also streams `trip_stop_etas` / `live_coordinates` under parent RLS.
+- Primary resilient path: poll `GET /api/parent/etas?student_id=` with Bearer `par.*` (service role, ownership-checked) while a trip is in progress.
+- When a Supabase Auth session is present and `trip_active`, the map also streams `trip_stop_etas` / `live_coordinates` under parent RLS. When idle, Map shows a schedule card (no Google Map) using `next_trip` from `/api/parent/live`.
 - Parents may `SELECT` stops on their children's routes (`Parents can read stops on child's route`).
+- Parents may `SELECT` schedules on their children's routes (`Parents can read schedules on child's route`) for Profile pickup/drop-off trip details.
+- Parent avatar uploads use the `avatars` bucket with object paths `{auth.uid()}/…` (storage RLS). Student and primary-parent photos update `students.avatar_url` / `profiles.avatar_url`. Secondary guardian photos update `avatar_url` inside that child's `students.guardians` JSONB (there is no `guardians` table).
 - JWT helpers prefer `app_metadata` then `user_metadata` for `role` / `tenant_id`.
 
 ## Delay Detection & Live ETA

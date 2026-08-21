@@ -177,6 +177,8 @@ Deno.serve(async (req) => {
             priority: "HIGH",
             notification: {
               channel_id: "parent_trip_alerts",
+              icon: "ic_stat_onthebus",
+              color: "#10B981",
               sound: "default",
               default_vibrate_timings: true,
             },
