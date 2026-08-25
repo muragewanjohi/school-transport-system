@@ -23,6 +23,8 @@ workflows:
     integrations:
       app_store_connect: STOREFLOW MICROSYSTEMS LIMITED
     environment:
+      groups:
+        - Maps
       flutter: stable
       xcode: latest
       cocoapods: default

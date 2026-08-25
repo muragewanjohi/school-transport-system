@@ -45,6 +45,12 @@ Feature: Live Africa's Talking OTP SMS
     Then the OTP SMS is dispatched
     When send-sms handles an alerts_queue row for that tenant
     Then it marks processed without calling Africa's Talking
+
+  Scenario: Unapproved Sender ID retries without from
+    Given AFRICASTALKING_SENDER_ID is set but not operator-approved
+    When an OTP SMS is sent
+    Then Africa's Talking InvalidSenderId is retried without the from field
+
 ```
 
 ## Automation map
@@ -55,3 +61,4 @@ Feature: Live Africa's Talking OTP SMS
 | Dry-run returns sandbox_otp | `apps/admin_dashboard/src/lib/africasTalkingSms.test.ts`, `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
 | Play Review skip SMS | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
 | Demo OTP live vs ops dry-run | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` (OTP); send-sms demo branch unchanged | passing |
+| Unapproved Sender ID retry | `apps/admin_dashboard/src/lib/africasTalkingSms.test.ts` | passing |

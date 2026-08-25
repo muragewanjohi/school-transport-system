@@ -32,7 +32,7 @@ Production **must not** use the AT sandbox app. Username `sandbox` and host `api
 
 **Demo vs Play Review:** Demo tenants receive **login OTP SMS** through the live gateway so the request phone can sign in. Operational trip/proximity SMS on demo remains dry-run inside `send-sms`. Play Review (`domain = play-review`) keeps OTP `123456` and never sends SMS.
 
-**Secrets:** Same live trio on Vercel (`AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`, optional `AFRICASTALKING_SENDER_ID`) and as Supabase Edge Function secrets. Mix-and-match sandbox key + live username fails auth. Omit `from` until the Sender ID is operator-approved.
+**Secrets:** Same live trio on Vercel (`AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`, optional `AFRICASTALKING_SENDER_ID`) and as Supabase Edge Function secrets. Mix-and-match sandbox key + live username fails auth. Leave `AFRICASTALKING_SENDER_ID` unset until the alphanumeric ID is operator-approved; unapproved `from` returns `InvalidSenderId` (empty Recipients). The dispatcher retries once without `from`.
 
 ## Storage Model
 

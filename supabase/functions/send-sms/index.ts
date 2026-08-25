@@ -130,44 +130,78 @@ Deno.serve(async (req) => {
       cleanPhone = `+${cleanPhone}`;
     }
 
-    const params = new URLSearchParams();
-    params.append("username", atUsername);
-    params.append("to", cleanPhone);
-    params.append("message", message);
-    if (atSenderId && atSenderId.trim()) {
-      params.append("from", atSenderId.trim());
-    }
-
     const atUrl = atUsername === "sandbox"
       ? "https://api.sandbox.africastalking.com/version1/messaging"
       : "https://api.africastalking.com/version1/messaging";
 
-    const response = await fetch(atUrl, {
-      method: "POST",
-      headers: {
-        "apiKey": atApiKey,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "Accept": "application/json",
-      },
-      body: params.toString(),
-    });
+    const postSms = async (from: string | undefined) => {
+      const params = new URLSearchParams();
+      params.append("username", atUsername);
+      params.append("to", cleanPhone);
+      params.append("message", message);
+      if (from) params.append("from", from);
+      const response = await fetch(atUrl, {
+        method: "POST",
+        headers: {
+          "apiKey": atApiKey,
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json",
+        },
+        body: params.toString(),
+      });
+      const atResult: unknown = await response.json();
+      return { response, atResult };
+    };
 
-    const atResult: unknown = await response.json();
+    const sender = atSenderId?.trim() || undefined;
+    let { response, atResult } = await postSms(sender);
+
+    const recipientsOf = (payload: unknown) => {
+      const rec = (
+        payload as {
+          SMSMessageData?: {
+            Message?: string;
+            Recipients?: Array<{ status?: string; statusCode?: number }> | { status?: string; statusCode?: number };
+          };
+        }
+      ).SMSMessageData?.Recipients;
+      if (!rec) return [];
+      return Array.isArray(rec) ? rec : [rec];
+    };
+    const accepted = (payload: unknown) => {
+      const recipient = recipientsOf(payload)[0];
+      if (!recipient) return false;
+      const status = recipient.status?.trim().toLowerCase();
+      if (status && ["success", "sent", "processed", "queued"].includes(status)) {
+        return true;
+      }
+      return (
+        typeof recipient.statusCode === "number" &&
+        recipient.statusCode >= 100 &&
+        recipient.statusCode < 200
+      );
+    };
+    const rejectionReason = (payload: unknown) => {
+      const recipient = recipientsOf(payload)[0];
+      if (recipient?.status?.trim()) return recipient.status.trim();
+      const msg = (payload as { SMSMessageData?: { Message?: string } }).SMSMessageData?.Message?.trim();
+      if (msg) {
+        const token = msg.split(/[:.]/)[0]?.trim();
+        if (token && !token.toLowerCase().startsWith("sent to")) return token;
+        return msg.slice(0, 80);
+      }
+      return "unknown rejection";
+    };
+
+    if (response.ok && sender && !accepted(atResult) && /invalidsenderid/i.test(rejectionReason(atResult))) {
+      ({ response, atResult } = await postSms(undefined));
+    }
+
     if (!response.ok) {
       throw new Error(`Africa's Talking API error: HTTP ${response.status}`);
     }
-    const recipient = (
-      atResult as {
-        SMSMessageData?: { Recipients?: Array<{ status?: string; statusCode?: number }> };
-      }
-    ).SMSMessageData?.Recipients?.[0];
-    const accepted =
-      recipient?.status === "Success" ||
-      (typeof recipient?.statusCode === "number" &&
-        recipient.statusCode >= 100 &&
-        recipient.statusCode < 200);
-    if (!accepted) {
-      throw new Error("Africa's Talking did not accept the message");
+    if (!accepted(atResult)) {
+      throw new Error(`Africa's Talking rejected the message (${rejectionReason(atResult)})`);
     }
 
     // Mark enqueued alert record as processed in the database
