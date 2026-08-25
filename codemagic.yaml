@@ -3,7 +3,8 @@
 # Codemagic UI (once):
 # 1. Add this GitHub repo as a Flutter app; enable this yaml.
 # 2. Team integrations → Apple Developer Portal (for automatic signing).
-# 3. Team integrations → App Store Connect API key named "onthebus"
+# 3. Team integrations → App Store Connect API key named
+#    "STOREFLOW MICROSYSTEMS LIMITED"
 #    (Issuer ID + Key ID + .p8 from App Store Connect → Users and Access → Integrations).
 # 4. Environment variable group or workflow secret: MAPS_API_KEY
 #    (Maps SDK for iOS, restricted to bundle id com.schooltrack.parentApp).
@@ -20,7 +21,7 @@ workflows:
     max_build_duration: 60
     working_directory: apps/parent_app
     integrations:
-      app_store_connect: onthebus
+      app_store_connect: STOREFLOW MICROSYSTEMS LIMITED
     environment:
       flutter: stable
       xcode: latest
