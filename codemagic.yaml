@@ -48,7 +48,8 @@ workflows:
       - name: Install CocoaPods
         script: |
           cd ios
-          pod install
+          rm -f Podfile.lock
+          pod install --repo-update
       - name: Build signed IPA
         script: |
           set -euo pipefail
