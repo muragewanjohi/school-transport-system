@@ -50,10 +50,20 @@ workflows:
           cd ios
           rm -f Podfile.lock
           pod install --repo-update
+      - name: Set up code signing settings on Xcode project
+        script: |
+          set -euo pipefail
+          # Writes $HOME/export_options.plist used by flutter build ipa
+          xcode-project use-profiles --project ios/Runner.xcodeproj
       - name: Build signed IPA
         script: |
           set -euo pipefail
-          BUILD_ARGS=(--release --export-options-plist=/Users/builder/export_options.plist)
+          EXPORT_PLIST="${HOME}/export_options.plist"
+          if [ ! -f "$EXPORT_PLIST" ]; then
+            echo "Missing $EXPORT_PLIST — xcode-project use-profiles did not run successfully."
+            exit 1
+          fi
+          BUILD_ARGS=(--release --export-options-plist="$EXPORT_PLIST")
           if [ -n "${APP_STORE_APPLE_ID:-}" ]; then
             LATEST="$(app-store-connect get-latest-testflight-build-number "$APP_STORE_APPLE_ID" --platform IOS || true)"
             if [ -n "${LATEST}" ] && [ "${LATEST}" != "None" ]; then
