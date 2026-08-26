@@ -61,7 +61,7 @@ export default function RegisterStudentPage() {
     longitude: 36.8335,
   });
   const [formGuardians, setFormGuardians] = useState<GuardianEntry[]>([
-    { name: "", phone: "" }
+    { name: "", phone: "", email: "" }
   ]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [stopMode, setStopMode] = useState<StudentStopMode>("same");
@@ -168,7 +168,9 @@ export default function RegisterStudentPage() {
       dropoff_stop_id: formValues.dropoff_stop_id || null,
       schedule_ids: formValues.schedule_ids,
       status: formValues.status,
-      guardians: formGuardians.filter(g => g.name.trim() && g.phone.trim()),
+      guardians: formGuardians.filter(
+        (g) => g.name.trim() && g.phone.trim() && g.email.trim()
+      ),
       grade: formValues.grade || null,
       class_name: formValues.class_name || null,
       address: formValues.address || null,

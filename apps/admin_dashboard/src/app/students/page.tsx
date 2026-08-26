@@ -62,6 +62,7 @@ interface DBSchedule {
 interface Guardian {
   name: string;
   phone: string;
+  email: string;
 }
 
 interface DBStudent {
@@ -114,7 +115,7 @@ export default function StudentsManagement() {
     class_name: "",
   });
   const [formGuardians, setFormGuardians] = useState<Guardian[]>([
-    { name: "", phone: "" }
+    { name: "", phone: "", email: "" }
   ]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
 
@@ -258,6 +259,12 @@ export default function StudentsManagement() {
       } else if (localPart.length < 7 || localPart.length > 11) {
         guardianErrors.push(`Guardian ${idx + 1} phone number is invalid (must be 7-11 digits)`);
       }
+      const emailTrimmed = g.email.trim();
+      if (!emailTrimmed) {
+        guardianErrors.push(`Guardian ${idx + 1} email is required`);
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
+        guardianErrors.push(`Guardian ${idx + 1} email is invalid`);
+      }
     });
 
     if (guardianErrors.length > 0) {
@@ -281,7 +288,9 @@ export default function StudentsManagement() {
       dropoff_stop_id: formValues.dropoff_stop_id || null,
       schedule_ids: formValues.schedule_ids,
       status: formValues.status,
-      guardians: formGuardians.filter(g => g.name.trim() && g.phone.trim()),
+      guardians: formGuardians.filter(
+        (g) => g.name.trim() && g.phone.trim() && g.email.trim()
+      ),
       grade: formValues.grade || null,
       class_name: formValues.class_name || null
     };
@@ -522,23 +531,34 @@ export default function StudentsManagement() {
           s.name.toLowerCase().includes(row.dropoffStopText.toLowerCase())
         ) || stops.find(s => s.route_id === route.id) || stops[1] || null;
 
-        // Parse guardians (Format: Name1:Phone1|Name2:Phone2)
+        // Parse guardians (Format: Name1:Phone1:Email1|Name2:Phone2:Email2)
         const parsedGuardians: Guardian[] = [];
         if (row.guardiansText) {
           const parts = row.guardiansText.split("|");
           for (const part of parts) {
             const splitInfo = part.split(":");
-            if (splitInfo.length >= 2) {
+            if (splitInfo.length >= 3) {
               parsedGuardians.push({
                 name: splitInfo[0].trim(),
-                phone: splitInfo[1].trim()
+                phone: splitInfo[1].trim(),
+                email: splitInfo.slice(2).join(":").trim(),
+              });
+            } else if (splitInfo.length >= 2) {
+              parsedGuardians.push({
+                name: splitInfo[0].trim(),
+                phone: splitInfo[1].trim(),
+                email: "",
               });
             }
           }
         }
 
         if (parsedGuardians.length === 0) {
-          parsedGuardians.push({ name: "Unspecified Guardian", phone: "+254 700 000 000" });
+          parsedGuardians.push({
+            name: "Unspecified Guardian",
+            phone: "+254 700 000 000",
+            email: "unspecified@example.com",
+          });
         }
 
         const payload = {
@@ -917,7 +937,7 @@ export default function StudentsManagement() {
                 <span className="col-tag required" title="Required Route name matching">route_name *</span>
                 <span className="col-tag required" title="Required Pickup stop name">pickup_stop *</span>
                 <span className="col-tag required" title="Required Drop-off stop name">dropoff_stop *</span>
-                <span className="col-tag required" title="Format: Name:Phone|Name2:Phone2 (Max 3)">guardians *</span>
+                <span className="col-tag required" title="Format: Name:Phone:Email|Name2:Phone2:Email2 (Max 3)">guardians *</span>
                 <span className="col-tag" title="Optional hash string">nfc_card_hash</span>
                 <span className="col-tag" title="Optional Student Grade">grade</span>
                 <span className="col-tag" title="Optional Student Class Name">class_name</span>

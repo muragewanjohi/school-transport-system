@@ -4,61 +4,78 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Live Africa's Talking OTP SMS |
-| **Stack** | Next.js + Deno Edge Function |
-| **Owner path(s)** | `apps/admin_dashboard/src/lib/africasTalkingSms.ts`, `apps/admin_dashboard/src/app/api/auth/driver-request-otp/route.ts`, `apps/admin_dashboard/src/app/api/auth/parent-request-otp/route.ts`, `supabase/functions/send-sms/index.ts` |
-| **Started** | 2026-08-21 |
+| **Name** | Email OTP fallback for login |
+| **Stack** | Next.js + Flutter |
+| **Owner path(s)** | `apps/admin_dashboard/src/lib/issuePhoneOtp.ts`, `apps/admin_dashboard/src/lib/resendEmail.ts`, `apps/admin_dashboard/src/lib/ensureParentProfiles.ts`, `apps/admin_dashboard/src/app/api/auth/parent-request-otp/route.ts`, `apps/admin_dashboard/src/app/api/auth/driver-request-otp/route.ts`, parent/driver login screens |
+| **Started** | 2026-08-26 |
 | **Status** | `passing` |
 
 ## Goal
 
-Production login OTPs for paid and demo tenants are delivered through the Africa's Talking **live** API. Sandbox host/username is not used in production. Operational trip SMS stays dry-run on demo tenants. Play Review keeps OTP `123456` with no SMS.
+When Africa's Talking rejects a login OTP SMS (e.g. `UserInBlacklist`), the same OTP is delivered by Resend email if the profile has a real email. Phone remains the account key. Guardians must supply email so parent profiles can be upserted on student save. Explicit `channel: "email"` resend is supported. No push OTP for first login.
 
 ## Scenarios
 
 ```gherkin
-Feature: Live Africa's Talking OTP SMS
+Feature: Email OTP fallback for login
 
-  Scenario: Production live credentials send OTP SMS without echoing the code
-    Given AFRICASTALKING_USERNAME is the live app username
-    And NODE_ENV is production and OTP_SMS_DRY_RUN is not true
-    And the phone belongs to a registered parent or driver on a non-play-review tenant
+  Scenario: SMS success unchanged
+    Given a registered parent or driver with a live AT username in production
+    When they request an OTP without channel email
+    And Africa's Talking accepts the SMS
+    Then the response source is sms
+    And Resend is not called
+    And sandbox_otp is omitted
+
+  Scenario: SMS rejection falls back to email
+    Given a registered profile with a real email
     When they request an OTP
-    Then the live AT messaging host is called
-    And the response does not include sandbox_otp
+    And Africa's Talking rejects with UserInBlacklist
+    Then the same OTP is emailed via Resend
+    And the response source is email
+    And email_hint is a masked address
+    And the full email and OTP are not returned or logged
 
-  Scenario: Sandbox username or non-production env dry-runs
-    Given AFRICASTALKING_USERNAME is sandbox, or NODE_ENV is not production, or OTP_SMS_DRY_RUN is true
+  Scenario: SMS rejection with no email
+    Given a registered profile without a usable email
+    When Africa's Talking rejects the SMS
+    Then the API returns 502 with the SMS failure detail
+    And Resend is not called
+
+  Scenario: Explicit email channel
+    Given a registered profile with a real email
+    When they request an OTP with channel email
+    Then Resend sends the OTP
+    And Africa's Talking is not called
+    And source is email with email_hint
+
+  Scenario: Explicit email without address
+    Given a registered profile without a usable email
+    When they request an OTP with channel email
+    Then the API returns 422
+    And neither SMS nor Resend is sent
+
+  Scenario: Play Review and dry-run unchanged
+    Given play-review or SMS dry-run delivery
     When they request an OTP
-    Then Africa's Talking is not called
-    And sandbox_otp is returned so local apps can still log in
+    Then existing play_review / sandbox_otp behavior applies
+    And Resend is not used for the OTP
 
-  Scenario: Play Review never sends SMS
-    Given the profile tenant domain is play-review
-    When they request an OTP
-    Then Africa's Talking is not called
-    And the client is told to use 123456
-
-  Scenario: Demo login OTP is live; operational SMS stays dry-run
-    Given a tenant with is_demo true
-    When they request a login OTP in production with live AT credentials
-    Then the OTP SMS is dispatched
-    When send-sms handles an alerts_queue row for that tenant
-    Then it marks processed without calling Africa's Talking
-
-  Scenario: Unapproved Sender ID retries without from
-    Given AFRICASTALKING_SENDER_ID is set but not operator-approved
-    When an OTP SMS is sent
-    Then Africa's Talking InvalidSenderId is retried without the from field
-
+  Scenario: Guardian email required and parent profile upserted
+    Given a school admin saves a student with guardians
+    When each guardian has name, phone, and email
+    Then guardian validation rejects missing email
+    And a parent profile is inserted or updated for each guardian phone in the tenant
 ```
 
 ## Automation map
 
 | Scenario | Test path | Status |
 | :--- | :--- | :--- |
-| Live host + no sandbox_otp | `apps/admin_dashboard/src/lib/africasTalkingSms.test.ts`, `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
-| Dry-run returns sandbox_otp | `apps/admin_dashboard/src/lib/africasTalkingSms.test.ts`, `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
-| Play Review skip SMS | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
-| Demo OTP live vs ops dry-run | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` (OTP); send-sms demo branch unchanged | passing |
-| Unapproved Sender ID retry | `apps/admin_dashboard/src/lib/africasTalkingSms.test.ts` | passing |
+| SMS success | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
+| SMS → email fallback | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
+| SMS fail, no email | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
+| channel email | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
+| Play Review / dry-run | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
+| Guardian email + upsert | `apps/admin_dashboard/src/lib/studentGuardians.test.ts`, `apps/admin_dashboard/src/lib/ensureParentProfiles.test.ts` | passing |
+| Mobile email hint / send via email | `apps/parent_app/test/parent_login_test.dart` | passing |

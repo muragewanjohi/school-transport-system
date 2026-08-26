@@ -1,12 +1,14 @@
 export type GuardianEntry = {
   name: string;
   phone: string;
+  email: string;
 };
 
 export type ParentOption = {
   id: string;
   name: string;
   phone: string;
+  email: string;
 };
 
 export type GuardianSourceMode = "existing" | "new";
@@ -62,6 +64,7 @@ export type ParentPhotoSource = {
 export type GuardianWithPhoto = {
   name: string;
   phone: string;
+  email: string;
   photo_url: string | null;
 };
 
@@ -100,6 +103,8 @@ export function attachGuardianPhotos(
     if (!phone) continue;
     const name =
       typeof row.name === "string" && row.name.trim() ? row.name.trim() : "Guardian";
+    const email =
+      typeof row.email === "string" && row.email.trim() ? row.email.trim() : "";
     const fromRow = firstNonEmptyUrl(row.photo_url, row.avatar_url);
     const fromProfile = firstNonEmptyUrl(
       parentsByPhone.get(normalizeGuardianPhone(phone))?.avatar_url
@@ -107,6 +112,7 @@ export function attachGuardianPhotos(
     out.push({
       name,
       phone,
+      email,
       photo_url: fromRow ?? fromProfile,
     });
   }
@@ -150,7 +156,7 @@ export type AddExistingParentResult =
 
 export function addExistingParentToGuardians(
   guardians: GuardianEntry[],
-  parent: Pick<ParentOption, "name" | "phone">,
+  parent: Pick<ParentOption, "name" | "phone" | "email">,
   max = MAX_GUARDIANS
 ): AddExistingParentResult {
   const phone = canonicalizeGuardianPhone(parent.phone);
@@ -160,9 +166,16 @@ export function addExistingParentToGuardians(
 
   const next = guardians.map((guardian) => ({ ...guardian }));
   const emptyIdx = next.findIndex(
-    (guardian) => !guardian.name.trim() && !normalizeGuardianPhone(guardian.phone)
+    (guardian) =>
+      !guardian.name.trim() &&
+      !normalizeGuardianPhone(guardian.phone) &&
+      !guardian.email.trim()
   );
-  const entry: GuardianEntry = { name: parent.name, phone };
+  const entry: GuardianEntry = {
+    name: parent.name,
+    phone,
+    email: parent.email.trim(),
+  };
 
   if (emptyIdx !== -1) {
     next[emptyIdx] = entry;
@@ -204,6 +217,13 @@ export function validateGuardianEntries(guardians: GuardianEntry[]): string | nu
     if (localPart.length < 7 || localPart.length > 11) {
       return `Guardian ${idx + 1} phone number is invalid (must be 7-11 digits)`;
     }
+    const emailTrimmed = guardian.email.trim();
+    if (!emailTrimmed) {
+      return `Guardian ${idx + 1} email is required`;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
+      return `Guardian ${idx + 1} email is invalid`;
+    }
   }
 
   return duplicateGuardianPhoneError(guardians);
@@ -217,11 +237,22 @@ export function isParentOption(value: unknown): value is ParentOption {
     typeof row.name === "string" &&
     typeof row.phone === "string" &&
     row.name.trim().length > 0 &&
-    normalizeGuardianPhone(row.phone).length > 0
+    normalizeGuardianPhone(row.phone).length > 0 &&
+    (typeof row.email === "string" || row.email == null || row.email === undefined)
   );
 }
 
 export function parseParentOptions(data: unknown): ParentOption[] {
   if (!Array.isArray(data)) return [];
-  return data.filter(isParentOption);
+  const out: ParentOption[] = [];
+  for (const raw of data) {
+    if (!isParentOption(raw)) continue;
+    out.push({
+      id: raw.id,
+      name: raw.name,
+      phone: raw.phone,
+      email: typeof raw.email === "string" ? raw.email : "",
+    });
+  }
+  return out;
 }

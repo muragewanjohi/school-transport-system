@@ -5,6 +5,7 @@ import {
   sendAfricasTalkingSms,
 } from "@/lib/africasTalkingSms";
 import { normalizeKenyanPhone, phoneFilterOrClause } from "@/lib/kenyanPhone";
+import { sendResendEmail } from "@/lib/resendEmail";
 
 const PLAY_REVIEW_OTP = "123456";
 
@@ -13,6 +14,7 @@ export type IssuePhoneOtpBody = {
   source?: string;
   message?: string;
   sandbox_otp?: string;
+  email_hint?: string;
   error?: string;
   code?: string;
 };
@@ -22,11 +24,17 @@ export type IssuePhoneOtpResult = {
   body: IssuePhoneOtpBody;
 };
 
+export type OtpEmailMessage = {
+  subject: string;
+  text: string;
+};
+
 type ProfileRow = {
   id: string;
   tenant_id: string;
   status: string | null;
   otp_code: string | null;
+  email: string | null;
 };
 
 async function withTimeout<T>(
@@ -56,22 +64,46 @@ function generateOtp(): string {
   return String(100000 + (bytes[0] % 900000));
 }
 
+/** True when the address is suitable for delivering a login OTP. */
+export function isUsableOtpEmail(email: string | null | undefined): boolean {
+  if (!email || typeof email !== "string") return false;
+  const trimmed = email.trim().toLowerCase();
+  if (!trimmed.includes("@") || trimmed.includes(" ")) return false;
+  if (trimmed.endsWith("@example.com")) return false;
+  if (trimmed.endsWith("@users.onthebusapp.internal")) return false;
+  if (trimmed.startsWith("parent+")) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+}
+
+/** Mask for UI: j***@gmail.com */
+export function maskEmailHint(email: string): string {
+  const trimmed = email.trim();
+  const at = trimmed.indexOf("@");
+  if (at <= 0) return "***";
+  const local = trimmed.slice(0, at);
+  const domain = trimmed.slice(at + 1);
+  const visible = local.slice(0, 1);
+  return `${visible}***@${domain}`;
+}
+
 export async function issuePhoneOtp(
   client: SupabaseClient,
   input: {
     phone: string;
     roles: string[];
     smsMessage: (otp: string) => string;
+    emailMessage: (otp: string) => OtpEmailMessage;
     notRegisteredError: string;
     notRegisteredCode?: string;
     enforceUnavailableStatus?: boolean;
+    channel?: "sms" | "email";
   }
 ): Promise<IssuePhoneOtpResult> {
   const phone = normalizeKenyanPhone(input.phone);
   const phoneFilter = phoneFilterOrClause(phone);
   const profileQuery = client
     .from("profiles")
-    .select("id, tenant_id, status, otp_code")
+    .select("id, tenant_id, status, otp_code, email")
     .in("role", input.roles)
     .or(phoneFilter)
     .limit(1)
@@ -183,6 +215,50 @@ export async function issuePhoneOtp(
     };
   }
 
+  const usableEmail = isUsableOtpEmail(profile.email) ? profile.email!.trim() : null;
+  const emailHint = usableEmail ? maskEmailHint(usableEmail) : undefined;
+
+  const sendOtpEmail = async (): Promise<IssuePhoneOtpResult> => {
+    if (!usableEmail) {
+      return {
+        status: 422,
+        body: {
+          success: false,
+          error:
+            "No email on file for this account. Ask your school to add a guardian email.",
+        },
+      };
+    }
+    const msg = input.emailMessage(otp);
+    const sent = await sendResendEmail({
+      to: usableEmail,
+      subject: msg.subject,
+      text: msg.text,
+    });
+    if (!sent) {
+      return {
+        status: 502,
+        body: {
+          success: false,
+          error: "Unable to send verification email. Try again later.",
+        },
+      };
+    }
+    return {
+      status: 200,
+      body: {
+        success: true,
+        source: "email",
+        message: "OTP sent by email",
+        email_hint: emailHint,
+      },
+    };
+  };
+
+  if (input.channel === "email") {
+    return sendOtpEmail();
+  }
+
   try {
     await sendAfricasTalkingSms({
       to: phone,
@@ -191,6 +267,17 @@ export async function issuePhoneOtp(
   } catch (smsError: unknown) {
     const detail =
       smsError instanceof Error ? smsError.message : "SMS delivery failed";
+    if (usableEmail) {
+      const emailed = await sendOtpEmail();
+      if (emailed.status === 200) return emailed;
+      return {
+        status: 502,
+        body: {
+          success: false,
+          error: `Unable to send SMS: ${detail}. Email fallback also failed.`,
+        },
+      };
+    }
     return {
       status: 502,
       body: { success: false, error: `Unable to send SMS: ${detail}` },
@@ -203,6 +290,7 @@ export async function issuePhoneOtp(
       success: true,
       source: "sms",
       message: "OTP sent successfully",
+      ...(emailHint ? { email_hint: emailHint } : {}),
     },
   };
 }

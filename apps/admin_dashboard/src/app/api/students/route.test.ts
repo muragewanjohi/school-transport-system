@@ -30,8 +30,8 @@ describe("POST /api/students", () => {
       jsonRequest({
         ...baseStudent,
         guardians: [
-          { name: "Jane Wanjiku", phone: "+254700111222" },
-          { name: "Jane Copy", phone: "+254 700 111 222" },
+          { name: "Jane Wanjiku", phone: "+254700111222", email: "a@school.ke" },
+          { name: "Jane Copy", phone: "+254 700 111 222", email: "b@school.ke" },
         ],
       })
     );

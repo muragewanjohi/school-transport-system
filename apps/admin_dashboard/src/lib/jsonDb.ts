@@ -16,8 +16,8 @@ export const defaultMockStudents = [
     dropoff_stop_id: "stop-1-2",
     schedule_ids: ["sched-1-1", "sched-1-3"],
     guardians: [
-      { name: "James Mwangi", phone: "+254 700 111 222" },
-      { name: "Sarah Mwangi", phone: "+254 700 111 333" }
+      { name: "James Mwangi", phone: "+254 700 111 222", email: "james.mwangi@parent.com" },
+      { name: "Sarah Mwangi", phone: "+254 700 111 333", email: "sarah.mwangi@parent.com" }
     ],
     route: { name: "Morning Route 1 (Kileleshwa)" }
   },
@@ -33,7 +33,7 @@ export const defaultMockStudents = [
     dropoff_stop_id: "stop-2-2",
     schedule_ids: ["sched-2-1"],
     guardians: [
-      { name: "Mary Kamau", phone: "+254 711 222 333" }
+      { name: "Mary Kamau", phone: "+254 711 222 333", email: "mary.kamau@parent.com" }
     ],
     route: { name: "Morning Route 2 (Westlands)" }
   },
@@ -49,7 +49,7 @@ export const defaultMockStudents = [
     dropoff_stop_id: "stop-4-2",
     schedule_ids: ["sched-4-1"],
     guardians: [
-      { name: "Alice Ochieng", phone: "+254 722 333 444" }
+      { name: "Alice Ochieng", phone: "+254 722 333 444", email: "alice.ochieng@parent.com" }
     ],
     route: { name: "Morning Route 4 (Kilimani)" }
   },
@@ -65,7 +65,7 @@ export const defaultMockStudents = [
     dropoff_stop_id: "stop-1-1",
     schedule_ids: ["sched-1-2", "sched-1-4"],
     guardians: [
-      { name: "Robert Ndwiga", phone: "+254 733 444 555" }
+      { name: "Robert Ndwiga", phone: "+254 733 444 555", email: "robert.ndwiga@parent.com" }
     ],
     route: { name: "Morning Route 1 (Kileleshwa)" }
   }

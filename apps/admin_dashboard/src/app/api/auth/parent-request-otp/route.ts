@@ -11,6 +11,7 @@ const requestSchema = z.object({
     .min(9, "Phone number is too short")
     .max(24, "Phone number is too long")
     .regex(/^[+\d\s()-]+$/, "Phone number contains invalid characters"),
+  channel: z.enum(["sms", "email"]).optional(),
 });
 
 export async function POST(request: Request) {
@@ -44,8 +45,13 @@ export async function POST(request: Request) {
     const issued = await issuePhoneOtp(client, {
       phone: result.data.phone,
       roles: ["parent"],
+      channel: result.data.channel,
       smsMessage: (otp) =>
         `OnTheBus: Your parent app verification code is ${otp}. It expires in 15 minutes.`,
+      emailMessage: (otp) => ({
+        subject: "OnTheBus parent verification code",
+        text: `Your OnTheBus parent app verification code is ${otp}. It expires in 15 minutes.\n\nIf you did not request this code, ignore this email.`,
+      }),
       notRegisteredError:
         "This phone number is not registered as a parent profile.",
       notRegisteredCode: "not_registered",

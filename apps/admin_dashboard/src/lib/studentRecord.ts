@@ -11,7 +11,7 @@ export type StudentMutationInput = {
   dropoff_stop_id?: string | null;
   schedule_ids?: string[];
   status?: "Present" | "Absent";
-  guardians?: Array<{ name: string; phone: string }>;
+  guardians?: Array<{ name: string; phone: string; email?: string }>;
   grade?: string | null;
   class_name?: string | null;
   address?: string | null;

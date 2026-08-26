@@ -183,7 +183,8 @@ export default function StudentGuardiansFields({
             <option value="">-- Choose registered parent to auto-fill --</option>
             {filteredParents.map((parent) => (
               <option key={parent.id} value={parent.id}>
-                {parent.name} ({parent.phone})
+                {parent.name} ({parent.phone}
+                {parent.email ? ` · ${parent.email}` : ""})
               </option>
             ))}
           </select>
@@ -222,82 +223,104 @@ export default function StudentGuardiansFields({
         {guardians.map((guardian, index) => (
           <div
             key={index}
-            style={{ display: "flex", gap: 12, alignItems: "center" }}
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 10,
+              paddingBottom: guardians.length > 1 ? 8 : 0,
+              borderBottom:
+                guardians.length > 1 && index < guardians.length - 1
+                  ? "1px solid var(--border-default)"
+                  : undefined,
+            }}
           >
-            <div style={{ flex: 1, display: "flex", gap: 10 }}>
-              <input
-                type="text"
-                className="form-input"
-                style={{ flex: 1 }}
-                placeholder="Guardian Name"
-                value={guardian.name}
-                onChange={(e) => updateGuardian(index, { name: e.target.value })}
-                required
-              />
-              <div style={{ display: "flex", gap: 8, flex: 1 }}>
-                <select
-                  value={dialCodeForPhone(guardian.phone)}
-                  onChange={(e) => {
-                    const newCode = e.target.value;
-                    let currentLocal = localPartForPhone(guardian.phone);
-                    if (currentLocal.startsWith("0")) {
-                      currentLocal = currentLocal.substring(1);
-                    }
-                    updateGuardian(index, { phone: newCode + currentLocal });
-                  }}
-                  className="form-input"
-                  style={{ width: 95, paddingLeft: 8, paddingRight: 8 }}
-                  aria-label={`Guardian ${index + 1} country code`}
-                >
-                  <option value="+254">🇰🇪 +254</option>
-                  <option value="+256">🇺🇬 +256</option>
-                  <option value="+255">🇹🇿 +255</option>
-                  <option value="+250">🇷🇼 +250</option>
-                  <option value="+1">🇺🇸 +1</option>
-                  <option value="+44">🇬🇧 +44</option>
-                </select>
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <div style={{ flex: 1, display: "flex", gap: 10, flexWrap: "wrap" }}>
                 <input
                   type="text"
                   className="form-input"
-                  style={{ flex: 1 }}
-                  placeholder="Phone Number"
-                  value={localPartForPhone(guardian.phone)}
-                  onChange={(e) => {
-                    const currentCode = dialCodeForPhone(guardian.phone);
-                    let val = e.target.value.replace(/[\s\-()]+/g, "");
-                    if (val.startsWith("0")) val = val.substring(1);
-                    updateGuardian(index, { phone: currentCode + val });
-                  }}
+                  style={{ flex: "1 1 140px" }}
+                  placeholder="Guardian Name"
+                  value={guardian.name}
+                  onChange={(e) => updateGuardian(index, { name: e.target.value })}
                   required
                 />
+                <div style={{ display: "flex", gap: 8, flex: "1 1 200px" }}>
+                  <select
+                    value={dialCodeForPhone(guardian.phone)}
+                    onChange={(e) => {
+                      const newCode = e.target.value;
+                      let currentLocal = localPartForPhone(guardian.phone);
+                      if (currentLocal.startsWith("0")) {
+                        currentLocal = currentLocal.substring(1);
+                      }
+                      updateGuardian(index, { phone: newCode + currentLocal });
+                    }}
+                    className="form-input"
+                    style={{ width: 95, paddingLeft: 8, paddingRight: 8 }}
+                    aria-label={`Guardian ${index + 1} country code`}
+                  >
+                    <option value="+254">🇰🇪 +254</option>
+                    <option value="+256">🇺🇬 +256</option>
+                    <option value="+255">🇹🇿 +255</option>
+                    <option value="+250">🇷🇼 +250</option>
+                    <option value="+1">🇺🇸 +1</option>
+                    <option value="+44">🇬🇧 +44</option>
+                  </select>
+                  <input
+                    type="text"
+                    className="form-input"
+                    style={{ flex: 1 }}
+                    placeholder="Phone Number"
+                    value={localPartForPhone(guardian.phone)}
+                    onChange={(e) => {
+                      const currentCode = dialCodeForPhone(guardian.phone);
+                      let val = e.target.value.replace(/[\s\-()]+/g, "");
+                      if (val.startsWith("0")) val = val.substring(1);
+                      updateGuardian(index, { phone: currentCode + val });
+                    }}
+                    required
+                  />
+                </div>
               </div>
+              {guardians.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => onChange(guardians.filter((_, i) => i !== index))}
+                  style={{
+                    background: "rgba(244,63,94,0.06)",
+                    border: "1px solid rgba(244,63,94,0.2)",
+                    color: "var(--state-error)",
+                    padding: 10,
+                    borderRadius: 6,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                  title="Remove Guardian Row"
+                >
+                  <Trash2 size={16} />
+                </button>
+              )}
             </div>
-            {guardians.length > 1 && (
-              <button
-                type="button"
-                onClick={() => onChange(guardians.filter((_, i) => i !== index))}
-                style={{
-                  background: "rgba(244,63,94,0.06)",
-                  border: "1px solid rgba(244,63,94,0.2)",
-                  color: "var(--state-error)",
-                  padding: 10,
-                  borderRadius: 6,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                }}
-                title="Remove Guardian Row"
-              >
-                <Trash2 size={16} />
-              </button>
-            )}
+            <input
+              type="email"
+              className="form-input"
+              placeholder="Guardian email (required for login OTP fallback)"
+              value={guardian.email}
+              onChange={(e) => updateGuardian(index, { email: e.target.value })}
+              required
+              aria-label={`Guardian ${index + 1} email`}
+            />
           </div>
         ))}
 
         {guardians.length < MAX_GUARDIANS && (
           <button
             type="button"
-            onClick={() => onChange([...guardians, { name: "", phone: "" }])}
+            onClick={() =>
+              onChange([...guardians, { name: "", phone: "", email: "" }])
+            }
             style={{
               background: "var(--bg-surface)",
               border: "1px solid var(--border-default)",

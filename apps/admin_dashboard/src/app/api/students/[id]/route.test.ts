@@ -17,7 +17,7 @@ vi.mock("@/lib/jsonDb", () => ({
       route_id: "route-1",
       pickup_stop_id: "stop-1",
       dropoff_stop_id: "stop-1",
-      guardians: [{ name: "James Mwangi", phone: "+254700111222" }],
+      guardians: [{ name: "James Mwangi", phone: "+254700111222", email: "james@school.ke" }],
     },
   ],
   saveLocalStudents,
@@ -41,8 +41,8 @@ describe("PUT /api/students/:id", () => {
     const res = await PUT(
       jsonRequest({
         guardians: [
-          { name: "Jane Wanjiku", phone: "+254700111222" },
-          { name: "Jane Copy", phone: "+254 700 111 222" },
+          { name: "Jane Wanjiku", phone: "+254700111222", email: "a@school.ke" },
+          { name: "Jane Copy", phone: "+254 700 111 222", email: "b@school.ke" },
         ],
       }),
       params

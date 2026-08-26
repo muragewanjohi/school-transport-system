@@ -48,8 +48,9 @@ void main() {
     var requestedPhone = '';
     await pumpLogin(
       tester,
-      requestOtp: (phone) async {
+      requestOtp: (phone, {channel = 'sms'}) async {
         requestedPhone = phone;
+        return null;
       },
     );
 
@@ -66,10 +67,27 @@ void main() {
     expect(find.text('SEND OTP'), findsNothing);
   });
 
+  testWidgets('email hint shows Send code via email', (tester) async {
+    await pumpLogin(
+      tester,
+      requestOtp: (phone, {channel = 'sms'}) async {
+        return {'source': 'sms', 'email_hint': 'j***@gmail.com'};
+      },
+    );
+
+    await tester.enterText(find.byKey(const Key('parent-phone-field')), '712345678');
+    await tester.tap(find.byKey(const Key('send-otp-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byKey(const Key('send-otp-email-button')), findsOneWidget);
+    expect(find.textContaining('Send code via email'), findsOneWidget);
+  });
+
   testWidgets('unregistered phone shows school guidance', (tester) async {
     await pumpLogin(
       tester,
-      requestOtp: (_) async {
+      requestOtp: (phone, {channel = 'sms'}) async {
         throw Exception('This phone number is not registered as a parent profile.');
       },
     );

@@ -11,7 +11,7 @@ import {
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { haversineDistanceMeters, parseGeoPoint } from "@/lib/geoUtils";
 import { duplicateGuardianPhoneError } from "@/lib/studentGuardians";
-import { matchParentIdForGuardians } from "@/lib/parentChildren";
+import { ensureParentProfilesFromGuardians } from "@/lib/ensureParentProfiles";
 import {
   mapStudentProfile,
   studentDbWriteFields,
@@ -21,6 +21,7 @@ import {
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
   phone: z.string().min(5, "Phone number is too short"),
+  email: z.string().trim().email("Guardian email is required"),
 });
 
 const studentUpdateSchema = z.object({
@@ -52,8 +53,8 @@ const mockStudents = [
     dropoff_stop_id: "stop-1-2",
     schedule_ids: ["sched-1-1", "sched-1-3"],
     guardians: [
-      { name: "James Mwangi", phone: "+254 700 111 222" },
-      { name: "Sarah Mwangi", phone: "+254 700 111 333" }
+      { name: "James Mwangi", phone: "+254 700 111 222", email: "james.mwangi@parent.com" },
+      { name: "Sarah Mwangi", phone: "+254 700 111 333", email: "sarah.mwangi@parent.com" }
     ],
   },
   {
@@ -68,7 +69,7 @@ const mockStudents = [
     dropoff_stop_id: "stop-2-2",
     schedule_ids: ["sched-2-1"],
     guardians: [
-      { name: "Mary Kamau", phone: "+254 711 222 333" }
+      { name: "Mary Kamau", phone: "+254 711 222 333", email: "mary.kamau@parent.com" }
     ],
   },
   {
@@ -83,7 +84,7 @@ const mockStudents = [
     dropoff_stop_id: "stop-4-2",
     schedule_ids: ["sched-4-1"],
     guardians: [
-      { name: "Alice Ochieng", phone: "+254 722 333 444" }
+      { name: "Alice Ochieng", phone: "+254 722 333 444", email: "alice.ochieng@parent.com" }
     ],
   },
   {
@@ -98,7 +99,7 @@ const mockStudents = [
     dropoff_stop_id: "stop-1-1",
     schedule_ids: ["sched-1-2", "sched-1-4"],
     guardians: [
-      { name: "Robert Ndwiga", phone: "+254 733 444 555" }
+      { name: "Robert Ndwiga", phone: "+254 733 444 555", email: "robert.ndwiga@parent.com" }
     ],
   }
 ];
@@ -303,19 +304,18 @@ export async function PUT(
     const updatePayload = studentDbWriteFields(result.data);
 
     if (result.data.guardians) {
-      const { data: parentRows } = await client
-        .from("profiles")
-        .select("id, phone")
-        .eq("role", "parent")
-        .eq("tenant_id", scope.tenantId);
-      const parentId = matchParentIdForGuardians(
-        result.data.guardians,
-        (parentRows ?? []).map((row) => ({
-          id: String(row.id),
-          phone: typeof row.phone === "string" ? row.phone : null,
-        }))
+      const ensured = await ensureParentProfilesFromGuardians(
+        client,
+        scope.tenantId,
+        result.data.guardians
       );
-      if (parentId) updatePayload.parent_id = parentId;
+      if (!ensured.ok) {
+        return NextResponse.json(
+          { success: false, error: ensured.error },
+          { status: 400 }
+        );
+      }
+      if (ensured.parentId) updatePayload.parent_id = ensured.parentId;
     }
 
     const { data: studentUpdate, error } = await client

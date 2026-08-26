@@ -64,7 +64,7 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
     longitude: 36.8335,
   });
   const [formGuardians, setFormGuardians] = useState<GuardianEntry[]>([
-    { name: "", phone: "" }
+    { name: "", phone: "", email: "" }
   ]);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [stopMode, setStopMode] = useState<StudentStopMode>("same");
@@ -131,8 +131,12 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
         });
         setStopMode(inferStudentStopMode(student.pickup_stop_id || "", student.dropoff_stop_id || ""));
         setFormGuardians(student.guardians && student.guardians.length > 0 
-          ? student.guardians.map((g: GuardianEntry) => ({ name: g.name, phone: g.phone }))
-          : [{ name: "", phone: "" }]
+          ? student.guardians.map((g: GuardianEntry & { email?: string }) => ({
+              name: g.name,
+              phone: g.phone,
+              email: g.email ?? "",
+            }))
+          : [{ name: "", phone: "", email: "" }]
         );
       } else {
         setErrorMsg("Failed to retrieve student details.");
@@ -208,7 +212,9 @@ export default function EditStudentPage({ params }: { params: Promise<{ id: stri
       dropoff_stop_id: formValues.dropoff_stop_id || null,
       schedule_ids: formValues.schedule_ids,
       status: formValues.status,
-      guardians: formGuardians.filter(g => g.name.trim() && g.phone.trim()),
+      guardians: formGuardians.filter(
+        (g) => g.name.trim() && g.phone.trim() && g.email.trim()
+      ),
       grade: formValues.grade || null,
       class_name: formValues.class_name || null,
       address: formValues.address || null,

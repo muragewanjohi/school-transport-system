@@ -26,13 +26,18 @@ Production **must not** use the AT sandbox app. Username `sandbox` and host `api
 | :--- | :--- | :--- |
 | Driver / conductor login OTP | `POST /api/auth/driver-request-otp` | Production + live username + `OTP_SMS_DRY_RUN` not `true` |
 | Parent login OTP | `POST /api/auth/parent-request-otp` | Same |
+| Login OTP email fallback | Same request-OTP routes via Resend | After AT SMS rejection, or when `channel: "email"` is requested, and the profile has a real email |
 | Operational alerts (proximity, delay, boarding, trip start, absent) | Edge Function `send-sms` on `alerts_queue` | Tenant is **not** `is_demo` **and** `sms_notifications_enabled` |
 
 **Kill-switches / dry-run:** `AFRICASTALKING_USERNAME=sandbox`, `OTP_SMS_DRY_RUN=true`, `NODE_ENV` not production, or Vercel Preview/Development. `OTP_SMS_DRY_RUN=false` forces a live send when the username is not `sandbox` (local smoke only). Dry-run responses may include `sandbox_otp` for Flutter; production live sends never echo the code.
 
 **Demo vs Play Review:** Demo tenants receive **login OTP SMS** through the live gateway so the request phone can sign in. Operational trip/proximity SMS on demo remains dry-run inside `send-sms`. Play Review (`domain = play-review`) keeps OTP `123456` and never sends SMS.
 
-**Secrets:** Same live trio on Vercel (`AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`, optional `AFRICASTALKING_SENDER_ID`) and as Supabase Edge Function secrets. Mix-and-match sandbox key + live username fails auth. Leave `AFRICASTALKING_SENDER_ID` unset until the alphanumeric ID is operator-approved; unapproved `from` returns `InvalidSenderId` (empty Recipients). The dispatcher retries once without `from`.
+**Login OTP email fallback:** Phone remains the account key. On live SMS failure (e.g. Africa's Talking `UserInBlacklist`), `issuePhoneOtp` sends the **same** OTP via Resend when `profiles.email` is a usable address (not synthetic / `example.com` / `@users.onthebusapp.internal`). Success responses use `source: "email"` and a masked `email_hint` only — never the full address or the OTP. Request body may include `channel: "email"` to skip SMS and email directly. Missing email + SMS failure → 502; `channel: "email"` without email → 422. OTP codes are never written to application logs. Push is not used for first-login OTP.
+
+**Parent provisioning for OTP:** Student create/update requires each guardian `{ name, phone, email }` and upserts a tenant-scoped `profiles` row (`role = parent`) so login OTP has a delivery target. Drivers/conductors already require email at staff registration.
+
+**Secrets:** Same live trio on Vercel (`AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`, optional `AFRICASTALKING_SENDER_ID`) and as Supabase Edge Function secrets. Mix-and-match sandbox key + live username fails auth. Leave `AFRICASTALKING_SENDER_ID` unset until the alphanumeric ID is operator-approved; unapproved `from` returns `InvalidSenderId` (empty Recipients). The dispatcher retries once without `from`. Login email OTP uses existing `RESEND_API_KEY` / `DEMO_REQUESTS_FROM_EMAIL` (or `PUBLIC_CONTACT_FROM_EMAIL`).
 
 ## Storage Model
 

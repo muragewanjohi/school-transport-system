@@ -11,8 +11,8 @@ import {
 } from "@/lib/studentGuardians";
 
 const parents = [
-  { id: "p-1", name: "Jane Wanjiku", phone: "+254700111222" },
-  { id: "p-2", name: "Mary Kamau", phone: "+254711222333" },
+  { id: "p-1", name: "Jane Wanjiku", phone: "+254700111222", email: "jane@school.ke" },
+  { id: "p-2", name: "Mary Kamau", phone: "+254711222333", email: "mary@school.ke" },
 ];
 
 describe("defaultGuardianSourceMode", () => {
@@ -65,8 +65,8 @@ describe("duplicateGuardianPhoneError", () => {
 describe("addExistingParentToGuardians", () => {
   it("same phone already on the form › does not add a second row", () => {
     const result = addExistingParentToGuardians(
-      [{ name: "Jane Wanjiku", phone: "+254700111222" }],
-      { name: "Jane Wanjiku", phone: "+254 700 111 222" }
+      [{ name: "Jane Wanjiku", phone: "+254700111222", email: "jane@school.ke" }],
+      { name: "Jane Wanjiku", phone: "+254 700 111 222", email: "jane@school.ke" }
     );
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -74,14 +74,16 @@ describe("addExistingParentToGuardians", () => {
     }
   });
 
-  it("empty row present › auto-fills name and canonical phone", () => {
+  it("empty row present › auto-fills name, email, and canonical phone", () => {
     const result = addExistingParentToGuardians(
-      [{ name: "", phone: "" }],
-      { name: "Mary Kamau", phone: "+254 711 222 333" }
+      [{ name: "", phone: "", email: "" }],
+      { name: "Mary Kamau", phone: "+254 711 222 333", email: "mary@school.ke" }
     );
     expect(result).toEqual({
       ok: true,
-      guardians: [{ name: "Mary Kamau", phone: "+254711222333" }],
+      guardians: [
+        { name: "Mary Kamau", phone: "+254711222333", email: "mary@school.ke" },
+      ],
     });
   });
 });
@@ -90,10 +92,18 @@ describe("validateGuardianEntries", () => {
   it("duplicate phones › returns the shared-phone message", () => {
     expect(
       validateGuardianEntries([
-        { name: "Jane Wanjiku", phone: "+254700111222" },
-        { name: "Jane Copy", phone: "+254700111222" },
+        { name: "Jane Wanjiku", phone: "+254700111222", email: "a@school.ke" },
+        { name: "Jane Copy", phone: "+254700111222", email: "b@school.ke" },
       ])
     ).toBe("Two guardians cannot share the same phone number.");
+  });
+
+  it("missing email › returns email required", () => {
+    expect(
+      validateGuardianEntries([
+        { name: "Jane Wanjiku", phone: "+254700111222", email: "" },
+      ])
+    ).toBe("Guardian 1 email is required");
   });
 });
 
@@ -104,13 +114,14 @@ describe("attachGuardianPhotos", () => {
     ]);
     expect(
       attachGuardianPhotos(
-        [{ name: "Jane", phone: "+254700111222" }],
+        [{ name: "Jane", phone: "+254700111222", email: "jane@school.ke" }],
         index
       )
     ).toEqual([
       {
         name: "Jane",
         phone: "+254700111222",
+        email: "jane@school.ke",
         photo_url: "https://cdn.example/jane.png",
       },
     ]);
@@ -118,7 +129,17 @@ describe("attachGuardianPhotos", () => {
 
   it("no matching photo › photo_url is null for thumbnail fallback", () => {
     expect(
-      attachGuardianPhotos([{ name: "Jane", phone: "+254700111222" }], new Map())
-    ).toEqual([{ name: "Jane", phone: "+254700111222", photo_url: null }]);
+      attachGuardianPhotos(
+        [{ name: "Jane", phone: "+254700111222", email: "jane@school.ke" }],
+        new Map()
+      )
+    ).toEqual([
+      {
+        name: "Jane",
+        phone: "+254700111222",
+        email: "jane@school.ke",
+        photo_url: null,
+      },
+    ]);
   });
 });

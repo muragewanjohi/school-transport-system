@@ -12,7 +12,8 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-typedef RequestOtpCallback = Future<void> Function(String phone);
+typedef RequestOtpCallback =
+    Future<Map<String, dynamic>?> Function(String phone, {String channel});
 typedef VerifyOtpCallback =
     Future<Map<String, dynamic>> Function(String phone, String otp);
 
@@ -55,6 +56,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Timer? _resendTimer;
   String _phone = '';
   String _versionLabel = '';
+  String? _emailHint;
 
   @override
   void initState() {
@@ -115,12 +117,18 @@ class _LoginScreenState extends State<LoginScreen> {
     return lower.contains('not registered') || lower.contains('profile not found');
   }
 
-  Future<void> _requestOtpFromApi(String phone) async {
+  Future<Map<String, dynamic>?> _requestOtpFromApi(
+    String phone, {
+    String channel = 'sms',
+  }) async {
     final response = await http
         .post(
           Uri.parse('${ApiConfig.baseUrl}/api/auth/driver-request-otp'),
           headers: {'Content-Type': 'application/json'},
-          body: json.encode({'phone': phone}),
+          body: json.encode({
+            'phone': phone,
+            if (channel != 'sms') 'channel': channel,
+          }),
         )
         .timeout(const Duration(seconds: 20));
 
@@ -154,6 +162,26 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
     }
+
+    final source = result['source']?.toString();
+    final emailHint = result['email_hint']?.toString();
+    if (source == 'email' &&
+        emailHint != null &&
+        emailHint.isNotEmpty &&
+        mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Code sent to $emailHint'),
+          backgroundColor: const Color(0xFF0B1C30),
+          duration: const Duration(seconds: 6),
+        ),
+      );
+    }
+
+    return {
+      'source': source,
+      'email_hint': emailHint,
+    };
   }
 
   Future<Map<String, dynamic>> _verifyOtpWithApi(
@@ -192,11 +220,15 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
     try {
-      await (widget.requestOtp ?? _requestOtpFromApi)(phone);
+      final result = await (widget.requestOtp ?? _requestOtpFromApi)(
+        phone,
+        channel: 'sms',
+      );
       if (!mounted) return;
       setState(() {
         _phone = phone;
         _showVerification = true;
+        _emailHint = result?['email_hint']?.toString();
       });
       _startResendTimer();
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -294,13 +326,44 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_resendRemaining > 0 || _isLoading) return;
     setState(() => _isLoading = true);
     try {
-      await (widget.requestOtp ?? _requestOtpFromApi)(_phone);
+      final result = await (widget.requestOtp ?? _requestOtpFromApi)(
+        _phone,
+        channel: 'sms',
+      );
+      if (mounted) {
+        setState(() {
+          _emailHint = result?['email_hint']?.toString() ?? _emailHint;
+        });
+      }
       _startResendTimer();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('A new verification code was sent.')),
         );
       }
+    } on _NotRegisteredException catch (error) {
+      _showGuidance(error.message);
+    } catch (error) {
+      _showError(error.toString().replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _sendOtpViaEmail() async {
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
+    try {
+      final result = await (widget.requestOtp ?? _requestOtpFromApi)(
+        _phone,
+        channel: 'email',
+      );
+      if (mounted) {
+        setState(() {
+          _emailHint = result?['email_hint']?.toString() ?? _emailHint;
+        });
+      }
+      _startResendTimer();
     } on _NotRegisteredException catch (error) {
       _showGuidance(error.message);
     } catch (error) {
@@ -340,6 +403,7 @@ class _LoginScreenState extends State<LoginScreen> {
       controller.clear();
     }
     setState(() => _showVerification = false);
+    setState(() => _emailHint = null);
   }
 
   Future<void> _contactSupport() async {
@@ -372,9 +436,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   isLoading: _isLoading,
                   resendRemaining: _resendRemaining,
                   versionLabel: _versionLabel,
+                  emailHint: _emailHint,
                   onBack: _returnToPhone,
                   onVerify: _handleVerifyOtp,
                   onResend: _resendOtp,
+                  onSendViaEmail: _emailHint != null && _emailHint!.isNotEmpty
+                      ? _sendOtpViaEmail
+                      : null,
                 )
               : _PhoneEntryView(
                   key: const ValueKey('phone-entry'),
@@ -716,9 +784,11 @@ class _VerificationView extends StatelessWidget {
     required this.isLoading,
     required this.resendRemaining,
     required this.versionLabel,
+    this.emailHint,
     required this.onBack,
     required this.onVerify,
     required this.onResend,
+    this.onSendViaEmail,
   });
 
   final String phone;
@@ -727,9 +797,11 @@ class _VerificationView extends StatelessWidget {
   final bool isLoading;
   final int resendRemaining;
   final String versionLabel;
+  final String? emailHint;
   final VoidCallback onBack;
   final VoidCallback onVerify;
   final VoidCallback onResend;
+  final VoidCallback? onSendViaEmail;
 
   @override
   Widget build(BuildContext context) {
@@ -891,6 +963,22 @@ class _VerificationView extends StatelessWidget {
                         ),
                       ),
                     ),
+                    if (onSendViaEmail != null) ...[
+                      TextButton(
+                        key: const Key('send-otp-email-button'),
+                        onPressed: isLoading ? null : onSendViaEmail,
+                        child: Text(
+                          emailHint != null && emailHint!.isNotEmpty
+                              ? 'Send code via email ($emailHint)'
+                              : 'Send code via email',
+                          style: const TextStyle(
+                            color: AppColors.actionGreen,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 22),
                     _PrimaryButton(
                       key: const Key('verify-otp-button'),
