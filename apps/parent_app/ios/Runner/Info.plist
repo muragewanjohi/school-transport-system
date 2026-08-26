@@ -20,6 +20,8 @@
 	<false/>
 	<key>NSCameraUsageDescription</key>
 	<string>OnTheBus uses the camera so you can take a profile photo for your child or guardian.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>OnTheBus uses your location while you use the app so the map can show your position relative to your child's school bus.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>OnTheBus uses your photo library so you can choose a profile photo for your child or guardian.</string>
 	<key>CFBundlePackageType</key>
