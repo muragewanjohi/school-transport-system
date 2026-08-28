@@ -78,6 +78,8 @@ Before moving an item to **Completed**, confirm:
 
 ## Completed
 
+- **Driver OTP delivery for demo stores (2026-08-28):** Synthetic `@demo.onthebus.app` addresses are not OTP inboxes. When login SMS is rejected, demo driver/conductor OTPs email `tenants.contact_email` (the lead). BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/issuePhoneOtp.test.ts`.
+
 - **Show and restore demo expiry (2026-08-28):** Demos table and request detail always show a formatted expiry (or “Store removed”). Date is stored on `demo_requests` as well as the tenant. Approved requests with no live tenant can **Provision store again**. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/demoGoLive.test.ts`, `src/app/api/demo-requests/route.test.ts`.
 
 - **Demo request inbox badge (2026-08-28):** Sidebar and Demo Requests tab badge count `pending` leads only. Confirming a demo (or `ready_to_onboard`) no longer keeps the red notification. Inbox subtitle still shows `N ready to onboard`. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/demoGoLive.test.ts`, `src/app/api/demo-requests/route.test.ts`.

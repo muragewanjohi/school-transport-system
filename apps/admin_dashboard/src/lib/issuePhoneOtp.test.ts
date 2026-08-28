@@ -9,7 +9,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 const PROFILE_ID = "11111111-1111-4111-8111-111111111111";
 const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 
-type TenantRow = { is_demo: boolean; domain: string } | null;
+type TenantRow = { is_demo: boolean; domain: string; contact_email?: string | null } | null;
 
 vi.mock("@/lib/resendEmail", () => ({
   sendResendEmail: vi.fn().mockResolvedValue(true),
@@ -86,6 +86,7 @@ describe("maskEmailHint / isUsableOtpEmail", () => {
 
   it("rejects synthetic emails", () => {
     expect(isUsableOtpEmail("parent+abc@users.onthebusapp.internal")).toBe(false);
+    expect(isUsableOtpEmail("driver.azima-demo@demo.onthebus.app")).toBe(false);
     expect(isUsableOtpEmail("a@example.com")).toBe(false);
     expect(isUsableOtpEmail("real@school.ke")).toBe(true);
   });
@@ -285,6 +286,89 @@ describe("issuePhoneOtp › registered parent in production › live SMS, no san
     expect(result.body.source).toBe("sms");
     expect(result.body.sandbox_otp).toBeUndefined();
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("Given a demo driver with a synthetic email, When AT rejects SMS, Then OTP is emailed to tenant contact_email", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          SMSMessageData: {
+            Recipients: [{ status: "UserInBlacklist", statusCode: 406 }],
+          },
+        }),
+      })
+    );
+
+    const client = mockClient({
+      profile: {
+        id: PROFILE_ID,
+        tenant_id: TENANT_ID,
+        status: "Available",
+        otp_code: null,
+        email: "driver.azima-demo@demo.onthebus.app",
+      },
+      tenant: {
+        is_demo: true,
+        domain: "azima-demo",
+        contact_email: "lead@school.ke",
+      },
+    });
+
+    const result = await issuePhoneOtp(client as unknown as SupabaseClient, {
+      ...baseInput,
+      phone: "+254700000099",
+      roles: ["driver", "conductor"],
+      enforceUnavailableStatus: true,
+    });
+
+    expect(result.status).toBe(200);
+    expect(result.body.source).toBe("email");
+    expect(result.body.email_hint).toBe("l***@school.ke");
+    expect(sendResendEmail).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendResendEmail).mock.calls[0][0].to).toBe("lead@school.ke");
+  });
+
+  it("Given a demo driver with no lead email, When AT rejects SMS, Then 502", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({
+          SMSMessageData: {
+            Recipients: [{ status: "UserInBlacklist", statusCode: 406 }],
+          },
+        }),
+      })
+    );
+
+    const client = mockClient({
+      profile: {
+        id: PROFILE_ID,
+        tenant_id: TENANT_ID,
+        status: "Available",
+        otp_code: null,
+        email: "driver.azima-demo@demo.onthebus.app",
+      },
+      tenant: {
+        is_demo: true,
+        domain: "azima-demo",
+        contact_email: "admin.azima@demo.onthebus.app",
+      },
+    });
+
+    const result = await issuePhoneOtp(client as unknown as SupabaseClient, {
+      ...baseInput,
+      phone: "+254700000099",
+      roles: ["driver", "conductor"],
+    });
+
+    expect(result.status).toBe(502);
+    expect(result.body.success).toBe(false);
+    expect(sendResendEmail).not.toHaveBeenCalled();
   });
 });
 

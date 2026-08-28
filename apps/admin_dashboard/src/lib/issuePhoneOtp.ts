@@ -37,6 +37,23 @@ type ProfileRow = {
   email: string | null;
 };
 
+type TenantRow = {
+  is_demo: boolean | null;
+  domain: string | null;
+  contact_email: string | null;
+};
+
+function resolveOtpEmail(
+  profileEmail: string | null | undefined,
+  tenant: TenantRow | null
+): string | null {
+  if (isUsableOtpEmail(profileEmail)) return profileEmail!.trim();
+  if (tenant?.is_demo === true && isUsableOtpEmail(tenant.contact_email)) {
+    return tenant.contact_email!.trim();
+  }
+  return null;
+}
+
 async function withTimeout<T>(
   promise: PromiseLike<T>,
   ms: number,
@@ -70,6 +87,7 @@ export function isUsableOtpEmail(email: string | null | undefined): boolean {
   const trimmed = email.trim().toLowerCase();
   if (!trimmed.includes("@") || trimmed.includes(" ")) return false;
   if (trimmed.endsWith("@example.com")) return false;
+  if (trimmed.endsWith("@demo.onthebus.app")) return false;
   if (trimmed.endsWith("@users.onthebusapp.internal")) return false;
   if (trimmed.startsWith("parent+")) return false;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
@@ -158,7 +176,7 @@ export async function issuePhoneOtp(
 
   const { data: tenant } = await client
     .from("tenants")
-    .select("is_demo, domain")
+    .select("is_demo, domain, contact_email")
     .eq("id", profile.tenant_id)
     .maybeSingle();
 
@@ -215,7 +233,7 @@ export async function issuePhoneOtp(
     };
   }
 
-  const usableEmail = isUsableOtpEmail(profile.email) ? profile.email!.trim() : null;
+  const usableEmail = resolveOtpEmail(profile.email, tenant as TenantRow | null);
   const emailHint = usableEmail ? maskEmailHint(usableEmail) : undefined;
 
   const sendOtpEmail = async (): Promise<IssuePhoneOtpResult> => {
@@ -225,7 +243,7 @@ export async function issuePhoneOtp(
         body: {
           success: false,
           error:
-            "No email on file for this account. Ask your school to add a guardian email.",
+            "No email on file for this account. Ask your school to add one, or retry SMS.",
         },
       };
     }
