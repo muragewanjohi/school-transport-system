@@ -40,6 +40,22 @@ void main() {
       expect(File('android/app/src/main/res/drawable/ic_stat_onthebus.xml').existsSync(), isTrue);
     });
 
+    test('iOS xcconfig includes Secrets after Generated so Maps key survives pod install', () {
+      for (final name in ['Debug.xcconfig', 'Release.xcconfig']) {
+        final lines = File('ios/Flutter/$name')
+            .readAsLinesSync()
+            .map((line) => line.trim())
+            .where((line) => line.isNotEmpty && !line.startsWith('//'))
+            .toList();
+        expect(lines, contains('#include? "Secrets.xcconfig"'));
+        expect(
+          lines.last,
+          '#include? "Secrets.xcconfig"',
+          reason: '$name must include Secrets last',
+        );
+      }
+    });
+
     test('iOS Info.plist has camera, photos, and export-compliance keys', () {
       final plist = _normalize(File('ios/Runner/Info.plist').readAsStringSync());
       expect(plist.contains('NSCameraUsageDescription'), isTrue);

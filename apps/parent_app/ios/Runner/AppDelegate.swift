@@ -9,8 +9,12 @@ import GoogleMaps
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    if let apiKey = Bundle.main.object(forInfoDictionaryKey: "GoogleMapsApiKey") as? String, !apiKey.isEmpty {
+    if let apiKey = Bundle.main.object(forInfoDictionaryKey: "GoogleMapsApiKey") as? String,
+       !apiKey.isEmpty,
+       !apiKey.hasPrefix("$(") {
       GMSServices.provideAPIKey(apiKey)
+    } else {
+      NSLog("Google Maps API key missing from Info.plist; map tiles will not load")
     }
     UNUserNotificationCenter.current().delegate = self
     let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)

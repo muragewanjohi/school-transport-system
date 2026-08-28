@@ -34,14 +34,6 @@ workflows:
       vars:
         BUNDLE_ID: com.schooltrack.parentApp
     scripts:
-      - name: Write Google Maps iOS key
-        script: |
-          set -euo pipefail
-          if [ -z "${MAPS_API_KEY:-}" ]; then
-            echo "MAPS_API_KEY is not set in Codemagic environment variables."
-            exit 1
-          fi
-          echo "MAPS_API_KEY=${MAPS_API_KEY}" > ios/Flutter/Secrets.xcconfig
       - name: Get Flutter packages
         script: |
           flutter pub get
@@ -50,6 +42,20 @@ workflows:
           cd ios
           rm -f Podfile.lock
           pod install --repo-update
+      - name: Inject Google Maps iOS key
+        script: |
+          set -euo pipefail
+          if [ -z "${MAPS_API_KEY:-}" ]; then
+            echo "MAPS_API_KEY is not set in Codemagic environment variables."
+            exit 1
+          fi
+          # pod install can rewrite Flutter/*.xcconfig and drop Secrets. Write the
+          # key after pods, restore the include, and stamp Info.plist so tiles load.
+          echo "MAPS_API_KEY=${MAPS_API_KEY}" > ios/Flutter/Secrets.xcconfig
+          for f in ios/Flutter/Debug.xcconfig ios/Flutter/Release.xcconfig; do
+            grep -q 'Secrets.xcconfig' "$f" || echo '#include? "Secrets.xcconfig"' >> "$f"
+          done
+          /usr/libexec/PlistBuddy -c "Set :GoogleMapsApiKey ${MAPS_API_KEY}" ios/Runner/Info.plist
       - name: Set up code signing settings on Xcode project
         script: |
           set -euo pipefail
