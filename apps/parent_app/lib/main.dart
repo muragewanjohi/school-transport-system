@@ -6,6 +6,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:parent_app/firebase_options.dart';
 import 'package:parent_app/services/parent_push_service.dart';
+import 'package:parent_app/services/parent_api_auth.dart';
 import 'package:parent_app/services/supabase_service.dart';
 import 'package:parent_app/screens/login_screen.dart';
 import 'package:parent_app/screens/dashboard_screen.dart';
@@ -29,6 +30,14 @@ void main() async {
   // Check login state: SharedPreferences and/or restored Supabase Auth session
   final prefs = await SharedPreferences.getInstance();
   final prefsLoggedIn = prefs.getBool('is_logged_in') ?? false;
+  final storedRefresh = prefs.getString(ParentApiAuth.supabaseRefreshKey);
+  if ((Supabase.instance.client.auth.currentSession == null) &&
+      storedRefresh != null &&
+      storedRefresh.isNotEmpty) {
+    try {
+      await Supabase.instance.client.auth.setSession(storedRefresh);
+    } catch (_) {}
+  }
   final hasSupabaseSession = Supabase.instance.client.auth.currentSession != null;
   final isLoggedIn = prefsLoggedIn || hasSupabaseSession;
   final onboardingDone = prefs.getBool(parentOnboardingCompleteKey) ?? false;

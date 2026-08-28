@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'package:parent_app/services/parent_avatar_api.dart';
 import 'package:parent_app/utils/parent_avatar_logic.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -120,13 +121,21 @@ class SupabaseService {
     required String fileName,
   }) async {
     try {
+      if (targetTable != 'students' && targetTable != 'profiles') {
+        print('Error uploading avatar: unsupported table $targetTable');
+        return null;
+      }
+
+      final viaApi = await ParentAvatarApi.upload(
+        target: targetTable,
+        id: id,
+        imageBytes: imageBytes,
+      );
+      if (viaApi != null && viaApi.isNotEmpty) return viaApi;
+
       final uid = client.auth.currentUser?.id;
       if (uid == null || uid.isEmpty) {
         print('Error uploading avatar: no Supabase Auth session');
-        return null;
-      }
-      if (targetTable != 'students' && targetTable != 'profiles') {
-        print('Error uploading avatar: unsupported table $targetTable');
         return null;
       }
 
@@ -139,7 +148,7 @@ class SupabaseService {
       await client.storage.from('avatars').uploadBinary(
             storagePath,
             Uint8List.fromList(imageBytes),
-            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
+            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: false),
           );
 
       final String publicUrl = client.storage.from('avatars').getPublicUrl(storagePath);
@@ -161,6 +170,14 @@ class SupabaseService {
     required String fileName,
   }) async {
     try {
+      final viaApi = await ParentAvatarApi.upload(
+        target: 'guardian',
+        id: studentId,
+        imageBytes: imageBytes,
+        guardianPhone: guardianPhone,
+      );
+      if (viaApi != null && viaApi.isNotEmpty) return viaApi;
+
       final uid = client.auth.currentUser?.id;
       if (uid == null || uid.isEmpty) {
         print('Error uploading guardian avatar: no Supabase Auth session');
@@ -188,7 +205,7 @@ class SupabaseService {
       await client.storage.from('avatars').uploadBinary(
             storagePath,
             Uint8List.fromList(imageBytes),
-            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
+            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: false),
           );
 
       final publicUrl = client.storage.from('avatars').getPublicUrl(storagePath);

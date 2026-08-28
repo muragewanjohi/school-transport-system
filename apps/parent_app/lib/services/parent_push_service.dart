@@ -10,6 +10,7 @@ import 'package:parent_app/config/api_config.dart';
 import 'package:parent_app/firebase_options.dart';
 import 'package:parent_app/services/parent_api_auth.dart';
 import 'package:parent_app/services/supabase_service.dart';
+import 'package:parent_app/utils/parent_push_logic.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 @pragma('vm:entry-point')
@@ -34,6 +35,9 @@ class ParentPushService {
     final androidPlugin =
         _local.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     await androidPlugin?.requestNotificationsPermission();
+    final iosPlugin =
+        _local.resolvePlatformSpecificImplementation<IOSFlutterLocalNotificationsPlugin>();
+    await iosPlugin?.requestPermissions(alert: true, badge: true, sound: true);
     // Create the high-importance channel before FCM delivers background pushes.
     await androidPlugin?.createNotificationChannel(
       const AndroidNotificationChannel(
@@ -98,8 +102,16 @@ class ParentPushService {
       }
       final messaging = FirebaseMessaging.instance;
       await messaging.requestPermission(alert: true, badge: true, sound: true);
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
       if (!_fcmReady) {
         FirebaseMessaging.onMessage.listen((message) {
+          // iOS presents FCM notification payloads itself when foreground
+          // options are on; a second local banner would duplicate the alert.
+          if (Platform.isIOS && message.notification != null) return;
           final notification = message.notification;
           final title = notification?.title ?? message.data['title']?.toString();
           final body = notification?.body ?? message.data['message']?.toString();
@@ -110,16 +122,44 @@ class ParentPushService {
         messaging.onTokenRefresh.listen(upsertToken);
         _fcmReady = true;
       }
+      if (Platform.isIOS) {
+        final apns = await _waitForApnsToken(messaging);
+        if (iosMustWaitForApns(isIOS: true, apnsToken: apns)) {
+          debugPrint('FCM register skipped: no APNs token');
+          return;
+        }
+      }
+      // Android: rotate after reinstall so UNREGISTERED tokens are not reused.
+      // iOS: keep the APNs mapping — deleteToken before APNs is ready leaves getToken null.
+      if (shouldRotateFcmTokenOnLogin(isIOS: Platform.isIOS)) {
+        try {
+          await messaging.deleteToken();
+        } catch (_) {}
+      }
       final token = await messaging.getToken().timeout(
         const Duration(seconds: 8),
       );
       if (token == null || token.isEmpty) return;
-      await upsertToken(token);
+      var saved = await upsertToken(token);
+      if (!saved) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        saved = await upsertToken(token);
+      }
+      if (!saved) return;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(tokenPrefsKey, token);
     } catch (_) {
       debugPrint('FCM register skipped');
     }
+  }
+
+  static Future<String?> _waitForApnsToken(FirebaseMessaging messaging) async {
+    for (var i = 0; i < apnsTokenPollAttempts; i++) {
+      final apns = await messaging.getAPNSToken();
+      if (hasUsableApnsToken(apns)) return apns;
+      await Future<void>.delayed(apnsTokenPollDelay(i));
+    }
+    return messaging.getAPNSToken();
   }
 
   static String deviceType() {
@@ -129,7 +169,7 @@ class ParentPushService {
     return 'android';
   }
 
-  static Future<void> upsertToken(String token) async {
+  static Future<bool> upsertToken(String token) async {
     try {
       final headers = await ParentApiAuth.headers();
       if (headers['Authorization'] != null) {
@@ -141,21 +181,26 @@ class ParentPushService {
               body: json.encode({'token': token, 'device_type': deviceType()}),
             )
             .timeout(const Duration(seconds: 10));
-        if (response.statusCode == 200) return;
+        if (response.statusCode == 200) return true;
       }
     } catch (_) {}
 
     final userId = SupabaseService.client.auth.currentUser?.id;
-    if (userId == null) return;
-    await SupabaseService.client.from('user_fcm_tokens').upsert(
-      {
-        'user_id': userId,
-        'token': token,
-        'device_type': deviceType(),
-        'updated_at': DateTime.now().toUtc().toIso8601String(),
-      },
-      onConflict: 'user_id,token',
-    );
+    if (userId == null) return false;
+    try {
+      await SupabaseService.client.from('user_fcm_tokens').upsert(
+        {
+          'user_id': userId,
+          'token': token,
+          'device_type': deviceType(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        onConflict: 'user_id,token',
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<void> deleteToken(String token) async {

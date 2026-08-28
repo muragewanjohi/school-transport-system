@@ -111,6 +111,8 @@ describe("500 m stage approach", () => {
     ];
     const alerts = evaluateStageApproachAlerts({
       tripId,
+      direction: "HOME_TO_SCHOOL",
+      vehiclePlate: "KBC 123X",
       students: [
         { ...students[0], distanceMeters: 420 },
         { ...students[1], distanceMeters: 900 },
@@ -121,12 +123,27 @@ describe("500 m stage approach", () => {
     expect(alerts[0]?.studentId).toBe("stu-a");
     expect(alerts[0]?.kind).toBe("proximity");
     expect(alerts[0]?.message).toContain("Westlands Gate");
+    expect(alerts[0]?.message).toContain("Please prepare Child A");
+  });
+
+  it("Given a drop-off run, When proximity is evaluated, Then the message does not ask to prepare the student", () => {
+    const alerts = evaluateStageApproachAlerts({
+      tripId,
+      direction: "SCHOOL_TO_HOME",
+      vehiclePlate: "KDA DEMO",
+      students: [{ ...students[0], distanceMeters: 200 }],
+      alreadySent: [],
+    });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]?.message).toContain("dropped off shortly");
+    expect(alerts[0]?.message.toLowerCase()).not.toContain("prepare");
   });
 
   it("Given a 500 m alert already sent for this trip, When proximity is evaluated again, Then it is not sent twice", () => {
     expect(shouldSendStageApproach({ withinApproachRing: true, alreadySent: true })).toBe(false);
     const alerts = evaluateStageApproachAlerts({
       tripId,
+      direction: "HOME_TO_SCHOOL",
       students: [{ ...students[0], distanceMeters: 100 }],
       alreadySent: [{ studentId: "stu-a", tripId, kind: "proximity" }],
     });

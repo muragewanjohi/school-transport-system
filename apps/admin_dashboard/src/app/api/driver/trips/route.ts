@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { tallyManifestAttendance } from "@/lib/dropoffCampusBoarding";
+import { syncScheduledTripIfNeeded } from "@/lib/scheduledTripManifest";
 
 const mockDriverTrips = [
   {
@@ -166,15 +167,18 @@ export async function GET(request: Request) {
     for (const schedule of schedules) {
       const { data: existingTrip } = await client
         .from("trips")
-        .select("id")
+        .select("id, status")
         .eq("schedule_id", schedule.id)
         .eq("trip_date", todayStr)
         .eq("tenant_id", tenantId)
-        .limit(1);
+        .maybeSingle();
 
-      if (!existingTrip || existingTrip.length === 0) {
-        // Generate trip automatically!
-        const tripId = crypto.randomUUID();
+      let tripId = existingTrip?.id as string | undefined;
+      let tripStatus = existingTrip?.status as string | undefined;
+
+      if (!tripId) {
+        tripId = crypto.randomUUID();
+        tripStatus = "scheduled";
         const tripPayload = {
           id: tripId,
           tenant_id: schedule.tenant_id,
@@ -190,31 +194,18 @@ export async function GET(request: Request) {
           .from("trips")
           .insert(tripPayload);
 
-        if (!insertErr) {
-          // Snap students associated with this schedule and insert manifest entries
-          const { data: students } = await client
-            .from("students")
-            .select("id")
-            .eq("tenant_id", tenantId)
-            .contains("schedule_ids", [schedule.id]);
-
-          if (students && students.length > 0) {
-            const manifestPayloads = students.map(std => ({
-              id: crypto.randomUUID(),
-              tenant_id: schedule.tenant_id,
-              trip_id: tripId,
-              student_id: std.id,
-              attendance: "pending"
-            }));
-
-            await client
-              .from("trip_manifests")
-              .insert(manifestPayloads);
-          }
-        } else {
+        if (insertErr) {
           console.error("Error creating auto-trip:", insertErr.message);
+          continue;
         }
       }
+
+      await syncScheduledTripIfNeeded(client, {
+        tenantId,
+        tripId,
+        scheduleId: schedule.id,
+        status: tripStatus,
+      });
     }
 
     // Now query all trips for today for this vehicle

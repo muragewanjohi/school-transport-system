@@ -37,4 +37,18 @@ void main() {
     expect(updated[1]['avatar_url'], 'https://cdn/avatar.jpg');
     expect(indexOfGuardianByPhone(updated, '0700111222'), 1);
   });
+
+  test('avatarApiPayload includes target, id, and base64 bytes', () {
+    final payload = avatarApiPayload(
+      target: 'students',
+      id: 'student-1',
+      imageBytes: [1, 2, 3, 4],
+      guardianPhone: '+254700111222',
+    );
+    expect(payload['target'], 'students');
+    expect(payload['id'], 'student-1');
+    expect(payload['guardian_phone'], '+254700111222');
+    expect(payload['image_base64'], isA<String>());
+    expect((payload['image_base64'] as String).isNotEmpty, isTrue);
+  });
 }

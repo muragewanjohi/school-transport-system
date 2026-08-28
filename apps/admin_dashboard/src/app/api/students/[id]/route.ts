@@ -17,6 +17,7 @@ import {
   studentDbWriteFields,
   STUDENT_PROFILE_COLUMNS,
 } from "@/lib/studentRecord";
+import { syncTodayScheduledManifestsForSchedules, utcTripDate } from "@/lib/scheduledTripManifest";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -303,6 +304,19 @@ export async function PUT(
 
     const updatePayload = studentDbWriteFields(result.data);
 
+    let previousScheduleIds: string[] = [];
+    if (result.data.schedule_ids) {
+      const { data: currentStudent } = await client
+        .from("students")
+        .select("schedule_ids")
+        .eq("id", id)
+        .eq("tenant_id", scope.tenantId)
+        .maybeSingle();
+      previousScheduleIds = Array.isArray(currentStudent?.schedule_ids)
+        ? (currentStudent.schedule_ids as string[])
+        : [];
+    }
+
     if (result.data.guardians) {
       const ensured = await ensureParentProfilesFromGuardians(
         client,
@@ -329,6 +343,14 @@ export async function PUT(
     if (error) {
       console.error("Supabase student update error:", error.message);
       return NextResponse.json({ success: false, error: "Failed to update student" }, { status: 500 });
+    }
+
+    if (result.data.schedule_ids) {
+      await syncTodayScheduledManifestsForSchedules(client, {
+        tenantId: scope.tenantId,
+        scheduleIds: [...previousScheduleIds, ...result.data.schedule_ids],
+        tripDate: utcTripDate(),
+      });
     }
 
     // Sync trip manifest attendance if student status changes and there is an active trip today

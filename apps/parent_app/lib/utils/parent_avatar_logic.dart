@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// Pure helpers for parent avatar uploads (storage path + guardian JSONB).
 
 /// Storage RLS requires the first folder segment to equal `auth.uid()`.
@@ -18,6 +20,21 @@ String? avatarObjectPathFromPublicUrl(String publicUrl) {
   if (idx < 0) return null;
   final path = publicUrl.substring(idx + marker.length).split('?').first;
   return path.isEmpty ? null : path;
+}
+
+/// JSON body for `POST /api/parent/avatar` (HMAC session, no PII besides ids).
+Map<String, dynamic> avatarApiPayload({
+  required String target,
+  required String id,
+  required List<int> imageBytes,
+  String? guardianPhone,
+}) {
+  return {
+    'target': target,
+    'id': id,
+    'image_base64': base64Encode(imageBytes),
+    if (guardianPhone != null && guardianPhone.isNotEmpty) 'guardian_phone': guardianPhone,
+  };
 }
 
 String normalizeGuardianPhone(String? phone) {

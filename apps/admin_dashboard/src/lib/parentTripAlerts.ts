@@ -19,6 +19,12 @@ export type StopLeg = {
 const DEFAULT_CAMPUS_EXIT_TEMPLATE =
   "Hi {parent_name}, Bus {vehicle_plate} has left school. {student_name} will be {action} at {stop_name} around {eta_time} (about {duration_mins} min).";
 
+export const DEFAULT_APPROACH_PICKUP_TEMPLATE =
+  "Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. Please prepare {student_name}.";
+
+export const DEFAULT_APPROACH_DROPOFF_TEMPLATE =
+  "Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. {student_name} will be dropped off shortly.";
+
 export function isOutsideCampus(
   distanceMeters: number | null | undefined,
   radiusMeters = CAMPUS_EXIT_RADIUS_METERS
@@ -78,6 +84,25 @@ export function etaSecondsToStop(stops: ReadonlyArray<StopLeg>, studentStopId: s
 export function durationMinsFromSeconds(seconds: number): number {
   const mins = Math.round(seconds / 60);
   return mins <= 0 ? 5 : mins;
+}
+
+export function formatStageApproachMessage(input: {
+  parentName: string;
+  studentName: string;
+  vehiclePlate: string;
+  stopName: string;
+  direction: TransitDirection;
+  pickupTemplate?: string;
+}): string {
+  const template =
+    input.direction === "SCHOOL_TO_HOME"
+      ? DEFAULT_APPROACH_DROPOFF_TEMPLATE
+      : input.pickupTemplate?.trim() || DEFAULT_APPROACH_PICKUP_TEMPLATE;
+  return template
+    .replaceAll("{parent_name}", input.parentName)
+    .replaceAll("{student_name}", input.studentName)
+    .replaceAll("{vehicle_plate}", input.vehiclePlate)
+    .replaceAll("{stop_name}", input.stopName);
 }
 
 export function formatCampusExitMessage(input: {
@@ -161,9 +186,12 @@ export function evaluateCampusExitAlerts(input: {
 
 export function evaluateStageApproachAlerts(input: {
   tripId: string;
+  direction: TransitDirection;
+  vehiclePlate?: string;
   approachRadiusMeters?: number;
   students: ReadonlyArray<TripStudentAlert & { distanceMeters: number }>;
   alreadySent: ReadonlyArray<ParentAlertKey>;
+  pickupTemplate?: string;
 }): EvaluatedParentAlert[] {
   const radius = input.approachRadiusMeters ?? DEFAULT_APPROACH_RADIUS_METERS;
   const out: EvaluatedParentAlert[] = [];
@@ -179,7 +207,14 @@ export function evaluateStageApproachAlerts(input: {
       kind: "proximity",
       stopName: student.stopName,
       durationMins: 0,
-      message: `Bus is approaching ${student.stopName}. Please prepare ${student.studentName}.`,
+      message: formatStageApproachMessage({
+        parentName: student.parentName,
+        studentName: student.studentName,
+        vehiclePlate: input.vehiclePlate || "assigned bus",
+        stopName: student.stopName,
+        direction: input.direction,
+        pickupTemplate: input.pickupTemplate,
+      }),
     });
   }
   return out;

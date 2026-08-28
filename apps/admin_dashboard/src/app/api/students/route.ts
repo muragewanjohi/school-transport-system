@@ -11,6 +11,7 @@ import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { duplicateGuardianPhoneError, attachGuardianPhotos, parentPhotoIndex } from "@/lib/studentGuardians";
 import { studentDbWriteFields } from "@/lib/studentRecord";
 import { ensureParentProfilesFromGuardians } from "@/lib/ensureParentProfiles";
+import { syncTodayScheduledManifestsForSchedules } from "@/lib/scheduledTripManifest";
 
 const guardianSchema = z.object({
   name: z.string().min(2, "Guardian name must be at least 2 characters"),
@@ -246,6 +247,13 @@ export async function POST(request: Request) {
     if (error) {
       console.error("Supabase student insert error:", error.message);
       return NextResponse.json({ success: false, error: "Failed to register student" }, { status: 500 });
+    }
+
+    if (result.data.schedule_ids.length > 0) {
+      await syncTodayScheduledManifestsForSchedules(client, {
+        tenantId,
+        scheduleIds: result.data.schedule_ids,
+      });
     }
 
     return NextResponse.json({ success: true, source: "supabase", data: studentInsert });

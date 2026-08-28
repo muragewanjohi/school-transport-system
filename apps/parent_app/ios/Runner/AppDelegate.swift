@@ -1,5 +1,6 @@
 import Flutter
 import UIKit
+import UserNotifications
 import GoogleMaps
 
 @main
@@ -11,7 +12,10 @@ import GoogleMaps
     if let apiKey = Bundle.main.object(forInfoDictionaryKey: "GoogleMapsApiKey") as? String, !apiKey.isEmpty {
       GMSServices.provideAPIKey(apiKey)
     }
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    UNUserNotificationCenter.current().delegate = self
+    let launched = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    application.registerForRemoteNotifications()
+    return launched
   }
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {

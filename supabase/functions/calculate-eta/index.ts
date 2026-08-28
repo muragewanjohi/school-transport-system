@@ -30,6 +30,11 @@ function calculateFallbackDuration(
   return durationSeconds;
 }
 
+const DROPOFF_APPROACH_TEMPLATE =
+  "Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. {student_name} will be dropped off shortly.";
+const PICKUP_APPROACH_TEMPLATE =
+  "Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. Please prepare {student_name}.";
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -87,7 +92,27 @@ Deno.serve(async (req) => {
     }
 
     const smsEnabled = config?.sms_notifications_enabled || false;
-    const template = config?.sms_template_geofence || "Hi {parent_name}, Bus {vehicle_plate} is approaching {stop_name}. Please prepare {student_name}.";
+    const today = new Date().toISOString().split("T")[0];
+    const { data: studentRow } = await supabase
+      .from("students")
+      .select("route_id")
+      .eq("id", student_id)
+      .maybeSingle();
+    const { data: liveTrip } = studentRow?.route_id
+      ? await supabase
+          .from("trips")
+          .select("schedules(direction)")
+          .eq("route_id", studentRow.route_id)
+          .eq("status", "in_progress")
+          .eq("trip_date", today)
+          .maybeSingle()
+      : { data: null };
+    const scheduleRel = liveTrip?.schedules as { direction?: string } | { direction?: string }[] | null;
+    const scheduleDirection = Array.isArray(scheduleRel) ? scheduleRel[0]?.direction : scheduleRel?.direction;
+    const isDropoff = scheduleDirection === "SCHOOL_TO_HOME";
+    const template = isDropoff
+      ? DROPOFF_APPROACH_TEMPLATE
+      : (config?.sms_template_geofence || PICKUP_APPROACH_TEMPLATE);
     const googleApiKey = config?.google_maps_api_key || Deno.env.get("GOOGLE_MAPS_API_KEY") || "";
 
     let durationSeconds = 300; // default 5 minutes
@@ -117,8 +142,9 @@ Deno.serve(async (req) => {
         } else {
           console.error("[Google Maps] API response error:", matrixData);
         }
-      } catch (e: any) {
-        console.error("[Google Maps] Network/Fetch error:", e.message);
+      } catch (e: unknown) {
+        const errorMessage = e instanceof Error ? e.message : "network error";
+        console.error("[Google Maps] Network/Fetch error:", errorMessage);
       }
     }
 

@@ -4,36 +4,42 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Student location search is Google Maps only |
-| **Stack** | Next.js admin dashboard |
-| **Owner path(s)** | `apps/admin_dashboard/src/components/HomeLocationMapPicker.tsx`, `apps/admin_dashboard/src/lib/homeLocationSearch.ts` |
+| **Name** | Parent iOS lock-screen push |
+| **Stack** | Flutter parent app + Deno `send-push` |
+| **Owner path(s)** | `apps/parent_app/lib/services/parent_push_service.dart`, `apps/parent_app/lib/utils/parent_push_logic.dart`, `apps/parent_app/ios/Runner/RunnerRelease.entitlements`, `supabase/functions/send-push/index.ts` |
 | **Started** | 2026-08-28 |
 | **Status** | `passing` |
 
 ## Goal
 
-Student (and shared home-location) search uses Google Places via `/api/maps/places`. OpenStreetMap Nominatim is not called from the admin console.
+iPhone lock-screen alerts require an APNs token before FCM `getToken()`. Inbox rows must not be treated as proof that APNs/FCM registered.
 
 ## Scenarios
 
 ```gherkin
-Feature: Student location search is Google Maps only
+Feature: Parent iOS lock-screen push
 
-  Scenario: Places results map to picker suggestions
-    Given Google Places returns Ruaka with lat/lon
-    When results are mapped for the home location picker
-    Then each suggestion uses Google Places as the source
-    And center is [lon, lat]
+  Scenario: iOS waits for APNs before minting FCM
+    Given the parent app is running on iOS
+    And Apple has not yet issued an APNs device token
+    When login tries to register FCM
+    Then getToken is not called until an APNs token exists
 
-  Scenario: Nominatim is not a search source
-    Given the home location picker search helper
-    When suggestion sources are listed
-    Then OpenStreetMap and Nominatim are not included
+  Scenario: iOS does not rotate FCM on every login
+    Given the parent app is running on iOS
+    When the parent logs in
+    Then the existing FCM token is kept so the APNs mapping is not dropped
+
+  Scenario: Android still rotates FCM on login
+    Given the parent app is running on Android
+    When the parent logs in
+    Then a fresh FCM token is minted so UNREGISTERED tokens are not reused
 ```
 
 ## Automation map
 
 | Scenario | Test path | Status |
 | :--- | :--- | :--- |
-| Places results map to picker suggestions | `apps/admin_dashboard/src/lib/homeLocationSearch.test.ts` | passing |
-| Nominatim is not a search source | `apps/admin_dashboard/src/lib/homeLocationSearch.test.ts` | passing |
+| iOS waits for APNs before minting FCM | `apps/parent_app/test/parent_push_logic_test.dart` | passing |
+| iOS does not rotate FCM on every login | `apps/parent_app/test/parent_push_logic_test.dart` | passing |
+| Android still rotates FCM on login | `apps/parent_app/test/parent_push_logic_test.dart` | passing |

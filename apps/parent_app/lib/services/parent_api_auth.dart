@@ -2,6 +2,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ParentApiAuth {
   static const String tokenKey = 'access_token';
+  static const String supabaseRefreshKey = 'supabase_refresh_token';
 
   static Future<Map<String, String>> headers({bool jsonBody = true}) async {
     final prefs = await SharedPreferences.getInstance();
@@ -24,5 +25,19 @@ class ParentApiAuth {
     } else {
       await prefs.setString(tokenKey, token);
     }
+  }
+
+  static Future<void> persistSupabaseRefresh(String? token) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (token == null || token.isEmpty) {
+      await prefs.remove(supabaseRefreshKey);
+    } else {
+      await prefs.setString(supabaseRefreshKey, token);
+    }
+  }
+
+  static Future<String?> supabaseRefreshToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(supabaseRefreshKey);
   }
 }

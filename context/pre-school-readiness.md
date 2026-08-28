@@ -27,7 +27,7 @@ Seed play-review from `apps/admin_dashboard`: `npm run seed:play-review` (creden
 | Gap | Reality today |
 | :--- | :--- |
 | NFC boarding | Permissions exist; boarding is **manual checklist** + stop geofence gate. Badges should still store UUID only when used. |
-| Parent lock-screen push | `send-push` webhook now calls `net.http_post` correctly (was broken). Still needs `FIREBASE_SERVICE_ACCOUNT` on that Edge Function secret, a device FCM token after parent login, and an APNs key for iPhone. Parent iOS bundle ID is `com.schooltrack.parentApp`. In-app inbox + immediate trip-start rows work without FCM. |
+| Parent lock-screen push | Inbox + trip-start rows work without FCM. Lock-screen needs `FIREBASE_SERVICE_ACCOUNT` on `send-push`, a live `user_fcm_tokens` row after login, and an APNs Authentication Key on Firebase project `school-transport-system-f606a` for iOS bundle `com.schooltrack.parentApp`. Parent iOS must be rebuilt with the Push entitlement; login waits for an APNs token before FCM `getToken()`. |
 | Attendance / alerts history consoles | Still Next Up on admin — live dashboard + mobile are the proof. |
 | Traffic-aware ETA | Out of scope for v1 — geometric progress + stored leg durations (not Distance Matrix / live traffic). |
 | Billing pay | School `/billing` is viewable; treat card/M-Pesa pay as simulated unless you have confirmed live payment. |

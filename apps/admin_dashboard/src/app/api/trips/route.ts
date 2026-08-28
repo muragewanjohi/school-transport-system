@@ -7,6 +7,7 @@ import {
   shouldBlockDropoffStart,
 } from "@/lib/dropoffCampusBoarding";
 import { durationSecondsFromRange } from "@/lib/schoolArrival";
+import { syncScheduledTripIfNeeded } from "@/lib/scheduledTripManifest";
 
 const tripCreateSchema = z.object({
   schedule_id: z.string().min(1, "Invalid Schedule selection"),
@@ -188,6 +189,21 @@ export async function GET(request: Request) {
     const client = scope.client;
 
     if (tripId) {
+      const { data: tripRow } = await client
+        .from("trips")
+        .select("id, status, schedule_id")
+        .eq("id", tripId)
+        .eq("tenant_id", scope.tenantId)
+        .maybeSingle();
+      if (tripRow?.schedule_id) {
+        await syncScheduledTripIfNeeded(client, {
+          tenantId: scope.tenantId,
+          tripId,
+          scheduleId: tripRow.schedule_id,
+          status: tripRow.status,
+        });
+      }
+
       // Get detailed manifest of a trip
       const { data: manifests, error: manifestError } = await client
         .from("trip_manifests")

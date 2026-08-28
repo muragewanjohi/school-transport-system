@@ -79,6 +79,16 @@ async function getGoogleAccessToken(serviceAccount: FirebaseServiceAccount): Pro
   return data.access_token;
 }
 
+function isUnregisteredFcmError(resData: unknown): boolean {
+  if (typeof resData !== "object" || resData === null) return false;
+  const err = (resData as {
+    error?: { status?: string; details?: Array<{ errorCode?: string }> };
+  }).error;
+  if (!err) return false;
+  if (err.status === "NOT_FOUND") return true;
+  return (err.details ?? []).some((detail) => detail.errorCode === "UNREGISTERED");
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -186,11 +196,16 @@ Deno.serve(async (req) => {
           apns: {
             headers: {
               "apns-priority": "10",
+              "apns-push-type": "alert",
             },
             payload: {
               aps: {
+                alert: {
+                  title: title,
+                  body: message,
+                },
                 sound: "default",
-                "content-available": 1,
+                badge: 1,
               },
             },
           },
@@ -210,6 +225,15 @@ Deno.serve(async (req) => {
         const resData: unknown = await response.json();
         if (!response.ok) {
           console.error(`FCM send error for token ${row.token.substring(0, 10)}...:`, resData);
+          if (isUnregisteredFcmError(resData)) {
+            const { error: pruneError } = await supabase
+              .from("user_fcm_tokens")
+              .delete()
+              .eq("token", row.token);
+            if (pruneError) {
+              console.error("Failed to prune unregistered FCM token:", pruneError.message);
+            }
+          }
         }
         return { ok: response.ok };
       } catch (e: unknown) {

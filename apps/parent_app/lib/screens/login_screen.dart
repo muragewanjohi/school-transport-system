@@ -239,8 +239,8 @@ class _LoginScreenState extends State<LoginScreen> {
     );
     await prefs.setBool('is_logged_in', true);
     await ParentApiAuth.persistToken(session['access_token']?.toString());
-
     final refresh = session['supabase_refresh_token']?.toString();
+    await ParentApiAuth.persistSupabaseRefresh(refresh);
     if (refresh == null || refresh.isEmpty) return;
     try {
       if (Supabase.instance.isInitialized) {
@@ -248,7 +248,7 @@ class _LoginScreenState extends State<LoginScreen> {
         await Supabase.instance.client.auth.setSession(refresh);
       }
     } catch (_) {
-      // Realtime session is optional; HMAC token still authenticates API calls.
+      // HMAC token still authenticates API calls including photo upload.
     }
   }
 
