@@ -4,6 +4,7 @@ import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { getCallerProfile, isPlatformSuperAdmin } from "@/lib/authApi";
 import { hashIp } from "@/lib/demoSchool";
+import { demoInboxBadgeCount } from "@/lib/demoGoLive";
 import {
   DEMO_DEFAULT_EXPIRY_DAYS,
   extendDemoOtpExpiry,
@@ -138,7 +139,7 @@ export async function GET(request: Request) {
         data: {
           pending_count: pendingCount,
           ready_to_onboard_count: readyToOnboardCount,
-          attention_count: pendingCount + readyToOnboardCount,
+          attention_count: demoInboxBadgeCount(pendingCount),
         },
       });
     }
@@ -370,6 +371,22 @@ export async function PATCH(request: Request) {
       if (!existing.provisioned_tenant_id) {
         return NextResponse.json(
           { success: false, error: "No provisioned demo store to update expiry for" },
+          { status: 400 }
+        );
+      }
+      if (
+        existing.status !== "confirmed" &&
+        existing.status !== "ready_to_onboard"
+      ) {
+        return NextResponse.json(
+          { success: false, error: "Expiry can only be extended while the demo store is active" },
+          { status: 400 }
+        );
+      }
+      const nextExpiry = new Date(parsed.data.demo_expires_at);
+      if (Number.isNaN(nextExpiry.getTime()) || nextExpiry.getTime() <= Date.now()) {
+        return NextResponse.json(
+          { success: false, error: "Expiry must be a future date" },
           { status: 400 }
         );
       }

@@ -35,6 +35,7 @@ import {
   clearDemoProvisionCredentials,
   saveDemoProvisionCredentials,
 } from "@/lib/demoRequestCredentials";
+import { datetimeLocalValueToIso, isoToDatetimeLocalValue } from "@/lib/demoGoLive";
 
 interface SchoolRow {
   id: string;
@@ -287,12 +288,17 @@ function PlatformConsole() {
   };
 
   const handleDemoExpiryChange = async (requestId: string, demoExpiresAt: string) => {
+    const nextIso = datetimeLocalValueToIso(demoExpiresAt);
+    if (!nextIso) {
+      pushToast("error", "Choose a valid expiry date");
+      return;
+    }
     setUpdatingDemoRequestId(requestId);
     try {
       const res = await fetch("/api/demo-requests", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: requestId, demo_expires_at: new Date(demoExpiresAt).toISOString() }),
+        body: JSON.stringify({ id: requestId, demo_expires_at: nextIso }),
       });
       const json = await res.json();
       if (!res.ok || !json.success) {
@@ -330,7 +336,6 @@ function PlatformConsole() {
   const readyToOnboardRequests = demoRequests.filter(
     (request) => request.status === "ready_to_onboard"
   ).length;
-  const demoAttentionCount = pendingDemoRequests + readyToOnboardRequests;
 
   const filtered = schools.filter((school) => {
     const q = search.toLowerCase();
@@ -497,8 +502,8 @@ function PlatformConsole() {
                 {tab.id === "billing" && stats.unpaidCount > 0 && (
                   <span className="tab-badge">{stats.unpaidCount}</span>
                 )}
-                {tab.id === "demos" && demoAttentionCount > 0 && (
-                  <span className="tab-badge">{demoAttentionCount}</span>
+                {tab.id === "demos" && pendingDemoRequests > 0 && (
+                  <span className="tab-badge">{pendingDemoRequests}</span>
                 )}
               </button>
             ))}
@@ -712,16 +717,14 @@ function PlatformConsole() {
                                   className="input"
                                   style={{ marginTop: 4, maxWidth: 200 }}
                                   disabled={updatingDemoRequestId === request.id}
-                                  defaultValue={
-                                    request.demo_expires_at
-                                      ? new Date(request.demo_expires_at).toISOString().slice(0, 16)
-                                      : ""
-                                  }
+                                  defaultValue={isoToDatetimeLocalValue(request.demo_expires_at)}
                                   key={`${request.id}-${request.demo_expires_at || "none"}`}
                                   onBlur={(e) => {
                                     if (!e.target.value || !request.demo_expires_at) return;
-                                    const nextIso = new Date(e.target.value).toISOString();
-                                    if (nextIso === new Date(request.demo_expires_at).toISOString()) return;
+                                    const nextIso = datetimeLocalValueToIso(e.target.value);
+                                    if (isoToDatetimeLocalValue(nextIso) === isoToDatetimeLocalValue(request.demo_expires_at)) {
+                                      return;
+                                    }
                                     void handleDemoExpiryChange(request.id, e.target.value);
                                   }}
                                 />

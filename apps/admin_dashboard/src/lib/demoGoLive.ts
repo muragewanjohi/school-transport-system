@@ -55,8 +55,57 @@ export function canRequestGoLive(input: {
   return { ok: true };
 }
 
+export function demoInboxBadgeCount(pendingCount: number): number {
+  if (!Number.isFinite(pendingCount) || pendingCount <= 0) return 0;
+  return Math.floor(pendingCount);
+}
+
 export function formatDemoRequestStatus(status: string): string {
   return status.replaceAll("_", " ");
+}
+
+export function canEditDemoExpiry(
+  status: string | null | undefined,
+  provisionedTenantId: string | null | undefined
+): boolean {
+  return (
+    (status === "confirmed" || status === "ready_to_onboard") &&
+    Boolean(provisionedTenantId)
+  );
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Local `datetime-local` value (YYYY-MM-DDTHH:mm) from an ISO timestamp. */
+export function isoToDatetimeLocalValue(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+/** ISO timestamp from a `datetime-local` value. Returns null if empty or invalid. */
+export function datetimeLocalValueToIso(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const d = new Date(trimmed);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+/**
+ * Push expiry forward by `days`. If the current expiry is missing or already past,
+ * count from `now` so an expired store can be revived before the daily purge.
+ */
+export function addDaysToDemoExpiry(
+  currentIso: string | null | undefined,
+  days: number,
+  now: Date = new Date()
+): string {
+  const current = currentIso ? new Date(currentIso) : now;
+  const base =
+    Number.isNaN(current.getTime()) || current.getTime() < now.getTime() ? now : current;
+  return new Date(base.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 export function formatDemoExpiryLabel(

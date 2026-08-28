@@ -24,10 +24,14 @@ vi.mock("@/lib/demoRequestEmails", () => ({
   notifySales: vi.fn(),
 }));
 
-import { PATCH } from "@/app/api/demo-requests/route";
+import { GET, PATCH } from "@/app/api/demo-requests/route";
 import { getCallerProfile, isPlatformSuperAdmin } from "@/lib/authApi";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
-import { provisionDemoStore, resetDemoAccessCredentials } from "@/lib/demoProvision";
+import {
+  extendDemoOtpExpiry,
+  provisionDemoStore,
+  resetDemoAccessCredentials,
+} from "@/lib/demoProvision";
 import { notifyDemoReady } from "@/lib/demoRequestEmails";
 
 const REQUEST_ID = "c7ba705a-d6ae-477c-a802-c06951ef2136";
@@ -58,9 +62,14 @@ function mockChain(result: { data: unknown; error: unknown }) {
   const self = () => chain;
   chain.select = vi.fn(self);
   chain.eq = vi.fn(self);
+  chain.in = vi.fn(self);
   chain.update = vi.fn(self);
   chain.single = vi.fn(async () => result);
   chain.maybeSingle = vi.fn(async () => result);
+  chain.then = (
+    resolve: (value: { data: unknown; error: unknown }) => unknown,
+    reject?: (reason: unknown) => unknown
+  ) => Promise.resolve(result).then(resolve, reject);
   return chain;
 }
 
@@ -197,6 +206,156 @@ describe("PATCH /api/demo-requests › resend_access_email", () => {
       email: LEAD_EMAIL,
       adminPassword: "NewPass-xyz789",
       otp: provisionResult.otp,
+    });
+  });
+});
+
+describe("PATCH /api/demo-requests › demo_expires_at", () => {
+  const futureExpiry = "2026-09-15T12:00:00.000Z";
+
+  const readyToOnboard = {
+    id: REQUEST_ID,
+    full_name: "Ada Okello",
+    email: LEAD_EMAIL,
+    school_name: "Azima",
+    country: "Kenya",
+    city: "Nairobi",
+    phone: "+254712345678",
+    status: "ready_to_onboard",
+    provisioned_tenant_id: TENANT_ID,
+    role: "Principal",
+    fleet_size: "1-5",
+    preferred_time: "ASAP",
+    notes: null,
+    reviewed_at: "2026-08-10T08:00:00.000Z",
+    created_at: "2026-08-10T07:00:00.000Z",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getCallerProfile).mockResolvedValue({
+      id: "platform-admin",
+      role: "super_admin",
+      tenant_id: null,
+      email: "platform@onthebus.app",
+      name: "Platform",
+      admin_role: null,
+      phone: null,
+    });
+    vi.mocked(isPlatformSuperAdmin).mockReturnValue(true);
+    vi.mocked(extendDemoOtpExpiry).mockResolvedValue(undefined);
+  });
+
+  it("Given a provisioned demo, When expiry is extended, Then the tenant expiry is updated", async () => {
+    const tenantUpdate = mockChain({ data: null, error: null });
+    const from = vi.fn((table: string) => {
+      if (table === "tenants") return tenantUpdate;
+      return mockChain({ data: readyToOnboard, error: null });
+    });
+    vi.mocked(getServiceSupabaseClient).mockReturnValue({ from } as never);
+
+    const res = await PATCH(
+      jsonRequest({ id: REQUEST_ID, demo_expires_at: futureExpiry })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data.demo_expires_at).toBe(futureExpiry);
+    expect(tenantUpdate.update).toHaveBeenCalledWith({ demo_expires_at: futureExpiry });
+    expect(extendDemoOtpExpiry).toHaveBeenCalledWith(
+      expect.anything(),
+      TENANT_ID,
+      futureExpiry
+    );
+  });
+
+  it("Given no provisioned store, When expiry is patched, Then the request is rejected", async () => {
+    const pending = { ...readyToOnboard, status: "pending", provisioned_tenant_id: null };
+    const from = vi.fn(() => mockChain({ data: pending, error: null }));
+    vi.mocked(getServiceSupabaseClient).mockReturnValue({ from } as never);
+
+    const res = await PATCH(
+      jsonRequest({ id: REQUEST_ID, demo_expires_at: futureExpiry })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/no provisioned demo store/i);
+    expect(extendDemoOtpExpiry).not.toHaveBeenCalled();
+  });
+
+  it("Given a past expiry, When patched, Then the request is rejected", async () => {
+    const from = vi.fn(() => mockChain({ data: readyToOnboard, error: null }));
+    vi.mocked(getServiceSupabaseClient).mockReturnValue({ from } as never);
+
+    const res = await PATCH(
+      jsonRequest({ id: REQUEST_ID, demo_expires_at: "2020-01-01T00:00:00.000Z" })
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/future date/i);
+    expect(extendDemoOtpExpiry).not.toHaveBeenCalled();
+  });
+});
+
+describe("GET /api/demo-requests › summary badge", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getCallerProfile).mockResolvedValue({
+      id: "platform-admin",
+      role: "super_admin",
+      tenant_id: null,
+      email: "platform@onthebus.app",
+      name: "Platform",
+      admin_role: null,
+      phone: null,
+    });
+    vi.mocked(isPlatformSuperAdmin).mockReturnValue(true);
+  });
+
+  function summaryRequest() {
+    return new Request("http://localhost/api/demo-requests?summary=1");
+  }
+
+  it("Given pending and ready_to_onboard leads, When summary is loaded, Then the badge counts pending only", async () => {
+    const from = vi.fn(() =>
+      mockChain({
+        data: [{ status: "pending" }, { status: "ready_to_onboard" }],
+        error: null,
+      })
+    );
+    vi.mocked(getServiceSupabaseClient).mockReturnValue({ from } as never);
+
+    const res = await GET(summaryRequest());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data).toMatchObject({
+      pending_count: 1,
+      ready_to_onboard_count: 1,
+      attention_count: 1,
+    });
+  });
+
+  it("Given only an approved ready_to_onboard request, When summary is loaded, Then the badge is 0", async () => {
+    const from = vi.fn(() =>
+      mockChain({
+        data: [{ status: "ready_to_onboard" }],
+        error: null,
+      })
+    );
+    vi.mocked(getServiceSupabaseClient).mockReturnValue({ from } as never);
+
+    const res = await GET(summaryRequest());
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.data).toMatchObject({
+      pending_count: 0,
+      ready_to_onboard_count: 1,
+      attention_count: 0,
     });
   });
 });

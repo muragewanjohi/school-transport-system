@@ -6,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   Building2,
+  CalendarClock,
   CheckCircle2,
   CircleAlert,
   Copy,
@@ -27,6 +28,12 @@ import {
   saveDemoProvisionCredentials,
   type DemoProvisionCredentials,
 } from "@/lib/demoRequestCredentials";
+import {
+  addDaysToDemoExpiry,
+  canEditDemoExpiry,
+  datetimeLocalValueToIso,
+  isoToDatetimeLocalValue,
+} from "@/lib/demoGoLive";
 
 type DemoRequestStatus = "pending" | "confirmed" | "ready_to_onboard" | "completed" | "declined";
 
@@ -84,6 +91,8 @@ export default function DemoRequestDetailPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<DemoProvisionCredentials | null>(null);
   const [lastEmailSent, setLastEmailSent] = useState<boolean | null>(null);
+  const [expiryDraft, setExpiryDraft] = useState("");
+  const [savingExpiry, setSavingExpiry] = useState(false);
   const [form, setForm] = useState({
     full_name: "",
     role: "Transport Manager",
@@ -117,6 +126,7 @@ export default function DemoRequestDetailPage() {
       }
       const data = json.data as DemoRequestDetail;
       setRequest(data);
+      setExpiryDraft(isoToDatetimeLocalValue(data.demo_expires_at));
       setForm({
         full_name: data.full_name,
         role: data.role,
@@ -233,6 +243,55 @@ export default function DemoRequestDetailPage() {
     } finally {
       setActing(false);
     }
+  };
+
+  const saveExpiry = async (nextIso: string) => {
+    if (!request) return;
+    setSavingExpiry(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/demo-requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: request.id, demo_expires_at: nextIso }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setError(json.error || "Failed to update demo expiry");
+        return;
+      }
+      const updated = json.data as DemoRequestDetail;
+      setRequest((prev) =>
+        prev
+          ? { ...prev, ...updated, demo_expires_at: updated.demo_expires_at ?? nextIso }
+          : prev
+      );
+      setExpiryDraft(isoToDatetimeLocalValue(updated.demo_expires_at ?? nextIso));
+      setCredentials((prev) => {
+        if (!prev) return prev;
+        const next = { ...prev, expires_at: updated.demo_expires_at ?? nextIso };
+        saveDemoProvisionCredentials(request.id, next);
+        return next;
+      });
+      showToast("Demo expiry updated");
+    } catch {
+      setError("Network error while updating demo expiry");
+    } finally {
+      setSavingExpiry(false);
+    }
+  };
+
+  const handleSaveExpiry = () => {
+    const nextIso = datetimeLocalValueToIso(expiryDraft);
+    if (!nextIso) {
+      setError("Choose a valid expiry date");
+      return;
+    }
+    void saveExpiry(nextIso);
+  };
+
+  const handleExtendFourteenDays = () => {
+    void saveExpiry(addDaysToDemoExpiry(request?.demo_expires_at, 14));
   };
 
   const resendAccessEmail = async () => {
@@ -353,6 +412,45 @@ export default function DemoRequestDetailPage() {
                     The school requested to go live. Onboard a new paid tenant on a real slug — do not
                     flip this demo store to paid. Then Complete &amp; purge the demo.
                   </p>
+                ) : null}
+
+                {canEditDemoExpiry(request.status, request.provisioned_tenant_id) ? (
+                  <div className="demo-expiry-editor">
+                    <label className="form-label" htmlFor="demo-expires-at">
+                      <CalendarClock size={13} /> Demo expiry
+                    </label>
+                    <div className="demo-expiry-row">
+                      <input
+                        id="demo-expires-at"
+                        type="datetime-local"
+                        className="form-input"
+                        value={expiryDraft}
+                        min={isoToDatetimeLocalValue(new Date().toISOString())}
+                        disabled={savingExpiry || acting}
+                        onChange={(e) => setExpiryDraft(e.target.value)}
+                      />
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        disabled={savingExpiry || acting || !expiryDraft}
+                        onClick={handleSaveExpiry}
+                      >
+                        {savingExpiry ? "Saving…" : "Save expiry"}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        disabled={savingExpiry || acting}
+                        onClick={handleExtendFourteenDays}
+                      >
+                        +14 days
+                      </button>
+                    </div>
+                    <p className="form-hint">
+                      Auto-purge runs daily after this date. Extend if the school needs more testing
+                      time. The school console banner updates immediately.
+                    </p>
+                  </div>
                 ) : null}
 
                 <div className="form-grid">
@@ -494,7 +592,7 @@ export default function DemoRequestDetailPage() {
                       <button
                         type="button"
                         className="btn-ghost"
-                        disabled={acting || !request.email}
+                        disabled={acting || savingExpiry || !request.email}
                         onClick={() => void resendAccessEmail()}
                       >
                         {acting ? (
@@ -510,7 +608,7 @@ export default function DemoRequestDetailPage() {
                       <button
                         type="button"
                         className="btn-ghost danger"
-                        disabled={acting}
+                        disabled={acting || savingExpiry}
                         onClick={() => void updateStatus("completed")}
                       >
                         {acting ? (
@@ -806,6 +904,31 @@ export default function DemoRequestDetailPage() {
         }
         .demo-notes { resize: vertical; min-height: 84px; }
         .form-hint { margin: 0; font-size: 0.78rem; color: var(--text-muted); line-height: 1.45; }
+        .demo-expiry-editor {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding: 12px 14px;
+          border-radius: 10px;
+          border: 1px solid var(--border-default);
+          background: var(--bg-surface-hover, var(--bg-surface));
+        }
+        .demo-expiry-editor .form-label {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .demo-expiry-row {
+          display: flex;
+          flex-wrap: wrap;
+          align-items: center;
+          gap: 8px;
+        }
+        .demo-expiry-row .form-input {
+          flex: 1 1 220px;
+          min-width: 200px;
+          max-width: 280px;
+        }
         .demo-access-hint { margin-top: -4px; }
 
         .form-actions {

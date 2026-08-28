@@ -4,78 +4,38 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Email OTP fallback for login |
-| **Stack** | Next.js + Flutter |
-| **Owner path(s)** | `apps/admin_dashboard/src/lib/issuePhoneOtp.ts`, `apps/admin_dashboard/src/lib/resendEmail.ts`, `apps/admin_dashboard/src/lib/ensureParentProfiles.ts`, `apps/admin_dashboard/src/app/api/auth/parent-request-otp/route.ts`, `apps/admin_dashboard/src/app/api/auth/driver-request-otp/route.ts`, parent/driver login screens |
-| **Started** | 2026-08-26 |
+| **Name** | Demo request inbox badge |
+| **Stack** | Next.js admin dashboard |
+| **Owner path(s)** | `apps/admin_dashboard/src/lib/demoGoLive.ts`, `apps/admin_dashboard/src/app/api/demo-requests/route.ts`, `apps/admin_dashboard/src/components/Sidebar.tsx`, `apps/admin_dashboard/src/app/schools/page.tsx` |
+| **Started** | 2026-08-28 |
 | **Status** | `passing` |
 
 ## Goal
 
-When Africa's Talking rejects a login OTP SMS (e.g. `UserInBlacklist`), the same OTP is delivered by Resend email if the profile has a real email. Phone remains the account key. Guardians must supply email so parent profiles can be upserted on student save. Explicit `channel: "email"` resend is supported. No push OTP for first login.
+The red Demo Requests notification counts unreviewed (`pending`) leads only. Confirming / approving a demo clears the badge. `ready_to_onboard` stays visible in the inbox copy but does not badge.
 
 ## Scenarios
 
 ```gherkin
-Feature: Email OTP fallback for login
+Feature: Demo request inbox badge
 
-  Scenario: SMS success unchanged
-    Given a registered parent or driver with a live AT username in production
-    When they request an OTP without channel email
-    And Africa's Talking accepts the SMS
-    Then the response source is sms
-    And Resend is not called
-    And sandbox_otp is omitted
+  Scenario: Pending leads still badge
+    Given one pending demo request and one ready_to_onboard request
+    When the platform summary is loaded
+    Then attention_count is 1
+    And pending_count is 1
+    And ready_to_onboard_count is 1
 
-  Scenario: SMS rejection falls back to email
-    Given a registered profile with a real email
-    When they request an OTP
-    And Africa's Talking rejects with UserInBlacklist
-    Then the same OTP is emailed via Resend
-    And the response source is email
-    And email_hint is a masked address
-    And the full email and OTP are not returned or logged
-
-  Scenario: SMS rejection with no email
-    Given a registered profile without a usable email
-    When Africa's Talking rejects the SMS
-    Then the API returns 502 with the SMS failure detail
-    And Resend is not called
-
-  Scenario: Explicit email channel
-    Given a registered profile with a real email
-    When they request an OTP with channel email
-    Then Resend sends the OTP
-    And Africa's Talking is not called
-    And source is email with email_hint
-
-  Scenario: Explicit email without address
-    Given a registered profile without a usable email
-    When they request an OTP with channel email
-    Then the API returns 422
-    And neither SMS nor Resend is sent
-
-  Scenario: Play Review and dry-run unchanged
-    Given play-review or SMS dry-run delivery
-    When they request an OTP
-    Then existing play_review / sandbox_otp behavior applies
-    And Resend is not used for the OTP
-
-  Scenario: Guardian email required and parent profile upserted
-    Given a school admin saves a student with guardians
-    When each guardian has name, phone, and email
-    Then guardian validation rejects missing email
-    And a parent profile is inserted or updated for each guardian phone in the tenant
+  Scenario: Approved demo does not badge
+    Given only ready_to_onboard or confirmed demo requests
+    When the platform summary is loaded
+    Then attention_count is 0
+    And the sidebar and Demo Requests tab badges are hidden
 ```
 
 ## Automation map
 
 | Scenario | Test path | Status |
 | :--- | :--- | :--- |
-| SMS success | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
-| SMS → email fallback | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
-| SMS fail, no email | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
-| channel email | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
-| Play Review / dry-run | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
-| Guardian email + upsert | `apps/admin_dashboard/src/lib/studentGuardians.test.ts`, `apps/admin_dashboard/src/lib/ensureParentProfiles.test.ts` | passing |
-| Mobile email hint / send via email | `apps/parent_app/test/parent_login_test.dart` | passing |
+| Pending leads still badge | `apps/admin_dashboard/src/lib/demoGoLive.test.ts`, `apps/admin_dashboard/src/app/api/demo-requests/route.test.ts` | passing |
+| Approved demo does not badge | `apps/admin_dashboard/src/lib/demoGoLive.test.ts`, `apps/admin_dashboard/src/app/api/demo-requests/route.test.ts` | passing |

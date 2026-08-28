@@ -100,7 +100,7 @@ function SidebarContent() {
         const json = await response.json();
         if (!cancelled && json.success) {
           setPendingDemoRequests(
-            Number(json.data?.attention_count ?? json.data?.pending_count) || 0
+            Number(json.data?.pending_count ?? json.data?.attention_count) || 0
           );
         }
       } catch {

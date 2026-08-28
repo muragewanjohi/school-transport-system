@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   DEMO_GO_LIVE_STATUS,
+  addDaysToDemoExpiry,
   buildGoLiveNotifyEmail,
+  canEditDemoExpiry,
   canRequestGoLive,
+  datetimeLocalValueToIso,
+  demoInboxBadgeCount,
   formatDemoExpiryLabel,
   goLiveNotifyEmail,
+  isoToDatetimeLocalValue,
 } from "@/lib/demoGoLive";
 
 const CONFIRMED = {
@@ -13,6 +18,16 @@ const CONFIRMED = {
   demoRequestId: "c7ba705a-d6ae-477c-a802-c06951ef2136",
   requestStatus: "confirmed",
 };
+
+describe("demoInboxBadgeCount", () => {
+  it("Given pending leads, When the badge is computed, Then only pending count is used", () => {
+    expect(demoInboxBadgeCount(2)).toBe(2);
+  });
+
+  it("Given an approved or ready-to-onboard inbox with no pending, When the badge is computed, Then it is 0", () => {
+    expect(demoInboxBadgeCount(0)).toBe(0);
+  });
+});
 
 describe("canRequestGoLive", () => {
   it("Given a confirmed per-lead demo, When eligibility is evaluated, Then go live is allowed", () => {
@@ -52,6 +67,44 @@ describe("canRequestGoLive", () => {
       requestStatus: DEMO_GO_LIVE_STATUS,
     });
     expect(result).toMatchObject({ ok: false, alreadyRequested: true });
+  });
+});
+
+describe("canEditDemoExpiry", () => {
+  it("Given confirmed or ready_to_onboard with a tenant, When checked, Then expiry can be edited", () => {
+    expect(canEditDemoExpiry("confirmed", "tenant-1")).toBe(true);
+    expect(canEditDemoExpiry("ready_to_onboard", "tenant-1")).toBe(true);
+  });
+
+  it("Given pending or no tenant, When checked, Then expiry cannot be edited", () => {
+    expect(canEditDemoExpiry("pending", "tenant-1")).toBe(false);
+    expect(canEditDemoExpiry("confirmed", null)).toBe(false);
+    expect(canEditDemoExpiry("completed", "tenant-1")).toBe(false);
+  });
+});
+
+describe("datetime-local expiry values", () => {
+  it("Given an ISO timestamp, When converted to datetime-local and back, Then the instant is preserved", () => {
+    const local = new Date(2026, 8, 15, 18, 30, 0);
+    const iso = local.toISOString();
+    expect(isoToDatetimeLocalValue(iso)).toBe("2026-09-15T18:30");
+    expect(datetimeLocalValueToIso("2026-09-15T18:30")).toBe(iso);
+  });
+});
+
+describe("addDaysToDemoExpiry", () => {
+  const now = new Date("2026-08-28T06:00:00.000Z");
+
+  it("Given a future expiry, When extended by 14 days, Then 14 days are added to the current expiry", () => {
+    expect(addDaysToDemoExpiry("2026-09-01T00:00:00.000Z", 14, now)).toBe(
+      "2026-09-15T00:00:00.000Z"
+    );
+  });
+
+  it("Given a past expiry, When extended by 14 days, Then 14 days are added from now", () => {
+    expect(addDaysToDemoExpiry("2026-08-20T00:00:00.000Z", 14, now)).toBe(
+      "2026-09-11T06:00:00.000Z"
+    );
   });
 });
 

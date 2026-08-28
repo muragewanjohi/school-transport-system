@@ -78,6 +78,10 @@ Before moving an item to **Completed**, confirm:
 
 ## Completed
 
+- **Demo request inbox badge (2026-08-28):** Sidebar and Demo Requests tab badge count `pending` leads only. Confirming a demo (or `ready_to_onboard`) no longer keeps the red notification. Inbox subtitle still shows `N ready to onboard`. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/demoGoLive.test.ts`, `src/app/api/demo-requests/route.test.ts`.
+
+- **Extend demo store expiry (2026-08-28):** Request detail (`/schools/demos/[id]`) now has a Demo expiry picker, Save expiry, and +14 days for `confirmed` / `ready_to_onboard` stores. Past dates and unprovisioned requests are rejected. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/demoGoLive.test.ts`, `src/app/api/demo-requests/route.test.ts`.
+
 - **Email OTP fallback for login (2026-08-26):** When live AT SMS fails (e.g. `UserInBlacklist`), `issuePhoneOtp` emails the same OTP via Resend if the profile has a real email (`source: "email"`, masked `email_hint`). Explicit `channel: "email"` supported. Guardian email required; student save upserts parent profiles. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/issuePhoneOtp.test.ts`, `src/lib/ensureParentProfiles.test.ts`, `src/lib/studentGuardians.test.ts`, `apps/parent_app/test/parent_login_test.dart`.
 
 - **Live Africa's Talking OTP SMS (2026-08-21):** Parent and driver login OTPs share `issuePhoneOtp` + `africasTalkingSms`. Production with a live AT username sends to `api.africastalking.com` and does not return `sandbox_otp`. Demo tenants still get login OTP SMS; operational `send-sms` stays dry-run. Play Review keeps `123456`. Unapproved `AFRICASTALKING_SENDER_ID` (`InvalidSenderId`) is retried without `from`. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/africasTalkingSms.test.ts`, `src/lib/issuePhoneOtp.test.ts`, `src/app/api/auth/parent-request-otp/route.test.ts`.
