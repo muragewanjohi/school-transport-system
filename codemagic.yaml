@@ -73,20 +73,7 @@ workflows:
           BUILD_ARGS=(--release --export-options-plist="$EXPORT_PLIST")
           APPLE_ID="${APP_STORE_APPLE_ID:-}"
           if [ -z "$APPLE_ID" ]; then
-            APPLE_ID="$(app-store-connect apps list --bundle-id-identifier "$BUNDLE_ID" --strict-match-identifier --json | python3 -c '
-import json, sys
-payload = json.load(sys.stdin)
-if isinstance(payload, dict):
-    rows = payload.get("data") or payload.get("apps") or []
-elif isinstance(payload, list):
-    rows = payload
-else:
-    rows = []
-if not rows:
-    raise SystemExit(1)
-row = rows[0]
-print(row["id"] if isinstance(row, dict) else row)
-' || true)"
+            APPLE_ID="$(app-store-connect apps list --bundle-id-identifier "$BUNDLE_ID" --strict-match-identifier --json | python3 -c 'import json,sys; p=json.load(sys.stdin); r=(p.get("data") or p.get("apps") or []) if isinstance(p,dict) else (p if isinstance(p,list) else []); print((r[0]["id"] if isinstance(r[0], dict) else r[0]) if r else "")' || true)"
           fi
           if [ -n "$APPLE_ID" ]; then
             LATEST="$(app-store-connect get-latest-testflight-build-number --platform IOS --all-versions "$APPLE_ID" || true)"
