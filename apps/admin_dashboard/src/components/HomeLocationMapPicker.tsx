@@ -1,7 +1,12 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
-import { MapPin, Search, Home, Navigation, Building, Loader2, X } from "lucide-react";
+import { Search, Home, Navigation, Building, Loader2, X } from "lucide-react";
+import {
+  mapGooglePlacesResults,
+  mergeLocationSuggestions,
+  type HomeLocationSuggestion,
+} from "@/lib/homeLocationSearch";
 
 interface HomeLocationMapPickerProps {
   address: string;
@@ -14,16 +19,8 @@ interface HomeLocationMapPickerProps {
   searchRequired?: boolean;
 }
 
-interface GeocodingFeature {
-  id: string;
-  title: string;
-  place_name: string;
-  center: [number, number]; // [lng, lat]
-  source?: string;
-}
-
 // Famous Kenya Landmarks for 0ms instant search fallback
-const KNOWN_KENYA_LANDMARKS: GeocodingFeature[] = [
+const KNOWN_KENYA_LANDMARKS: HomeLocationSuggestion[] = [
   {
     id: "g_kicc",
     title: "KICC Tower (Kenyatta International Convention Centre)",
@@ -120,10 +117,12 @@ export default function HomeLocationMapPicker({
 
   // Search & Autocomplete state
   const [searchQuery, setSearchQuery] = useState(address);
-  const [suggestions, setSuggestions] = useState<GeocodingFeature[]>([]);
+  const [suggestions, setSuggestions] = useState<HomeLocationSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [isMapLoaded, setIsMapLoaded] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchAbortRef = useRef<AbortController | null>(null);
 
   const googleApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY || "";
 
@@ -147,13 +146,29 @@ export default function HomeLocationMapPicker({
     };
   }, []);
 
+  useEffect(() => {
+    return () => {
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+      searchAbortRef.current?.abort();
+    };
+  }, []);
+
   // Google Reverse Geocoding helper (Coordinates -> Building / Address Name)
   const reverseGeocode = useCallback(
     (lat: number, lng: number) => {
-      if (window.google && window.google.maps) {
-        const geocoder = new window.google.maps.Geocoder();
-        geocoder.geocode({ location: { lat, lng } }, (results: any[], status: string) => {
-          if (status === "OK" && results && results.length > 0) {
+      const maps = window.google?.maps;
+      if (!maps?.Geocoder) {
+        onLocationChange(lat, lng);
+        return;
+      }
+      const geocoder = new maps.Geocoder();
+      geocoder.geocode(
+        { location: { lat, lng } },
+        (
+          results: Array<{ formatted_address?: string }> | null,
+          status: string
+        ) => {
+          if (status === "OK" && results && results.length > 0 && results[0].formatted_address) {
             const formatted = results[0].formatted_address;
             setSearchQuery(formatted);
             onAddressChange(formatted);
@@ -161,37 +176,13 @@ export default function HomeLocationMapPicker({
           } else {
             onLocationChange(lat, lng);
           }
-        });
-      } else {
-        // Fallback to Nominatim if script is loading
-        fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`)
-          .then((res) => res.json())
-          .then((data) => {
-            if (data && data.display_name) {
-              setSearchQuery(data.display_name);
-              onAddressChange(data.display_name);
-              onLocationChange(lat, lng, data.display_name);
-            } else {
-              onLocationChange(lat, lng);
-            }
-          })
-          .catch(() => onLocationChange(lat, lng));
-      }
+        }
+      );
     },
     [onAddressChange, onLocationChange]
   );
 
-  // Live Autocomplete Search using Google Places API + Landmark Database
-  const handleSearchInputChange = async (text: string) => {
-    setSearchQuery(text);
-    onAddressChange(text);
-
-    if (!text.trim()) {
-      setSuggestions([]);
-      setShowSuggestions(false);
-      return;
-    }
-
+  const runGooglePlacesSearch = useCallback(async (text: string) => {
     const queryLower = text.toLowerCase().trim();
     const localMatches = KNOWN_KENYA_LANDMARKS.filter(
       (item) =>
@@ -199,153 +190,57 @@ export default function HomeLocationMapPicker({
         item.place_name.toLowerCase().includes(queryLower)
     );
 
+    searchAbortRef.current?.abort();
+    const abort = new AbortController();
+    searchAbortRef.current = abort;
     setSuggestions(localMatches);
     setShowSuggestions(true);
-    setIsSearching(true);
 
-    const combined: GeocodingFeature[] = [...localMatches];
-
-    try {
-      // 1. Google Places Autocomplete (supports new 2025/2026 AutocompleteSuggestion and legacy AutocompleteService)
-      if (window.google && window.google.maps && window.google.maps.places) {
-        const places = window.google.maps.places;
-
-        if (places.AutocompleteSuggestion && typeof places.AutocompleteSuggestion.fetchAutocompleteSuggestions === "function") {
-          places.AutocompleteSuggestion.fetchAutocompleteSuggestions({
-            input: text,
-            componentRestrictions: { country: "ke" }
-          }).then((response: any) => {
-            if (response && response.suggestions) {
-              const geocoder = new window.google.maps.Geocoder();
-              response.suggestions.forEach((sug: any) => {
-                const pPrediction = sug.placePrediction;
-                if (pPrediction) {
-                  geocoder.geocode({ placeId: pPrediction.placeId }, (geoRes: any[], geoStatus: string) => {
-                    if (geoStatus === "OK" && geoRes && geoRes[0]) {
-                      const loc = geoRes[0].geometry.location;
-                      combined.push({
-                        id: "gplace_" + pPrediction.placeId,
-                        title: pPrediction.text?.text || pPrediction.mainText?.text || text,
-                        place_name: pPrediction.secondaryText?.text ? `${pPrediction.text?.text || text}, ${pPrediction.secondaryText.text}` : text,
-                        center: [loc.lng(), loc.lat()],
-                        source: "Google Places",
-                      });
-
-                      const uniqueSuggestions: GeocodingFeature[] = [];
-                      combined.forEach((entry) => {
-                        const isDup = uniqueSuggestions.some(
-                          (e) =>
-                            e.title.toLowerCase() === entry.title.toLowerCase() ||
-                            (Math.abs(e.center[0] - entry.center[0]) < 0.0001 &&
-                              Math.abs(e.center[1] - entry.center[1]) < 0.0001)
-                        );
-                        if (!isDup) uniqueSuggestions.push(entry);
-                      });
-                      setSuggestions(uniqueSuggestions);
-                    }
-                  });
-                }
-              });
-            }
-          }).catch(() => {});
-        } else if (places.AutocompleteService) {
-          const autocompleteService = new places.AutocompleteService();
-          autocompleteService.getPlacePredictions(
-            {
-              input: text,
-              componentRestrictions: { country: "ke" },
-            },
-            (predictions: any[], status: string) => {
-              if (status === "OK" && predictions) {
-                const geocoder = new window.google.maps.Geocoder();
-                predictions.forEach((item) => {
-                  geocoder.geocode({ placeId: item.place_id }, (geoRes: any[], geoStatus: string) => {
-                    if (geoStatus === "OK" && geoRes && geoRes[0]) {
-                      const loc = geoRes[0].geometry.location;
-                      combined.push({
-                        id: "gplace_" + item.place_id,
-                        title: item.structured_formatting?.main_text || item.description.split(",")[0],
-                        place_name: item.description,
-                        center: [loc.lng(), loc.lat()],
-                        source: "Google Places",
-                      });
-
-                      const uniqueSuggestions: GeocodingFeature[] = [];
-                      combined.forEach((entry) => {
-                        const isDup = uniqueSuggestions.some(
-                          (e) =>
-                            e.title.toLowerCase() === entry.title.toLowerCase() ||
-                            (Math.abs(e.center[0] - entry.center[0]) < 0.0001 &&
-                              Math.abs(e.center[1] - entry.center[1]) < 0.0001)
-                        );
-                        if (!isDup) uniqueSuggestions.push(entry);
-                      });
-                      setSuggestions(uniqueSuggestions);
-                    }
-                  });
-                });
-              }
-            }
-          );
-        }
-      }
-
-      // 2. Nominatim Kenya Building DB search in parallel (wrapped safely)
-      try {
-        const nomRes = await fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(
-            text + ", Kenya"
-          )}&format=json&addressdetails=1&limit=6&countrycodes=ke`,
-          { headers: { "User-Agent": "SchoolTrackAdmin/1.0" } }
-        );
-        if (nomRes.ok) {
-          const nomData = await nomRes.json();
-          if (Array.isArray(nomData)) {
-            nomData.forEach((item) => {
-              const bName =
-                item.address?.building ||
-                item.address?.amenity ||
-                item.address?.shop ||
-                item.address?.office ||
-                item.display_name.split(",")[0];
-
-              combined.push({
-                id: "nom_" + item.place_id,
-                title: bName,
-                place_name: item.display_name,
-                center: [parseFloat(item.lon), parseFloat(item.lat)],
-                source: "Building/Landmark",
-              });
-            });
-          }
-        }
-      } catch (_) {
-        // Silently ignore external CORS/network hiccups
-      }
-
-      // Deduplicate suggestions
-      const uniqueSuggestions: GeocodingFeature[] = [];
-      combined.forEach((entry) => {
-        const isDup = uniqueSuggestions.some(
-          (e) =>
-            e.title.toLowerCase() === entry.title.toLowerCase() ||
-            (Math.abs(e.center[0] - entry.center[0]) < 0.00015 &&
-              Math.abs(e.center[1] - entry.center[1]) < 0.00015)
-        );
-        if (!isDup) uniqueSuggestions.push(entry);
-      });
-
-      setSuggestions(uniqueSuggestions);
-      setShowSuggestions(true);
-    } catch (_) {
-      // Graceful fallback
-    } finally {
+    if (text.trim().length < 2) {
       setIsSearching(false);
+      return;
     }
+
+    setIsSearching(true);
+    try {
+      const res = await fetch(`/api/maps/places?q=${encodeURIComponent(text.trim())}`, {
+        signal: abort.signal,
+      });
+      const json = (await res.json()) as {
+        success?: boolean;
+        data?: Array<{ display_name: string; title: string; lat: number; lon: number }>;
+      };
+      if (abort.signal.aborted) return;
+      const googleHits =
+        json.success && Array.isArray(json.data) ? mapGooglePlacesResults(json.data) : [];
+      setSuggestions(mergeLocationSuggestions([localMatches, googleHits]));
+      setShowSuggestions(true);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      setSuggestions(localMatches);
+    } finally {
+      if (!abort.signal.aborted) setIsSearching(false);
+    }
+  }, []);
+
+  const handleSearchInputChange = (text: string) => {
+    setSearchQuery(text);
+    onAddressChange(text);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!text.trim()) {
+      searchAbortRef.current?.abort();
+      setSuggestions([]);
+      setShowSuggestions(false);
+      setIsSearching(false);
+      return;
+    }
+    searchTimerRef.current = setTimeout(() => {
+      void runGooglePlacesSearch(text);
+    }, 300);
   };
 
   // Handle selecting an autocomplete suggestion (Puts Building Name into Input Field & flies Google Map)
-  const handleSelectSuggestion = (feature: GeocodingFeature) => {
+  const handleSelectSuggestion = (feature: HomeLocationSuggestion) => {
     const [lng, lat] = feature.center;
     const selectedName = feature.title || feature.place_name;
 

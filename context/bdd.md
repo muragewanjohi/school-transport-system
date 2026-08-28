@@ -4,45 +4,36 @@
 
 | Field | Value |
 | :--- | :--- |
-| **Name** | Driver OTP delivery for demo stores |
-| **Stack** | Next.js |
-| **Owner path(s)** | `apps/admin_dashboard/src/lib/issuePhoneOtp.ts` |
+| **Name** | Student location search is Google Maps only |
+| **Stack** | Next.js admin dashboard |
+| **Owner path(s)** | `apps/admin_dashboard/src/components/HomeLocationMapPicker.tsx`, `apps/admin_dashboard/src/lib/homeLocationSearch.ts` |
 | **Started** | 2026-08-28 |
 | **Status** | `passing` |
 
 ## Goal
 
-Demo driver/conductor profiles use synthetic `@demo.onthebus.app` emails. Those must not count as OTP inboxes. When Africa's Talking rejects login SMS, the OTP is emailed to the demo tenant `contact_email` (the lead who requested the demo).
+Student (and shared home-location) search uses Google Places via `/api/maps/places`. OpenStreetMap Nominatim is not called from the admin console.
 
 ## Scenarios
 
 ```gherkin
-Feature: Driver OTP delivery for demo stores
+Feature: Student location search is Google Maps only
 
-  Scenario: Synthetic demo emails are not OTP inboxes
-    Given a profile email at demo.onthebus.app
-    When usable OTP email is evaluated
-    Then it is rejected
+  Scenario: Places results map to picker suggestions
+    Given Google Places returns Ruaka with lat/lon
+    When results are mapped for the home location picker
+    Then each suggestion uses Google Places as the source
+    And center is [lon, lat]
 
-  Scenario: Demo SMS rejection emails the lead
-    Given a demo driver whose profile email is synthetic
-    And the tenant contact_email is a real address
-    When Africa's Talking rejects the login SMS
-    Then Resend emails the OTP to contact_email
-    And email_hint masks that address
-
-  Scenario: Demo SMS rejection with no lead email
-    Given a demo driver with only a synthetic email
-    And the tenant has no usable contact_email
-    When Africa's Talking rejects the login SMS
-    Then the API returns 502
-    And Resend is not called
+  Scenario: Nominatim is not a search source
+    Given the home location picker search helper
+    When suggestion sources are listed
+    Then OpenStreetMap and Nominatim are not included
 ```
 
 ## Automation map
 
 | Scenario | Test path | Status |
 | :--- | :--- | :--- |
-| Synthetic demo emails are not OTP inboxes | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
-| Demo SMS rejection emails the lead | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
-| Demo SMS rejection with no lead email | `apps/admin_dashboard/src/lib/issuePhoneOtp.test.ts` | passing |
+| Places results map to picker suggestions | `apps/admin_dashboard/src/lib/homeLocationSearch.test.ts` | passing |
+| Nominatim is not a search source | `apps/admin_dashboard/src/lib/homeLocationSearch.test.ts` | passing |

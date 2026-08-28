@@ -155,35 +155,22 @@ export default function StopsManagement() {
             </div>
           )}
           {/* Controls Bar */}
-          <div style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            flexWrap: "wrap",
-            gap: "12px",
-            background: "var(--bg-glass)",
-            border: "1px solid var(--border-default)",
-            padding: "16px",
-            borderRadius: "12px",
-            backdropFilter: "blur(8px)"
-          }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", flex: 1, minWidth: "280px" }}>
-              <div style={{ position: "relative", flex: 1 }}>
-                <Search size={16} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
+          <div className="stops-toolbar">
+            <div className="stops-toolbar-filters">
+              <div className="stops-toolbar-search">
+                <Search size={16} className="stops-toolbar-search-icon" />
                 <input
                   type="text"
                   placeholder="Search by stop or route name..."
                   className="form-input"
-                  style={{ paddingLeft: "32px", fontSize: "0.85rem" }}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
 
-              {/* Route Filter */}
               <select
-                className="form-input"
-                style={{ width: "160px", fontSize: "0.85rem" }}
+                className="form-input stops-toolbar-route"
+                aria-label="Filter by route"
                 value={routeFilter}
                 onChange={(e) => setRouteFilter(e.target.value)}
               >
@@ -193,10 +180,9 @@ export default function StopsManagement() {
                 ))}
               </select>
 
-              {/* Type Filter */}
               <select
-                className="form-input"
-                style={{ width: "130px", fontSize: "0.85rem" }}
+                className="form-input stops-toolbar-type"
+                aria-label="Filter by stop type"
                 value={typeFilter}
                 onChange={(e) => setTypeFilter(e.target.value)}
               >
@@ -207,8 +193,12 @@ export default function StopsManagement() {
               </select>
             </div>
 
-            <button onClick={() => router.push("/routes/stops/new")} className="btn-primary" style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "0.85rem" }}>
-              <Plus size={16} />
+            <button
+              type="button"
+              onClick={() => router.push("/routes/stops/new")}
+              className="btn btn-primary stops-toolbar-cta"
+            >
+              <Plus size={18} strokeWidth={2.25} />
               Add Route Stop
             </button>
           </div>
