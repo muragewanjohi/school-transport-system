@@ -78,6 +78,8 @@ Before moving an item to **Completed**, confirm:
 
 ## Completed
 
+- **Show and restore demo expiry (2026-08-28):** Demos table and request detail always show a formatted expiry (or “Store removed”). Date is stored on `demo_requests` as well as the tenant. Approved requests with no live tenant can **Provision store again**. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/demoGoLive.test.ts`, `src/app/api/demo-requests/route.test.ts`.
+
 - **Demo request inbox badge (2026-08-28):** Sidebar and Demo Requests tab badge count `pending` leads only. Confirming a demo (or `ready_to_onboard`) no longer keeps the red notification. Inbox subtitle still shows `N ready to onboard`. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/demoGoLive.test.ts`, `src/app/api/demo-requests/route.test.ts`.
 
 - **Extend demo store expiry (2026-08-28):** Request detail (`/schools/demos/[id]`) now has a Demo expiry picker, Save expiry, and +14 days for `confirmed` / `ready_to_onboard` stores. Past dates and unprovisioned requests are rejected. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/demoGoLive.test.ts`, `src/app/api/demo-requests/route.test.ts`.

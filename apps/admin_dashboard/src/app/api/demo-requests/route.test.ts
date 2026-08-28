@@ -359,3 +359,71 @@ describe("GET /api/demo-requests › summary badge", () => {
     });
   });
 });
+
+describe("PATCH /api/demo-requests › reprovision", () => {
+  const approvedNoStore = {
+    id: REQUEST_ID,
+    full_name: "Ada Okello",
+    email: LEAD_EMAIL,
+    school_name: "Azima",
+    country: "Kenya",
+    city: "Nairobi",
+    phone: "+254712345678",
+    status: "ready_to_onboard",
+    provisioned_tenant_id: null,
+    role: "Principal",
+    fleet_size: "1-5",
+    preferred_time: "ASAP",
+    notes: null,
+    reviewed_at: "2026-08-10T08:00:00.000Z",
+    created_at: "2026-08-10T07:00:00.000Z",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getCallerProfile).mockResolvedValue({
+      id: "platform-admin",
+      role: "super_admin",
+      tenant_id: null,
+      email: "platform@onthebus.app",
+      name: "Platform",
+      admin_role: null,
+      phone: null,
+    });
+    vi.mocked(isPlatformSuperAdmin).mockReturnValue(true);
+    vi.mocked(notifyDemoReady).mockResolvedValue(true);
+  });
+
+  it("Given an approved request with no store, When reprovision is requested, Then a new store is created", async () => {
+    const from = vi.fn(() => mockChain({ data: approvedNoStore, error: null }));
+    vi.mocked(getServiceSupabaseClient).mockReturnValue({ from } as never);
+    vi.mocked(provisionDemoStore).mockResolvedValue(provisionResult);
+
+    const res = await PATCH(jsonRequest({ id: REQUEST_ID, action: "reprovision" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(body.data.demo_expires_at).toBe(provisionResult.expiresAt);
+    expect(body.data.demo_slug).toBe(provisionResult.slug);
+    expect(provisionDemoStore).toHaveBeenCalledOnce();
+    expect(notifyDemoReady).toHaveBeenCalledOnce();
+  });
+
+  it("Given a live store, When reprovision is requested, Then it is rejected", async () => {
+    const from = vi.fn(() =>
+      mockChain({
+        data: { ...approvedNoStore, provisioned_tenant_id: TENANT_ID },
+        error: null,
+      })
+    );
+    vi.mocked(getServiceSupabaseClient).mockReturnValue({ from } as never);
+
+    const res = await PATCH(jsonRequest({ id: REQUEST_ID, action: "reprovision" }));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.error).toMatch(/already has a live demo store/i);
+    expect(provisionDemoStore).not.toHaveBeenCalled();
+  });
+});

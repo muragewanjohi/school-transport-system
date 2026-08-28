@@ -35,7 +35,13 @@ import {
   clearDemoProvisionCredentials,
   saveDemoProvisionCredentials,
 } from "@/lib/demoRequestCredentials";
-import { datetimeLocalValueToIso, isoToDatetimeLocalValue } from "@/lib/demoGoLive";
+import {
+  canEditDemoExpiry,
+  datetimeLocalValueToIso,
+  demoStoreRemovedLabel,
+  formatDemoExpiryLabel,
+  isoToDatetimeLocalValue,
+} from "@/lib/demoGoLive";
 
 interface SchoolRow {
   id: string;
@@ -709,32 +715,49 @@ function PlatformConsole() {
                                 >
                                   {request.demo_slug}.onthebusapp.com
                                 </a>
-                                <div className="cell-muted" style={{ marginTop: 6 }}>
-                                  Expires
+                                <div className="cell-primary" style={{ marginTop: 6 }}>
+                                  {formatDemoExpiryLabel(request.demo_expires_at)}
                                 </div>
-                                <input
-                                  type="datetime-local"
-                                  className="input"
-                                  style={{ marginTop: 4, maxWidth: 200 }}
-                                  disabled={updatingDemoRequestId === request.id}
-                                  defaultValue={isoToDatetimeLocalValue(request.demo_expires_at)}
-                                  key={`${request.id}-${request.demo_expires_at || "none"}`}
-                                  onBlur={(e) => {
-                                    if (!e.target.value || !request.demo_expires_at) return;
-                                    const nextIso = datetimeLocalValueToIso(e.target.value);
-                                    if (isoToDatetimeLocalValue(nextIso) === isoToDatetimeLocalValue(request.demo_expires_at)) {
-                                      return;
-                                    }
-                                    void handleDemoExpiryChange(request.id, e.target.value);
-                                  }}
-                                />
+                                {canEditDemoExpiry(request.status, request.provisioned_tenant_id) ? (
+                                  <input
+                                    type="datetime-local"
+                                    className="input"
+                                    aria-label="Demo expiry"
+                                    style={{ marginTop: 4, maxWidth: 200 }}
+                                    disabled={updatingDemoRequestId === request.id}
+                                    defaultValue={isoToDatetimeLocalValue(request.demo_expires_at)}
+                                    key={`${request.id}-${request.demo_expires_at || "none"}`}
+                                    onBlur={(e) => {
+                                      if (!e.target.value || !request.demo_expires_at) return;
+                                      const nextIso = datetimeLocalValueToIso(e.target.value);
+                                      if (
+                                        isoToDatetimeLocalValue(nextIso) ===
+                                        isoToDatetimeLocalValue(request.demo_expires_at)
+                                      ) {
+                                        return;
+                                      }
+                                      void handleDemoExpiryChange(request.id, e.target.value);
+                                    }}
+                                  />
+                                ) : null}
                               </>
+                            ) : request.status === "pending" ? (
+                              <div className="cell-muted">Provisioned on confirm (14 days)</div>
                             ) : (
-                              <div className="cell-muted">
-                                {request.status === "pending"
-                                  ? "Provisioned on confirm (14 days)"
-                                  : "—"}
-                              </div>
+                              <>
+                                <div className="cell-muted">
+                                  {demoStoreRemovedLabel(request.status) || "—"}
+                                </div>
+                                {request.demo_expires_at ? (
+                                  <div className="cell-primary" style={{ marginTop: 6 }}>
+                                    {formatDemoExpiryLabel(request.demo_expires_at)}
+                                  </div>
+                                ) : (
+                                  <div className="cell-muted" style={{ marginTop: 6 }}>
+                                    No expiry on file
+                                  </div>
+                                )}
+                              </>
                             )}
                           </td>
                           <td>

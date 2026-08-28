@@ -32,6 +32,8 @@ import {
   addDaysToDemoExpiry,
   canEditDemoExpiry,
   datetimeLocalValueToIso,
+  demoRequestHasLiveStore,
+  formatDemoExpiryLabel,
   isoToDatetimeLocalValue,
 } from "@/lib/demoGoLive";
 
@@ -294,6 +296,40 @@ export default function DemoRequestDetailPage() {
     void saveExpiry(addDaysToDemoExpiry(request?.demo_expires_at, 14));
   };
 
+  const reprovisionStore = async () => {
+    if (!request) return;
+    setActing(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/demo-requests", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: request.id, action: "reprovision" }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setError(json.error || "Failed to provision demo store");
+        return;
+      }
+      if (json.credentials) {
+        const creds = json.credentials as DemoProvisionCredentials;
+        saveDemoProvisionCredentials(request.id, creds);
+        setCredentials(creds);
+      }
+      setLastEmailSent(Boolean(json.provision_email_sent));
+      showToast(
+        json.provision_email_sent
+          ? "Demo store provisioned — access details emailed"
+          : "Demo store provisioned (email not sent; check RESEND_API_KEY)"
+      );
+      await loadRequest();
+    } catch {
+      setError("Network error while provisioning demo store");
+    } finally {
+      setActing(false);
+    }
+  };
+
   const resendAccessEmail = async () => {
     if (!request || (request.status !== "confirmed" && request.status !== "ready_to_onboard")) return;
     setActing(true);
@@ -341,6 +377,13 @@ export default function DemoRequestDetailPage() {
 
   const editable = request?.status === "pending";
   const schoolUrl = credentials?.school_url || request?.demo_school_url || "";
+  const hasLiveStore = demoRequestHasLiveStore({
+    provisionedTenantId: request?.provisioned_tenant_id,
+    demoSlug: request?.demo_slug,
+    demoSchoolUrl: request?.demo_school_url,
+  });
+  const showExpiryCard =
+    request?.status === "confirmed" || request?.status === "ready_to_onboard";
 
   return (
     <div className="app-container">
@@ -414,11 +457,14 @@ export default function DemoRequestDetailPage() {
                   </p>
                 ) : null}
 
-                {canEditDemoExpiry(request.status, request.provisioned_tenant_id) ? (
+                {canEditDemoExpiry(request.status, request.provisioned_tenant_id) && hasLiveStore ? (
                   <div className="demo-expiry-editor">
                     <label className="form-label" htmlFor="demo-expires-at">
                       <CalendarClock size={13} /> Demo expiry
                     </label>
+                    <p className="demo-expiry-current">
+                      {formatDemoExpiryLabel(request.demo_expires_at)}
+                    </p>
                     <div className="demo-expiry-row">
                       <input
                         id="demo-expires-at"
@@ -450,6 +496,31 @@ export default function DemoRequestDetailPage() {
                       Auto-purge runs daily after this date. Extend if the school needs more testing
                       time. The school console banner updates immediately.
                     </p>
+                  </div>
+                ) : showExpiryCard ? (
+                  <div className="demo-expiry-editor">
+                    <label className="form-label">
+                      <CalendarClock size={13} /> Demo expiry
+                    </label>
+                    <p className="demo-expiry-current">
+                      {request.demo_expires_at
+                        ? formatDemoExpiryLabel(request.demo_expires_at)
+                        : "Demo store was removed. There is no live expiry to extend."}
+                    </p>
+                    <p className="form-hint">
+                      Provision a new demo store to restore console access and set a fresh 14-day
+                      expiry.
+                    </p>
+                    <div className="demo-expiry-row">
+                      <button
+                        type="button"
+                        className="btn-ghost accent"
+                        disabled={acting}
+                        onClick={() => void reprovisionStore()}
+                      >
+                        {acting ? "Provisioning…" : "Provision store again"}
+                      </button>
+                    </div>
                   </div>
                 ) : null}
 
@@ -592,7 +663,7 @@ export default function DemoRequestDetailPage() {
                       <button
                         type="button"
                         className="btn-ghost"
-                        disabled={acting || savingExpiry || !request.email}
+                        disabled={acting || savingExpiry || !request.email || !hasLiveStore}
                         onClick={() => void resendAccessEmail()}
                       >
                         {acting ? (
@@ -917,6 +988,12 @@ export default function DemoRequestDetailPage() {
           display: inline-flex;
           align-items: center;
           gap: 6px;
+        }
+        .demo-expiry-current {
+          margin: 0;
+          font-size: 0.95rem;
+          font-weight: 600;
+          color: var(--text-primary);
         }
         .demo-expiry-row {
           display: flex;

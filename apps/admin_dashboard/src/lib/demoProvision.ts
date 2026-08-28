@@ -708,7 +708,7 @@ export async function provisionDemoStore(
 
     await adminClient
       .from("demo_requests")
-      .update({ provisioned_tenant_id: tenantId })
+      .update({ provisioned_tenant_id: tenantId, demo_expires_at: expiresAt })
       .eq("id", input.demoRequestId);
 
     const schoolUrl =

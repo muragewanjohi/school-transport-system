@@ -4,7 +4,7 @@ import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { getCallerProfile, isPlatformSuperAdmin } from "@/lib/authApi";
 import { hashIp } from "@/lib/demoSchool";
-import { demoInboxBadgeCount } from "@/lib/demoGoLive";
+import { demoInboxBadgeCount, enrichDemoRequestRow, type DemoStoreMeta } from "@/lib/demoGoLive";
 import {
   DEMO_DEFAULT_EXPIRY_DAYS,
   extendDemoOtpExpiry,
@@ -44,7 +44,7 @@ const demoRequestStatusSchema = z.enum(["pending", "confirmed", "completed", "de
 const updateDemoRequestSchema = z.object({
   id: z.string().uuid(),
   status: demoRequestStatusSchema.optional(),
-  action: z.enum(["resend_access_email"]).optional(),
+  action: z.enum(["resend_access_email", "reprovision"]).optional(),
   demo_expires_at: z.string().datetime().optional(),
   fields: z
     .object({
@@ -90,7 +90,7 @@ function allowRequest(ip: string): boolean {
 }
 
 const DEMO_REQUEST_SELECT =
-  "id, full_name, role, school_name, country, city, phone, email, fleet_size, preferred_time, notes, status, reviewed_at, created_at, provisioned_tenant_id, go_live_requested_at";
+  "id, full_name, role, school_name, country, city, phone, email, fleet_size, preferred_time, notes, status, reviewed_at, created_at, provisioned_tenant_id, go_live_requested_at, demo_expires_at";
 
 function credentialsPayload(provision: DemoProvisionResult) {
   return {
@@ -103,6 +103,52 @@ function credentialsPayload(provision: DemoProvisionResult) {
     slug: provision.slug,
   };
 }
+
+async function loadDemoStoreMaps(
+  adminClient: NonNullable<ReturnType<typeof getServiceSupabaseClient>>,
+  rows: Array<{ id: string; provisioned_tenant_id?: string | null }>
+): Promise<{
+  tenantById: Map<string, DemoStoreMeta>;
+  tenantByRequestId: Map<string, DemoStoreMeta>;
+}> {
+  const tenantById = new Map<string, DemoStoreMeta>();
+  const tenantByRequestId = new Map<string, DemoStoreMeta>();
+  const tenantIds = rows
+    .map((row) => row.provisioned_tenant_id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  const requestIds = rows.map((row) => row.id);
+
+  if (tenantIds.length > 0) {
+    const { data: tenants } = await adminClient
+      .from("tenants")
+      .select("id, domain, demo_expires_at, demo_request_id")
+      .in("id", tenantIds);
+    for (const tenant of tenants ?? []) {
+      tenantById.set(tenant.id, {
+        domain: tenant.domain,
+        demo_expires_at: tenant.demo_expires_at,
+      });
+    }
+  }
+
+  if (requestIds.length > 0) {
+    const { data: tenants } = await adminClient
+      .from("tenants")
+      .select("id, domain, demo_expires_at, demo_request_id")
+      .in("demo_request_id", requestIds);
+    for (const tenant of tenants ?? []) {
+      if (tenant.demo_request_id) {
+        tenantByRequestId.set(tenant.demo_request_id, {
+          domain: tenant.domain,
+          demo_expires_at: tenant.demo_expires_at,
+        });
+      }
+    }
+  }
+
+  return { tenantById, tenantByRequestId };
+}
+
 export async function GET(request: Request) {
   try {
     const caller = await getCallerProfile(request);
@@ -159,25 +205,10 @@ export async function GET(request: Request) {
         return NextResponse.json({ success: false, error: "Demo request not found" }, { status: 404 });
       }
 
-      let demo_slug: string | null = null;
-      let demo_expires_at: string | null = null;
-      let demo_school_url: string | null = null;
-      if (row.provisioned_tenant_id) {
-        const { data: tenant } = await adminClient
-          .from("tenants")
-          .select("domain, demo_expires_at")
-          .eq("id", row.provisioned_tenant_id)
-          .maybeSingle();
-        if (tenant?.domain) {
-          demo_slug = tenant.domain;
-          demo_expires_at = tenant.demo_expires_at;
-          demo_school_url = `https://${tenant.domain}.onthebusapp.com/login`;
-        }
-      }
-
+      const { tenantById, tenantByRequestId } = await loadDemoStoreMaps(adminClient, [row]);
       return NextResponse.json({
         success: true,
-        data: { ...row, demo_slug, demo_expires_at, demo_school_url },
+        data: enrichDemoRequestRow(row, tenantById, tenantByRequestId),
       });
     }
 
@@ -191,40 +222,8 @@ export async function GET(request: Request) {
     }
 
     const rows = data ?? [];
-    const tenantIds = rows
-      .map((r) => r.provisioned_tenant_id)
-      .filter((id): id is string => typeof id === "string" && id.length > 0);
-
-    const tenantMeta = new Map<
-      string,
-      { domain: string; demo_expires_at: string | null; name: string }
-    >();
-
-    if (tenantIds.length > 0) {
-      const { data: tenants } = await adminClient
-        .from("tenants")
-        .select("id, domain, demo_expires_at, name")
-        .in("id", tenantIds);
-      for (const t of tenants ?? []) {
-        tenantMeta.set(t.id, {
-          domain: t.domain,
-          demo_expires_at: t.demo_expires_at,
-          name: t.name,
-        });
-      }
-    }
-
-    const enriched = rows.map((row) => {
-      const meta = row.provisioned_tenant_id
-        ? tenantMeta.get(row.provisioned_tenant_id)
-        : undefined;
-      return {
-        ...row,
-        demo_slug: meta?.domain ?? null,
-        demo_expires_at: meta?.demo_expires_at ?? null,
-        demo_school_url: meta?.domain ? `https://${meta.domain}.onthebusapp.com/login` : null,
-      };
-    });
+    const { tenantById, tenantByRequestId } = await loadDemoStoreMaps(adminClient, rows);
+    const enriched = rows.map((row) => enrichDemoRequestRow(row, tenantById, tenantByRequestId));
 
     return NextResponse.json({ success: true, data: enriched });
   } catch (err: unknown) {
@@ -332,6 +331,72 @@ export async function PATCH(request: Request) {
       });
     }
 
+    if (parsed.data.action === "reprovision") {
+      if (existing.provisioned_tenant_id) {
+        return NextResponse.json(
+          { success: false, error: "This request already has a live demo store" },
+          { status: 400 }
+        );
+      }
+      if (existing.status !== "confirmed" && existing.status !== "ready_to_onboard") {
+        return NextResponse.json(
+          { success: false, error: "Only an approved demo request can be provisioned again" },
+          { status: 400 }
+        );
+      }
+      if (!existing.email || !existing.phone) {
+        return NextResponse.json(
+          { success: false, error: "Demo request is missing email or phone" },
+          { status: 400 }
+        );
+      }
+
+      const expiresAt =
+        parsed.data.demo_expires_at ||
+        new Date(Date.now() + DEMO_DEFAULT_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+      const issued = await provisionDemoStore({
+        demoRequestId: existing.id,
+        schoolName: existing.school_name,
+        fullName: existing.full_name,
+        email: existing.email,
+        phone: existing.phone,
+        city: existing.city || "Nairobi",
+        country: existing.country || "Kenya",
+        expiresAt,
+      });
+
+      if ("error" in issued) {
+        return NextResponse.json({ success: false, error: issued.error }, { status: 500 });
+      }
+
+      const provisionEmailSent = await notifyDemoReady({
+        ...issued,
+        fullName: existing.full_name,
+        email: existing.email,
+        schoolName: existing.school_name,
+      });
+
+      const { data: refreshed } = await adminClient
+        .from("demo_requests")
+        .select(DEMO_REQUEST_SELECT)
+        .eq("id", existing.id)
+        .single();
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          ...refreshed,
+          demo_slug: issued.slug,
+          demo_expires_at: issued.expiresAt,
+          demo_school_url: issued.schoolUrl,
+        },
+        provision_email_sent: provisionEmailSent,
+        demo_school_url: issued.schoolUrl,
+        credentials: credentialsPayload(issued),
+      });
+    }
+
     // Field edits (pending requests only)
     if (parsed.data.fields && !parsed.data.status) {
       if (existing.status !== "pending") {
@@ -403,6 +468,10 @@ export async function PATCH(request: Request) {
         existing.provisioned_tenant_id,
         parsed.data.demo_expires_at
       );
+      await adminClient
+        .from("demo_requests")
+        .update({ demo_expires_at: parsed.data.demo_expires_at })
+        .eq("id", existing.id);
 
       const { data: refreshed } = await adminClient
         .from("demo_requests")

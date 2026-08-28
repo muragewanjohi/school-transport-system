@@ -6,7 +6,10 @@ import {
   canEditDemoExpiry,
   canRequestGoLive,
   datetimeLocalValueToIso,
+  enrichDemoRequestRow,
   demoInboxBadgeCount,
+  demoRequestHasLiveStore,
+  demoStoreRemovedLabel,
   formatDemoExpiryLabel,
   goLiveNotifyEmail,
   isoToDatetimeLocalValue,
@@ -26,6 +29,56 @@ describe("demoInboxBadgeCount", () => {
 
   it("Given an approved or ready-to-onboard inbox with no pending, When the badge is computed, Then it is 0", () => {
     expect(demoInboxBadgeCount(0)).toBe(0);
+  });
+});
+
+describe("enrichDemoRequestRow", () => {
+  it("Given a linked tenant, When the request is enriched, Then slug URL and tenant expiry are visible", () => {
+    const row = enrichDemoRequestRow(
+      {
+        id: "req-1",
+        provisioned_tenant_id: "tenant-1",
+        demo_expires_at: "2026-08-20T00:00:00.000Z",
+      },
+      new Map([
+        [
+          "tenant-1",
+          { domain: "azima-demo", demo_expires_at: "2026-09-15T12:00:00.000Z" },
+        ],
+      ])
+    );
+    expect(row.demo_slug).toBe("azima-demo");
+    expect(row.demo_school_url).toBe("https://azima-demo.onthebusapp.com/login");
+    expect(row.demo_expires_at).toBe("2026-09-15T12:00:00.000Z");
+    expect(
+      demoRequestHasLiveStore({
+        provisionedTenantId: row.provisioned_tenant_id,
+        demoSlug: row.demo_slug,
+        demoSchoolUrl: row.demo_school_url,
+      })
+    ).toBe(true);
+  });
+
+  it("Given a purged tenant, When the request is enriched, Then the stored request expiry remains and the store is marked removed", () => {
+    const row = enrichDemoRequestRow(
+      {
+        id: "req-1",
+        provisioned_tenant_id: null,
+        demo_expires_at: "2026-08-24T00:00:00.000Z",
+      },
+      new Map()
+    );
+    expect(row.demo_slug).toBeNull();
+    expect(row.demo_school_url).toBeNull();
+    expect(row.demo_expires_at).toBe("2026-08-24T00:00:00.000Z");
+    expect(demoStoreRemovedLabel("ready_to_onboard")).toBe("Store removed");
+    expect(
+      demoRequestHasLiveStore({
+        provisionedTenantId: row.provisioned_tenant_id,
+        demoSlug: row.demo_slug,
+        demoSchoolUrl: row.demo_school_url,
+      })
+    ).toBe(false);
   });
 });
 

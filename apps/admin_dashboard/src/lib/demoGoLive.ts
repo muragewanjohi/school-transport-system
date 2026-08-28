@@ -60,6 +60,55 @@ export function demoInboxBadgeCount(pendingCount: number): number {
   return Math.floor(pendingCount);
 }
 
+export type DemoStoreMeta = {
+  domain: string | null;
+  demo_expires_at: string | null;
+};
+
+export function enrichDemoRequestRow<
+  T extends {
+    id: string;
+    provisioned_tenant_id?: string | null;
+    demo_expires_at?: string | null;
+  },
+>(
+  row: T,
+  tenantById: Map<string, DemoStoreMeta>,
+  tenantByRequestId: Map<string, DemoStoreMeta> = new Map()
+): T & {
+  demo_slug: string | null;
+  demo_expires_at: string | null;
+  demo_school_url: string | null;
+} {
+  const meta =
+    (row.provisioned_tenant_id ? tenantById.get(row.provisioned_tenant_id) : undefined) ??
+    tenantByRequestId.get(row.id);
+  const domain = meta?.domain ?? null;
+  return {
+    ...row,
+    demo_slug: domain,
+    demo_expires_at: meta?.demo_expires_at ?? row.demo_expires_at ?? null,
+    demo_school_url: domain ? `https://${domain}.onthebusapp.com/login` : null,
+  };
+}
+
+export function demoRequestHasLiveStore(input: {
+  provisionedTenantId?: string | null;
+  demoSlug?: string | null;
+  demoSchoolUrl?: string | null;
+}): boolean {
+  return Boolean(
+    input.provisionedTenantId && (input.demoSlug || input.demoSchoolUrl)
+  );
+}
+
+export function demoStoreRemovedLabel(status: string | null | undefined): string | null {
+  if (status === "confirmed" || status === "ready_to_onboard") {
+    return "Store removed";
+  }
+  return null;
+}
+
 export function formatDemoRequestStatus(status: string): string {
   return status.replaceAll("_", " ");
 }
