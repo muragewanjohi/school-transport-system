@@ -74,10 +74,14 @@ bool looksLikeHeic(List<int> bytes) {
 
 const avatarReencodeBytesThreshold = 1200000;
 
+/// Must stay under server [AVATAR_MAX_BYTES] after base64 + JSON overhead.
+const avatarMaxUploadBytes = 2800000;
+
 bool shouldReencodeAvatar(List<int> bytes) {
   if (looksLikeHeic(bytes)) return true;
   if (bytes.length < 32) return false;
-  return bytes.length > avatarReencodeBytesThreshold;
+  return bytes.length > avatarReencodeBytesThreshold ||
+      bytes.length > avatarMaxUploadBytes;
 }
 
 /// Returns updated guardians list with [avatarUrl] on the matching phone entry.

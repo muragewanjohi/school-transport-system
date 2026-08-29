@@ -65,6 +65,15 @@ vi.mock("@/lib/supabaseAdmin", () => ({
   }),
 }));
 
+vi.mock("@/lib/parentAuthSession", () => ({
+  ensureParentAuthSession: vi.fn().mockResolvedValue({
+    supabase_access_token: "access-test",
+    supabase_refresh_token: "refresh-test",
+    supabase_expires_in: 3600,
+    supabase_user_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  }),
+}));
+
 import { GET } from "@/app/api/parent/children/route";
 import { signParentSession } from "@/lib/parentSession";
 
@@ -104,10 +113,25 @@ describe("GET /api/parent/children", () => {
     const body = (await res.json()) as {
       success: boolean;
       children: Array<{ name: string; parent_id: string }>;
+      supabase_refresh_token?: string;
     };
     expect(body.success).toBe(true);
     expect(body.children).toHaveLength(1);
     expect(body.children[0]?.name).toBe("Brian Demo");
     expect(body.children[0]?.parent_id).toBe(PARENT_ID);
+    expect(body.supabase_refresh_token).toBeUndefined();
+  });
+
+  it("Given bootstrap header, When requested, Then refresh token is returned", async () => {
+    const token = signParentSession({ sub: PARENT_ID, tenant_id: TENANT_ID });
+    const headers = new Headers();
+    headers.set("Authorization", `Bearer ${token}`);
+    headers.set("x-bootstrap-supabase", "1");
+    const res = await GET(
+      new Request("http://localhost/api/parent/children", { method: "GET", headers })
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { supabase_refresh_token?: string };
+    expect(body.supabase_refresh_token).toBe("refresh-test");
   });
 });

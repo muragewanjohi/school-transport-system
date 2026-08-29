@@ -3,6 +3,7 @@ import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { parentSessionFromRequest } from "@/lib/parentSession";
 import { mergeParentChildRows } from "@/lib/parentChildren";
+import { ensureParentAuthSession } from "@/lib/parentAuthSession";
 
 const STUDENT_SELECT =
   "id, name, grade, class_name, address, route_id, status, guardians, avatar_url, transit_status, parent_id, tenant_id, pickup_stop_id, dropoff_stop_id, tenant:tenants(id, name), pickup_stop:stops!students_pickup_stop_id_fkey(id, name, location), dropoff_stop:stops!students_dropoff_stop_id_fkey(id, name, location), route:routes(id, name, schedules(id, name, departure_time, direction, days_of_week))";
@@ -32,7 +33,7 @@ export async function GET(request: Request) {
 
     const { data: profile } = await db
       .from("profiles")
-      .select("id, phone")
+      .select("id, phone, name, email")
       .eq("id", parent.sub)
       .eq("tenant_id", parent.tenant_id)
       .maybeSingle();
@@ -79,7 +80,34 @@ export async function GET(request: Request) {
         .is("parent_id", null);
     }
 
-    return NextResponse.json({ success: true, children });
+    let supabaseAuth: Awaited<ReturnType<typeof ensureParentAuthSession>> | null = null;
+    if (request.headers.get("x-bootstrap-supabase") === "1") {
+      try {
+        supabaseAuth = await ensureParentAuthSession(db, {
+          profileId: parent.sub,
+          tenantId: parent.tenant_id,
+          name: typeof profile?.name === "string" ? profile.name : undefined,
+          phone: parentPhone || undefined,
+          email: typeof profile?.email === "string" ? profile.email : undefined,
+        });
+      } catch (err) {
+        console.error(
+          "Parent Supabase Auth bootstrap on /api/parent/children:",
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
+
+    return NextResponse.json({
+      success: true,
+      children,
+      ...(supabaseAuth
+        ? {
+            supabase_refresh_token: supabaseAuth.supabase_refresh_token,
+            supabase_access_token: supabaseAuth.supabase_access_token,
+          }
+        : {}),
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Internal Server Error";
     return NextResponse.json({ success: false, error: message }, { status: 500 });

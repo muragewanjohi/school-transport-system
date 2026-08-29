@@ -15,7 +15,7 @@ const bodySchema = z.object({
   target: z.enum(["profiles", "students", "guardian"]),
   id: z.string().uuid(),
   guardian_phone: z.string().min(5).max(32).optional(),
-  image_base64: z.string().min(32).max(5_000_000),
+  image_base64: z.string().min(32).max(3_800_000),
 });
 
 export async function POST(request: Request) {

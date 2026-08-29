@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:parent_app/config/api_config.dart';
 import 'package:parent_app/services/parent_api_auth.dart';
@@ -31,7 +32,14 @@ class ParentAvatarApi {
           )
           .timeout(const Duration(seconds: 45));
 
-      if (response.statusCode != 200) return null;
+      if (response.statusCode != 200) {
+        if (kDebugMode) {
+          print(
+            'ParentAvatarApi upload failed: HTTP ${response.statusCode} ${response.body.substring(0, response.body.length.clamp(0, 200))}',
+          );
+        }
+        return null;
+      }
       final decoded = json.decode(response.body);
       if (decoded is! Map) return null;
       if (decoded['success'] != true) return null;

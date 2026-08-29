@@ -1,7 +1,8 @@
 import { guardianPhonesMatch } from "@/lib/studentGuardians";
 import { studentLinkedToParent } from "@/lib/parentChildren";
 
-export const AVATAR_MAX_BYTES = 3_500_000;
+/** Raw image cap — base64 + JSON must stay under Vercel's ~4.5 MB body limit. */
+export const AVATAR_MAX_BYTES = 2_800_000;
 
 export type ParentAvatarTarget = "profiles" | "students" | "guardian";
 

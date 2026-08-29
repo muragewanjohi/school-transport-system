@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 import 'package:parent_app/services/parent_avatar_api.dart';
+import 'package:parent_app/services/parent_children_service.dart';
+import 'package:parent_app/services/parent_supabase_session.dart';
 import 'package:parent_app/utils/parent_avatar_logic.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -133,6 +135,12 @@ class SupabaseService {
       );
       if (viaApi != null && viaApi.isNotEmpty) return viaApi;
 
+      await ParentSupabaseSession.ensureActive();
+      if (client.auth.currentUser?.id == null) {
+        // Bootstraps auth.users for legacy HMAC-only sessions before storage fallback.
+        await ParentChildrenService.fetchChildren(bootstrapSupabaseAuth: true);
+      }
+
       final uid = client.auth.currentUser?.id;
       if (uid == null || uid.isEmpty) {
         print('Error uploading avatar: no Supabase Auth session');
@@ -177,6 +185,12 @@ class SupabaseService {
         guardianPhone: guardianPhone,
       );
       if (viaApi != null && viaApi.isNotEmpty) return viaApi;
+
+      await ParentSupabaseSession.ensureActive();
+      if (client.auth.currentUser?.id == null) {
+        // Bootstraps auth.users for legacy HMAC-only sessions before storage fallback.
+        await ParentChildrenService.fetchChildren(bootstrapSupabaseAuth: true);
+      }
 
       final uid = client.auth.currentUser?.id;
       if (uid == null || uid.isEmpty) {

@@ -3,13 +3,17 @@ import 'dart:ui' as ui;
 import 'package:parent_app/utils/parent_avatar_logic.dart';
 
 /// iPhone camera/library often yields HEIC or multi-MB JPEGs. The avatar API
-/// only accepts JPEG/PNG/WebP under 3.5 MB (base64 would also exceed Vercel).
+/// only accepts JPEG/PNG/WebP under 2.8 MB (base64 must fit Vercel body limit).
 Future<Uint8List> prepareAvatarBytes(Uint8List raw) async {
-  if (!shouldReencodeAvatar(raw)) return raw;
+  if (!shouldReencodeAvatar(raw)) {
+    if (raw.length <= avatarMaxUploadBytes) return raw;
+  }
   try {
     var encoded = await _encodePng(raw, targetWidth: 960);
-    if (encoded != null && encoded.length <= 3_200_000) return encoded;
+    if (encoded != null && encoded.length <= avatarMaxUploadBytes) return encoded;
     encoded = await _encodePng(raw, targetWidth: 640);
+    if (encoded != null && encoded.length <= avatarMaxUploadBytes) return encoded;
+    encoded = await _encodePng(raw, targetWidth: 480);
     if (encoded != null) return encoded;
   } catch (_) {}
   return raw;
