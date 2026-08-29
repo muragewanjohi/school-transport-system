@@ -148,7 +148,7 @@ class SupabaseService {
       await client.storage.from('avatars').uploadBinary(
             storagePath,
             Uint8List.fromList(imageBytes),
-            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: false),
+            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
           );
 
       final String publicUrl = client.storage.from('avatars').getPublicUrl(storagePath);
@@ -205,7 +205,7 @@ class SupabaseService {
       await client.storage.from('avatars').uploadBinary(
             storagePath,
             Uint8List.fromList(imageBytes),
-            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: false),
+            fileOptions: const FileOptions(contentType: 'image/jpeg', upsert: true),
           );
 
       final publicUrl = client.storage.from('avatars').getPublicUrl(storagePath);

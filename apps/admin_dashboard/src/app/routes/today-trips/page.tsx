@@ -22,6 +22,7 @@ import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import { tripTypeLabel } from "@/lib/scheduleFormValidation";
 import { tripStatusIconColor, tripStatusStyles } from "@/lib/tripStatusUi";
+import { canOverrideTodayTripStatus } from "@/lib/todayTripOverride";
 
 interface DBRoute {
   id: string;
@@ -90,7 +91,12 @@ export default function TodayTrips() {
 
   // Modal State
   const [showModal, setShowModal] = useState(false);
-  const [selectedRun, setSelectedRun] = useState<any>(null);
+  const [selectedRun, setSelectedRun] = useState<{
+    status: string;
+    dbTrip?: DBTrip;
+    schedule: DBSchedule;
+    route?: DBRoute;
+  } | null>(null);
   const [modalStatus, setModalStatus] = useState("Scheduled");
   const [modalDescription, setModalDescription] = useState("");
   const [modalNewTime, setModalNewTime] = useState("");
@@ -194,7 +200,15 @@ export default function TodayTrips() {
   };
 
   // Open Update Modal
-  const openUpdateModal = (item: any) => {
+  const openUpdateModal = (item: {
+    status: string;
+    dbTrip?: DBTrip;
+    schedule: DBSchedule;
+    route?: DBRoute;
+  }) => {
+    if (!canOverrideTodayTripStatus({ displayStatus: item.status, tripStatus: item.dbTrip?.status })) {
+      return;
+    }
     setSelectedRun(item);
     setModalStatus(item.status);
     setModalDescription(item.dbTrip?.description || "");
@@ -209,6 +223,14 @@ export default function TodayTrips() {
   // Save Modal Action
   const handleSaveModal = async () => {
     if (!selectedRun) return;
+    if (
+      !canOverrideTodayTripStatus({
+        displayStatus: selectedRun.status,
+        tripStatus: selectedRun.dbTrip?.status,
+      })
+    ) {
+      return;
+    }
 
     // Validate delayed time
     if (modalStatus === "Delayed") {
@@ -622,7 +644,12 @@ export default function TodayTrips() {
                         </td>
 
                         <td style={{ padding: "16px", textAlign: "center" }}>
+                          {canOverrideTodayTripStatus({
+                            displayStatus: item.status,
+                            tripStatus: item.dbTrip?.status,
+                          }) ? (
                           <button
+                            type="button"
                             onClick={() => openUpdateModal(item)}
                             className="btn btn-secondary"
                             style={{
@@ -638,6 +665,9 @@ export default function TodayTrips() {
                             <Edit3 size={12} style={{ color: "var(--accent-primary)" }} />
                             Update Status
                           </button>
+                          ) : (
+                            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>—</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -683,7 +713,7 @@ export default function TodayTrips() {
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                 <Clock size={18} style={{ color: "var(--accent-primary)" }} />
-                <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", color: "var(--text-primary)", margin: 0 }}>Override Trip State</h3>
+                <h3 style={{ fontSize: "1.1rem", fontWeight: "bold", color: "var(--text-primary)", margin: 0 }}>Override this trip</h3>
               </div>
               <button
                 onClick={() => setShowModal(false)}
@@ -705,12 +735,12 @@ export default function TodayTrips() {
                 gap: "8px"
               }}>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "var(--text-muted)" }}>Route:</span>
-                  <strong style={{ color: "var(--text-primary)" }}>{selectedRun.route?.name || "Unassigned"}</strong>
+                  <span style={{ color: "var(--text-muted)" }}>Trip:</span>
+                  <strong style={{ color: "var(--text-primary)" }}>{selectedRun.schedule.name} ({tripTypeLabel(selectedRun.schedule.direction)})</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ color: "var(--text-muted)" }}>Run Name:</span>
-                  <strong style={{ color: "var(--text-primary)" }}>{selectedRun.schedule.name} ({tripTypeLabel(selectedRun.schedule.direction)})</strong>
+                  <span style={{ color: "var(--text-muted)" }}>Route:</span>
+                  <strong style={{ color: "var(--text-primary)" }}>{selectedRun.route?.name || "Unassigned"}</strong>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: "var(--text-muted)" }}>Scheduled Depart:</span>

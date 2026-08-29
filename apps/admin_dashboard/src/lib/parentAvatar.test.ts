@@ -31,6 +31,16 @@ describe("parentAvatar helpers", () => {
     expect(decodeImageBase64(Buffer.from("not-an-image-at-all-pad-pad-pad").toString("base64"))).toBeNull();
   });
 
+  it("Given HEIC bytes, When decoded, Then the image is rejected until the client re-encodes", () => {
+    const heic = Buffer.from([
+      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    ]);
+    expect(looksLikeImage(heic)).toBe(false);
+    expect(decodeImageBase64(heic.toString("base64"))).toBeNull();
+  });
+
   it("Given owner id, When building a storage path, Then the first folder is the uid", () => {
     expect(avatarObjectPath("aaaa-bbbb", "students", "student-1", 1000)).toBe(
       "aaaa-bbbb/students_student-1_1000.jpg"

@@ -233,6 +233,13 @@ Automatic detection of trips running behind schedule, evaluated in the database 
 
 Trips that never start transmitting are caught by Vercel Cron → `GET /api/trips/predeparture-check` every 5 minutes (`CRON_SECRET` bearer, same as platform purge). For today's `status = scheduled` rows with `started_at` null, if `now ≥ expected_departure + grace` (default 10 minutes, `PREDEPARTURE_GRACE_MINUTES`) the job sets `status_override = 'Delayed'` and a fixed description. Expected departure = `custom_departure_time` or `schedules.departure_time` in `Africa/Nairobi`. Dedup: skip when `status_override` already matches `/delay/i`. Parent notifications reuse `on_trip_status_update` (demo SMS dry-run unchanged).
 
+### Today's trip status overrides (admin)
+
+`/routes/today-trips` lists each **daily trip run** (a `schedules` row for today, joined to `trips` on `schedule_id` + `trip_date`). **Update Status** patches that `trips` row via `PUT /api/trips` with `trip_id` — never the corridor `routes` row. Two runs on the same route (e.g. Corridor AM pickup and Corridor PM drop-off) are independent.
+
+- Completed trips (`trips.status = 'completed'`, UI **Completed**) cannot be overridden: the console hides Update Status; `PUT /api/trips` returns **409** (`Completed trips cannot be updated`) for status / `status_override` / description / `custom_departure_time` patches.
+- `on_trip_status_update` is a no-op when `OLD.status = 'completed'`. Parent fan-out matches students whose `schedule_ids` contain the trip's `schedule_id` (fallback `route_id` only when `schedule_id` is null), so a corridor AM override does not alert corridor PM families.
+
 ### Out of scope (v1)
 
 - Traffic-aware delay math (Google Distance Matrix); v1 uses stored leg durations + geometric progress.

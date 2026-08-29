@@ -78,6 +78,12 @@ Before moving an item to **Completed**, confirm:
 
 ## Completed
 
+- **Route planner Trips tab first (2026-08-28):** All Routes detail tabs list **Trips** before **Stops & Geofences**; `/routes` with no `tab` query opens Trips. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/schoolCampusNav.test.ts`.
+
+- **Today's Trips completed lock + per-trip override (2026-08-28):** Completed rows have no Update Status; `PUT /api/trips` returns 409. Overrides and parent alerts are scoped to the trip schedule, not the corridor route. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/todayTripOverride.test.ts`, `src/app/api/trips/route.test.ts`.
+
+- **Parent iOS avatar upload (2026-08-28):** iPhone HEIC / large JPEGs are re-encoded before `POST /api/parent/avatar` (API only accepts JPEG/PNG/WebP under 3.5 MB). Storage upserts on retry. BDD in [bdd.md](bdd.md) Status `passing` — `apps/parent_app/test/parent_avatar_logic_test.dart`, `src/lib/parentAvatar.test.ts`.
+
 - **Parent iOS lock-screen push (2026-08-28):** Parent iOS Runner now has Push entitlements; login waits for an APNs token before `getToken()` and does not `deleteToken()` on iOS. `send-push` uses `apns-push-type: alert` (no silent `content-available`). Inbox rows still appear without a token. BDD in [bdd.md](bdd.md) Status `passing` — `apps/parent_app/test/parent_push_logic_test.dart`.
 
 - **Parent lock-screen push + drop-off approach copy (2026-08-28):** FCM `UNREGISTERED` tokens are pruned; Android login mints a fresh token. Drop-off 500 m alerts say the child will be dropped off shortly (no “prepare student”). BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/parentTripAlerts.test.ts`.
@@ -323,6 +329,7 @@ Repo is ready. These steps are browser-only (Apple / Google / Codemagic). You ca
 - **Unique guardian phones per student:** A student cannot have two guardian rows with the same phone (normalized digits). Operators pick an existing parent or add a new one; they cannot attach the same number twice.
 
 - **Pre-departure cron:** Vercel Cron hits `/api/trips/predeparture-check` every 5 minutes; overdue never-started trips get `status_override=Delayed` once, reusing trip-status notifications.
+- **Today's trip status override:** Admin Update Status patches the daily `trips` row (`trip_id`), not the corridor. Completed trips are locked (409). Parent alerts match `students.schedule_ids` to that trip's schedule.
 - **Queue-Based Notification Engine:** Used an `alerts_queue` table combined with Supabase database webhooks to decouple spatial compute from external network API execution.
 - **Platform vs Tenant Admin:** `profiles.role = super_admin` is platform-only with `tenant_id = null`. School operators use `role = school_admin` with a required `tenant_id`; their `admin_role` (including `"Super Admin"`) is tenant-scoped only.
 - **Soft-Delete Tenants:** Schools are suspended/soft-deleted (`deleted_at`), never hard-deleted through the product UI. Automated retention purge (Vercel Cron → `/api/platform/purge`) soft-deletes schools suspended beyond `suspended_purge_days` and permanently purges soft-deleted schools beyond `deleted_purge_days` (both platform-configurable; 0 disables).

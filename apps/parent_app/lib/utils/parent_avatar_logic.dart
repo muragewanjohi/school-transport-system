@@ -59,6 +59,27 @@ bool guardianPhonesMatch(String? a, String? b) {
   return false;
 }
 
+bool looksLikeHeic(List<int> bytes) {
+  if (bytes.length < 12) return false;
+  if (bytes[4] != 0x66 || bytes[5] != 0x74 || bytes[6] != 0x79 || bytes[7] != 0x70) {
+    return false;
+  }
+  final brand = String.fromCharCodes(bytes.sublist(8, 12)).toLowerCase();
+  return brand == 'heic' ||
+      brand == 'heix' ||
+      brand == 'heif' ||
+      brand == 'mif1' ||
+      brand == 'msf1';
+}
+
+const avatarReencodeBytesThreshold = 1200000;
+
+bool shouldReencodeAvatar(List<int> bytes) {
+  if (looksLikeHeic(bytes)) return true;
+  if (bytes.length < 32) return false;
+  return bytes.length > avatarReencodeBytesThreshold;
+}
+
 /// Returns updated guardians list with [avatarUrl] on the matching phone entry.
 List<Map<String, dynamic>> withGuardianAvatarUrl({
   required List<dynamic> guardians,

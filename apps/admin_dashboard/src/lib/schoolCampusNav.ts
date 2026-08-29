@@ -10,6 +10,21 @@ export function isRoutesSectionNavActive(pathname: string, tab: string | null): 
   return !isSchoolCampusNavActive(pathname, tab);
 }
 
+export type RoutePlannerTab = "stops" | "schedules" | "schools";
+
+/** Default detail tab on `/routes` (not School Campus). */
+export const DEFAULT_ROUTE_PLANNER_TAB: RoutePlannerTab = "schedules";
+
+/** Visual order of route detail tabs: Trips first, then stops. */
+export const ROUTE_DETAIL_TAB_ORDER = ["schedules", "stops"] as const;
+
+export function resolveRoutePlannerTab(tabParam: string | null): RoutePlannerTab {
+  if (tabParam === "schools" || tabParam === "stops" || tabParam === "schedules") {
+    return tabParam;
+  }
+  return DEFAULT_ROUTE_PLANNER_TAB;
+}
+
 type MapsSize = { width: number; height: number };
 type MapsPoint = { x: number; y: number };
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:parent_app/services/supabase_service.dart';
+import 'package:parent_app/utils/parent_avatar_picker.dart';
 
 /// Editable student profile (name, address, photo). School-owned fields are read-only.
 class StudentInfoScreen extends StatefulWidget {
@@ -78,12 +79,11 @@ class _StudentInfoScreenState extends State<StudentInfoScreen> {
   }
 
   Future<void> _pickPhoto(ImageSource source) async {
-    final picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: source, imageQuality: 80);
+    final XFile? image = await ParentAvatarPicker.pick(source);
     if (image == null || !mounted) return;
 
     setState(() => _isUploadingPhoto = true);
-    final bytes = await image.readAsBytes();
+    final bytes = await ParentAvatarPicker.bytesForUpload(image);
     final upload = widget.photoUploader ??
         ({
           required String id,

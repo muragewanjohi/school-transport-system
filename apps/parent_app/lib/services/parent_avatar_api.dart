@@ -29,7 +29,7 @@ class ParentAvatarApi {
               ),
             ),
           )
-          .timeout(const Duration(seconds: 25));
+          .timeout(const Duration(seconds: 45));
 
       if (response.statusCode != 200) return null;
       final decoded = json.decode(response.body);

@@ -28,7 +28,12 @@ import {
   tripTypeLabel,
   validateScheduleForm,
 } from "@/lib/scheduleFormValidation";
-import { SCHOOL_CAMPUS_ICON_URL, schoolCampusMapIcon } from "@/lib/schoolCampusNav";
+import {
+  SCHOOL_CAMPUS_ICON_URL,
+  resolveRoutePlannerTab,
+  schoolCampusMapIcon,
+  type RoutePlannerTab,
+} from "@/lib/schoolCampusNav";
 
 interface DBRoute {
   id: string;
@@ -91,14 +96,10 @@ function RoutesManagement() {
   const [schedules, setSchedules] = useState<DBSchedule[]>([]);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"stops" | "schedules" | "schools">("stops");
+  const [activeTab, setActiveTab] = useState<RoutePlannerTab>(resolveRoutePlannerTab(tabParam));
 
   useEffect(() => {
-    if (tabParam === "schools" || tabParam === "stops" || tabParam === "schedules") {
-      setActiveTab(tabParam as any);
-    } else {
-      setActiveTab("stops");
-    }
+    setActiveTab(resolveRoutePlannerTab(tabParam));
   }, [tabParam]);
 
   // Drawer modal states
@@ -1554,7 +1555,7 @@ function RoutesManagement() {
               />
             </div>
 
-            {/* Stops / Schedules tabs list */}
+            {/* Trips / Stops tabs list */}
             <div className="panel" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
               <div style={{ display: "flex", borderBottom: "1px solid var(--border-default)", justifyContent: "space-between", alignItems: "center" }}>
                 {activeTab === "schools" ? (
@@ -1564,17 +1565,17 @@ function RoutesManagement() {
                   </div>
                 ) : (
                   <div style={{ display: "flex" }}>
-                    <button 
-                      onClick={() => setActiveTab("stops")} 
-                      className={`tab-btn ${activeTab === "stops" ? "active" : ""}`}
-                    >
-                      Stops & Geofences ({routeStops.length})
-                    </button>
-                    <button 
-                      onClick={() => setActiveTab("schedules")} 
+                    <button
+                      onClick={() => setActiveTab("schedules")}
                       className={`tab-btn ${activeTab === "schedules" ? "active" : ""}`}
                     >
                       Trips ({routeSchedules.length})
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("stops")}
+                      className={`tab-btn ${activeTab === "stops" ? "active" : ""}`}
+                    >
+                      Stops & Geofences ({routeStops.length})
                     </button>
                   </div>
                 )}

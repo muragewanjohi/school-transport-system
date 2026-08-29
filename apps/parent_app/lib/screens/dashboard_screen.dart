@@ -24,6 +24,7 @@ import 'package:parent_app/services/parent_push_service.dart';
 import 'package:parent_app/services/parent_live_service.dart';
 import 'package:parent_app/utils/parent_attendance_logic.dart';
 import 'package:parent_app/utils/parent_avatar_logic.dart';
+import 'package:parent_app/utils/parent_avatar_picker.dart';
 import 'package:parent_app/utils/parent_grade_label.dart';
 import 'package:parent_app/utils/parent_map_logic.dart';
 import 'package:parent_app/utils/parent_trip_details.dart';
@@ -85,7 +86,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final isGuardianJson = targetTable == 'guardian_json';
 
     Future<void> applyPicked(XFile image) async {
-      final bytes = await image.readAsBytes();
+      final bytes = await ParentAvatarPicker.bytesForUpload(image);
       String? publicUrl;
       if (isGuardianJson) {
         final phone = guardianPhone ?? '';
@@ -219,9 +220,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 title: const Text('Take Photo (Camera)', style: TextStyle(color: Colors.white)),
                 onTap: () async {
                   Navigator.of(context).pop();
-                  final picker = ImagePicker();
-                  final XFile? image =
-                      await picker.pickImage(source: ImageSource.camera, imageQuality: 80);
+                  final XFile? image = await ParentAvatarPicker.pick(ImageSource.camera);
                   if (image != null) await applyPicked(image);
                 },
               ),
@@ -230,9 +229,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 title: const Text('Choose from Gallery', style: TextStyle(color: Colors.white)),
                 onTap: () async {
                   Navigator.of(context).pop();
-                  final picker = ImagePicker();
-                  final XFile? image =
-                      await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+                  final XFile? image = await ParentAvatarPicker.pick(ImageSource.gallery);
                   if (image != null) await applyPicked(image);
                 },
               ),

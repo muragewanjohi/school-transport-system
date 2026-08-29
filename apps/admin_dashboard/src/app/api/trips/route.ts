@@ -8,6 +8,8 @@ import {
 } from "@/lib/dropoffCampusBoarding";
 import { durationSecondsFromRange } from "@/lib/schoolArrival";
 import { syncScheduledTripIfNeeded } from "@/lib/scheduledTripManifest";
+import { studentAssignedToTripSchedule } from "@/lib/todayTripOverride";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 const tripCreateSchema = z.object({
   schedule_id: z.string().min(1, "Invalid Schedule selection"),
@@ -74,6 +76,18 @@ export const mockTrips = [
     status: "scheduled",
     started_at: null,
     completed_at: null,
+  },
+  {
+    id: "trip-completed",
+    schedule_id: "sched-1-1",
+    route_id: "route-1",
+    vehicle_id: "veh-1",
+    driver_id: "driver-1",
+    conductor_1_id: "cond-1",
+    trip_date: "2026-06-21",
+    status: "completed",
+    started_at: "2026-06-21T06:35:00Z",
+    completed_at: "2026-06-21T08:00:00Z",
   },
 ];
 
@@ -437,6 +451,20 @@ export async function PUT(request: Request) {
     }
 
     if (!isSupabaseConfigured) {
+      if (result.data.trip_id) {
+        const existing = mockTrips.find((row) => row.id === result.data.trip_id);
+        const isStatusPatch =
+          result.data.status !== undefined ||
+          result.data.status_override !== undefined ||
+          result.data.description !== undefined ||
+          result.data.custom_departure_time !== undefined;
+        if (existing?.status === "completed" && isStatusPatch) {
+          return NextResponse.json(
+            { success: false, error: "Completed trips cannot be updated" },
+            { status: 409 }
+          );
+        }
+      }
       if (result.data.trip_id && result.data.finalize_campus_boarding) {
         const updated = mockTripManifests
           .filter((row) => row.trip_id === result.data.trip_id)
@@ -534,27 +562,48 @@ export async function PUT(request: Request) {
     }
 
     if (result.data.trip_id) {
-      if (result.data.status === "in_progress") {
-        const { data: tripRow, error: tripLookupError } = await client
-          .from("trips")
-          .select("id, schedule_id")
-          .eq("id", result.data.trip_id)
-          .eq("tenant_id", scope.tenantId)
-          .maybeSingle();
+      const { data: existingTripRow, error: existingTripError } = await client
+        .from("trips")
+        .select("id, status, started_at, schedule_id")
+        .eq("id", result.data.trip_id)
+        .eq("tenant_id", scope.tenantId)
+        .maybeSingle();
 
-        if (tripLookupError) {
-          return NextResponse.json({ success: false, error: tripLookupError.message }, { status: 400 });
-        }
-        if (!tripRow) {
-          return NextResponse.json({ success: false, error: "Trip not found" }, { status: 404 });
-        }
+      if (existingTripError) {
+        return NextResponse.json({ success: false, error: existingTripError.message }, { status: 400 });
+      }
+      if (!existingTripRow) {
+        return NextResponse.json({ success: false, error: "Trip not found" }, { status: 404 });
+      }
+
+      const existingStatus =
+        existingTripRow && typeof (existingTripRow as { status?: string }).status === "string"
+          ? (existingTripRow as { status: string }).status
+          : "";
+      const isStatusPatch =
+        result.data.status !== undefined ||
+        result.data.status_override !== undefined ||
+        result.data.description !== undefined ||
+        result.data.custom_departure_time !== undefined;
+      if (existingStatus === "completed" && isStatusPatch) {
+        return NextResponse.json(
+          { success: false, error: "Completed trips cannot be updated" },
+          { status: 409 }
+        );
+      }
+
+      if (result.data.status === "in_progress") {
+        const scheduleId =
+          existingTripRow && typeof (existingTripRow as { schedule_id?: string | null }).schedule_id === "string"
+            ? (existingTripRow as { schedule_id: string }).schedule_id
+            : null;
 
         let direction = "HOME_TO_SCHOOL";
-        if (tripRow.schedule_id) {
+        if (scheduleId) {
           const { data: schedule } = await client
             .from("schedules")
             .select("direction")
-            .eq("id", tripRow.schedule_id)
+            .eq("id", scheduleId)
             .maybeSingle();
           if (schedule && typeof schedule.direction === "string") {
             direction = schedule.direction;
@@ -587,15 +636,9 @@ export async function PUT(request: Request) {
         } else if (result.data.status === "completed") {
           const completedAt = new Date();
           updateData.completed_at = completedAt.toISOString();
-          const { data: existingTrip } = await client
-            .from("trips")
-            .select("started_at")
-            .eq("id", result.data.trip_id)
-            .eq("tenant_id", scope.tenantId)
-            .maybeSingle();
           const startedAt =
-            existingTrip && typeof (existingTrip as { started_at?: string | null }).started_at === "string"
-              ? (existingTrip as { started_at: string }).started_at
+            existingTripRow && typeof (existingTripRow as { started_at?: string | null }).started_at === "string"
+              ? (existingTripRow as { started_at: string }).started_at
               : null;
           updateData.duration_seconds = durationSecondsFromRange(startedAt, completedAt);
         }
@@ -644,17 +687,18 @@ export async function PUT(request: Request) {
 }
 
 async function sendTripNotifications(
-  client: any, 
-  trip: { 
-    id: string; 
-    tenant_id: string; 
-    route_id: string; 
-    driver_id?: string | null; 
+  client: SupabaseClient,
+  trip: {
+    id: string;
+    tenant_id: string;
+    route_id: string;
+    schedule_id?: string | null;
+    driver_id?: string | null;
     conductor_1_id?: string | null;
-    status: string; 
-    status_override?: string | null; 
-    description?: string | null; 
-    custom_departure_time?: string | null; 
+    status: string;
+    status_override?: string | null;
+    description?: string | null;
+    custom_departure_time?: string | null;
   }
 ) {
   // If Supabase is active, notifications are handled by the database trigger on public.trips updates
@@ -695,14 +739,19 @@ async function sendTripNotifications(
     // 3. Query all students on this route
     const { data: students } = await client
       .from("students")
-      .select("id, name, parent_id")
+      .select("id, name, parent_id, schedule_ids")
       .eq("route_id", trip.route_id)
       .eq("tenant_id", trip.tenant_id);
 
-    if (students && students.length > 0) {
-      const alertPayloads = students
-        .filter((std: any) => std.parent_id)
-        .map((std: any) => ({
+    const onThisTrip = (students ?? []).filter((std) => {
+      const parentId = std.parent_id;
+      if (typeof parentId !== "string" || !parentId) return false;
+      if (!trip.schedule_id) return true;
+      return studentAssignedToTripSchedule(std.schedule_ids, trip.schedule_id);
+    });
+
+    if (onThisTrip.length > 0) {
+      const alertPayloads = onThisTrip.map((std) => ({
           id: crypto.randomUUID(),
           tenant_id: trip.tenant_id,
           student_id: std.id,

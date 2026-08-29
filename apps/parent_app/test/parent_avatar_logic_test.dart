@@ -51,4 +51,29 @@ void main() {
     expect(payload['image_base64'], isA<String>());
     expect((payload['image_base64'] as String).isNotEmpty, isTrue);
   });
+
+  test('looksLikeHeic detects ftyp heic/mif1', () {
+    final heic = List<int>.filled(16, 0);
+    heic[4] = 0x66;
+    heic[5] = 0x74;
+    heic[6] = 0x79;
+    heic[7] = 0x70;
+    heic[8] = 0x68;
+    heic[9] = 0x65;
+    heic[10] = 0x69;
+    heic[11] = 0x63;
+    expect(looksLikeHeic(heic), isTrue);
+    expect(shouldReencodeAvatar(heic), isTrue);
+
+    final jpeg = List<int>.filled(64, 0);
+    jpeg[0] = 0xff;
+    jpeg[1] = 0xd8;
+    expect(looksLikeHeic(jpeg), isFalse);
+    expect(shouldReencodeAvatar(jpeg), isFalse);
+
+    final largeJpeg = List<int>.filled(avatarReencodeBytesThreshold + 10, 0);
+    largeJpeg[0] = 0xff;
+    largeJpeg[1] = 0xd8;
+    expect(shouldReencodeAvatar(largeJpeg), isTrue);
+  });
 }

@@ -163,7 +163,7 @@ async function uploadAvatarObject(
 ): Promise<{ ok: true; publicUrl: string } | { ok: false }> {
   const { error } = await db.storage.from("avatars").upload(storagePath, bytes, {
     contentType,
-    upsert: false,
+    upsert: true,
   });
   if (error) return { ok: false };
   const { data } = db.storage.from("avatars").getPublicUrl(storagePath);

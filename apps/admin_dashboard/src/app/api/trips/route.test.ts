@@ -85,7 +85,7 @@ describe("PUT /api/trips › drop-off campus boarding", () => {
     expect(res.status).toBe(400);
   });
 
-  it("complete trip › returns duration_seconds", async () => {
+    it("complete trip › returns duration_seconds", async () => {
     const res = await PUT(jsonRequest({ trip_id: "trip-1", status: "completed" }));
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
@@ -95,5 +95,19 @@ describe("PUT /api/trips › drop-off campus boarding", () => {
     expect(json.success).toBe(true);
     expect(typeof json.data.duration_seconds).toBe("number");
     expect(json.data.duration_seconds).toBeGreaterThanOrEqual(0);
+  });
+
+  it("completed trip › status override is rejected", async () => {
+    const res = await PUT(
+      jsonRequest({
+        trip_id: "trip-completed",
+        status: "scheduled",
+        status_override: "Delayed",
+      })
+    );
+    expect(res.status).toBe(409);
+    const json = (await res.json()) as { success: boolean; error?: string };
+    expect(json.success).toBe(false);
+    expect(json.error).toBe("Completed trips cannot be updated");
   });
 });
