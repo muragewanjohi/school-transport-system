@@ -44,13 +44,13 @@ export const PRICING_PLANS: readonly PricingPlan[] = [
     id: "starter",
     name: "Starter",
     description: "Perfect for small schools just getting started.",
-    monthlyKes: 5000,
-    maxStudents: 100,
-    maxBuses: 2,
+    monthlyKes: 10000,
+    maxStudents: 200,
+    maxBuses: 3,
     maxLocations: 1,
     features: [
-      "Up to 100 students",
-      "Up to 2 buses",
+      "Up to 200 students",
+      "Up to 3 buses",
       "1 location",
       "Live bus tracking",
       "Parent & driver apps",
@@ -63,14 +63,14 @@ export const PRICING_PLANS: readonly PricingPlan[] = [
     id: "school",
     name: "School",
     description: "Everything you need to run your school transport smoothly.",
-    monthlyKes: 10000,
-    maxStudents: 300,
-    maxBuses: 6,
+    monthlyKes: 20000,
+    maxStudents: 600,
+    maxBuses: 7,
     maxLocations: 3,
     popular: true,
     features: [
-      "Up to 300 students",
-      "Up to 6 buses",
+      "Up to 600 students",
+      "Up to 7 buses",
       "Up to 3 locations",
       "Student boarding & drop-off",
       "Delay management",
@@ -83,13 +83,13 @@ export const PRICING_PLANS: readonly PricingPlan[] = [
     id: "growth",
     name: "Growth",
     description: "For growing schools with bigger transport operations.",
-    monthlyKes: 15000,
-    maxStudents: 600,
-    maxBuses: 10,
+    monthlyKes: 30000,
+    maxStudents: 1200,
+    maxBuses: 11,
     maxLocations: 5,
     features: [
-      "Up to 600 students",
-      "Up to 10 buses",
+      "Up to 1,200 students",
+      "Up to 11 buses",
       "Up to 5 locations",
       "Custom roles & permissions",
       "API access",
@@ -105,8 +105,8 @@ export const PRICING_PLANS: readonly PricingPlan[] = [
     maxBuses: null,
     maxLocations: null,
     features: [
-      "600+ students",
-      "10+ buses",
+      "1,200+ students",
+      "11+ buses",
       "Unlimited locations",
       "Dedicated account manager",
       "Custom integrations",
@@ -144,9 +144,9 @@ export function formatCapLabel(
       return "Unlimited locations";
     }
     if (unit === "students") {
-      return "600+ students";
+      return "1,200+ students";
     }
-    return "10+ buses";
+    return "11+ buses";
   }
   if (unit === "locations" && value === 1) {
     return "1 location";
