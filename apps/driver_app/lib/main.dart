@@ -10,6 +10,7 @@ import 'package:driver_app/services/supabase_service.dart';
 import 'package:driver_app/services/location_service.dart';
 import 'package:driver_app/screens/login_screen.dart';
 import 'package:driver_app/services/driver_api_auth.dart';
+import 'package:driver_app/utils/session_recovery_logic.dart';
 import 'package:driver_app/screens/campus_boarding_screen.dart';
 import 'package:driver_app/screens/student_selection_screen.dart';
 import 'package:driver_app/screens/trip_screen.dart';
@@ -117,7 +118,7 @@ class MyHomePage extends ConsumerStatefulWidget {
   ConsumerState<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends ConsumerState<MyHomePage> {
+class _MyHomePageState extends ConsumerState<MyHomePage> with WidgetsBindingObserver {
   // Input controllers for B2B tenant routing parameters (populated from session)
   final TextEditingController _tenantController = TextEditingController();
   final TextEditingController _vehicleController = TextEditingController();
@@ -172,13 +173,22 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSessionDetails();
     _checkActiveTripStatus();
     _listenToBackgroundTelemetry();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_refreshHomeData(forceSessionRefresh: false, notify: false));
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _stopGpsReplay(restartGps: false);
     _telemetrySub?.cancel();
     _foregroundGpsSub?.cancel();
@@ -633,7 +643,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     });
 
     // Fetch today's scheduled routes and trips
-    await _fetchDriverTrips();
+    await _refreshHomeData(forceSessionRefresh: false, notify: false);
 
     // Fetch live vehicle details to update the plate number
     if (_vehicleController.text.isNotEmpty) {
@@ -710,13 +720,73 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
     }
   }
 
-  /// Fetch scheduled routes and trips assigned to this bus
-  Future<void> _fetchDriverTrips() async {
-    if (!mounted) return;
+  /// Refresh HMAC if needed, then reload today's trips.
+  Future<bool> _refreshHomeData({
+    required bool forceSessionRefresh,
+    required bool notify,
+  }) async {
+    final recovered = await DriverApiAuth.recoverSession(
+      force: forceSessionRefresh,
+    );
+    if (recovered == SessionRecoveryStatus.unauthorized) {
+      if (notify && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Session expired. Please sign in again.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      await _handleSignOut();
+      return false;
+    }
+
+    var loaded = await _fetchDriverTrips();
+    if (!loaded) {
+      final retry = await DriverApiAuth.recoverSession(force: true);
+      if (retry == SessionRecoveryStatus.unauthorized) {
+        if (notify && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Session expired. Please sign in again.'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        await _handleSignOut();
+        return false;
+      }
+      if (retry == SessionRecoveryStatus.ok) {
+        loaded = await _fetchDriverTrips();
+      }
+    }
+
+    await _checkActiveTripStatus();
+
+    if (notify && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            loaded
+                ? 'Console and scheduled trips refreshed'
+                : 'Could not refresh trips. Check your connection and try again.',
+          ),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    }
+    return loaded;
+  }
+
+  /// Fetch scheduled routes and trips assigned to this bus.
+  /// Returns false when the request failed (including 401).
+  Future<bool> _fetchDriverTrips() async {
+    if (!mounted) return false;
     setState(() {
       _isLoadingDriverTrips = true;
     });
 
+    var loaded = false;
     try {
       final baseUrl = _getApiBaseUrl();
       final vehicleId = _vehicleController.text.trim();
@@ -751,6 +821,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
           });
 
           _processTripStates();
+          loaded = true;
         }
       }
     } catch (e) {
@@ -762,6 +833,7 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
         });
       }
     }
+    return loaded;
   }
 
   void _processTripStates() {
@@ -1717,16 +1789,10 @@ class _MyHomePageState extends ConsumerState<MyHomePage> {
                 child: IconButton(
                   icon: const Icon(Icons.sync, color: Colors.white),
                   onPressed: () async {
-                    await _checkActiveTripStatus();
-                    await _fetchDriverTrips();
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('Console and scheduled trips refreshed'),
-                          duration: Duration(seconds: 1),
-                        ),
-                      );
-                    }
+                    await _refreshHomeData(
+                      forceSessionRefresh: true,
+                      notify: true,
+                    );
                   },
                   tooltip: 'Sync service status',
                 ),

@@ -78,6 +78,8 @@ Before moving an item to **Completed**, confirm:
 
 ## Completed
 
+- **Mobile session recovery after idle (2026-09-10):** After days unused, driver Home trips and parent map/inbox were empty until logout/login because HMAC `par.*`/`drv.*` (7-day) and the parent Supabase JWT (~1 hour) were not refreshed; Refresh reused the dead tokens. Added `POST /api/auth/parent-refresh` and `/api/auth/driver-refresh` (signed tokens refreshable for 30 days after expiry), Flutter recovery on cold start / resume / Refresh with one 401 retry, and Nairobi calendar date on driver trips. BDD in [bdd.md](bdd.md) Status `passing` — `src/app/api/auth/parent-refresh/route.test.ts`, `src/app/api/auth/driver-refresh/route.test.ts`, `apps/parent_app/test/session_recovery_logic_test.dart`, `apps/driver_app/test/session_recovery_logic_test.dart`.
+
 - **Route planner Trips tab first (2026-08-28):** All Routes detail tabs list **Trips** before **Stops & Geofences**; `/routes` with no `tab` query opens Trips. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/schoolCampusNav.test.ts`.
 
 - **Today's Trips completed lock + per-trip override (2026-08-28):** Completed rows have no Update Status; `PUT /api/trips` returns 409. Overrides and parent alerts are scoped to the trip schedule, not the corridor route. BDD in [bdd.md](bdd.md) Status `passing` — `src/lib/todayTripOverride.test.ts`, `src/app/api/trips/route.test.ts`.

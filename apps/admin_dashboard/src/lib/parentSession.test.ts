@@ -53,4 +53,17 @@ describe("parentSession › sign/verify", () => {
     );
     expect(verifyParentSession(token)).toBeNull();
   });
+
+  it("Given an expired payload within grace, When verified with grace, Then payload", () => {
+    process.env.PARENT_SESSION_SECRET = "unit-test-parent-secret";
+    const token = signParentSession(
+      {
+        sub: "11111111-1111-4111-8111-111111111111",
+        tenant_id: "22222222-2222-4222-8222-222222222222",
+      },
+      -60
+    );
+    const payload = verifyParentSession(token, { expiredGraceSeconds: 120 });
+    expect(payload?.sub).toBe("11111111-1111-4111-8111-111111111111");
+  });
 });

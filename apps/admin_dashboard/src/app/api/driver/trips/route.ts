@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { tallyManifestAttendance } from "@/lib/dropoffCampusBoarding";
+import { nairobiTripDate, nairobiWeekday } from "@/lib/parentLive";
 import { syncScheduledTripIfNeeded } from "@/lib/scheduledTripManifest";
 
 const mockDriverTrips = [
@@ -144,8 +145,8 @@ export async function GET(request: Request) {
     }
 
     const now = new Date();
-    const todayStr = now.toISOString().split("T")[0];
-    const jsDay = now.getDay(); // Sun=0 … Sat=6
+    const todayStr = nairobiTripDate(now);
+    const jsDay = nairobiWeekday(now); // Sun=0 … Sat=6 in Africa/Nairobi
     const dbDay = jsDay === 0 ? 7 : jsDay; // Mon=1 … Sat=6, Sun=7
 
     const schedules = (allSchedules ?? []).filter((schedule) => {

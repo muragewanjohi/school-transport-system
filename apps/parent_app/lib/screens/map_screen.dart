@@ -4,6 +4,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:parent_app/services/google_directions_service.dart';
 import 'package:parent_app/services/parent_etas_service.dart';
 import 'package:parent_app/services/parent_live_service.dart';
+import 'package:parent_app/services/parent_session_recovery.dart';
 import 'package:parent_app/services/supabase_service.dart';
 import 'package:parent_app/theme/parent_colors.dart';
 import 'package:parent_app/utils/eta_utils.dart';
@@ -29,7 +30,7 @@ class MapScreen extends StatefulWidget {
   State<MapScreen> createState() => _MapScreenState();
 }
 
-class _MapScreenState extends State<MapScreen> {
+class _MapScreenState extends State<MapScreen> with WidgetsBindingObserver {
   GoogleMapController? _mapController;
   BitmapDescriptor? _busIcon;
   BitmapDescriptor? _schoolIcon;
@@ -64,11 +65,19 @@ class _MapScreenState extends State<MapScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadMarkerIcons();
-    _fetchStudentAndRouteData();
+    _bootstrapLive();
+  }
+
+  Future<void> _bootstrapLive() async {
+    await ParentSessionRecovery.recover();
+    if (!mounted) return;
+    await _fetchStudentAndRouteData();
     _subscribeToLiveTelemetry();
     _startLivePolling();
     _startEtaPolling();
+    _idleTickTimer?.cancel();
     _idleTickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted || _isTripActive) return;
       setState(() {});
@@ -76,7 +85,26 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _onResume();
+    }
+  }
+
+  Future<void> _onResume() async {
+    await ParentSessionRecovery.recover();
+    if (!mounted) return;
+    await _fetchStudentAndRouteData();
+    _liveSubscription?.cancel();
+    _etaRealtimeSub?.cancel();
+    _subscribeToLiveTelemetry();
+    _startLivePolling();
+    _startEtaPolling();
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _liveSubscription?.cancel();
     _livePollTimer?.cancel();
     _idleTickTimer?.cancel();

@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:parent_app/config/api_config.dart';
 import 'package:parent_app/services/parent_api_auth.dart';
+import 'package:parent_app/services/parent_session_recovery.dart';
+import 'package:parent_app/services/parent_supabase_session.dart';
 import 'package:parent_app/services/supabase_service.dart';
 import 'package:parent_app/utils/parent_notification_logic.dart';
 
@@ -76,13 +78,12 @@ class ParentNotificationsService {
   }
 
   static Future<ParentNotificationsInbox?> _fetchViaApi({DateTime? nowUtc}) async {
-    final headers = await ParentApiAuth.headers();
-    if (headers['Authorization'] == null) return null;
-
     final uri = Uri.parse('${ApiConfig.baseUrl}/api/parent/notifications');
-    final response = await http.get(uri, headers: headers).timeout(
-          const Duration(seconds: 10),
-        );
+    final response = await ParentSessionRecovery.sendWithRetry(
+      (headers) => http.get(uri, headers: headers).timeout(
+            const Duration(seconds: 10),
+          ),
+    );
     if (response.statusCode != 200) return null;
 
     final body = json.decode(response.body) as Map<String, dynamic>;
@@ -95,6 +96,7 @@ class ParentNotificationsService {
   }
 
   static Future<ParentNotificationsInbox> _fetchViaSupabase({DateTime? nowUtc}) async {
+    await ParentSupabaseSession.ensureActive();
     final userId = SupabaseService.client.auth.currentUser?.id;
     if (userId == null) {
       return const ParentNotificationsInbox(items: [], unreadCount: 0);

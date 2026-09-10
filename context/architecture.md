@@ -188,6 +188,18 @@ Parent OTP login (`POST /api/auth/parent-login`) returns:
 1. **HMAC API token** `par.<payload>.<sig>` (`PARENT_SESSION_SECRET`) for Next.js routes such as `GET /api/parent/children`, `GET /api/parent/live`, `GET /api/parent/etas`, `GET`/`PATCH`/`DELETE /api/parent/notifications`, `POST`/`DELETE /api/parent/fcm-tokens`, and `POST /api/parent/avatar`. `GET /api/parent/children` is the parent app’s primary child roster (service role, scoped to `parent_id = parent.sub` and tenant, plus guardian-phone matches when `parent_id` is still null). Direct Supabase `SELECT` on `students` is a fallback only — parent RLS is `parent_id = auth.uid()`, so a missing Flutter Auth session must not wipe the roster. `GET /api/parent/live` returns in-progress trip + bus GPS for a child; when active, `trip` includes `driver` and optional `conductor` contact objects (`name`, `phone`, `avatar_url`) from trip crew profiles. When idle (`trip_active: false`) it also returns `next_trip` (today’s next scheduled departure, vehicle, est. duration) or null. Parent-facing `transit_status` is never “On the Bus” unless the trip is in progress and the child is boarded. If that route is unavailable the Flutter map falls back to Supabase Auth (`trips` + `live_coordinates` for the child’s route).
 2. **Supabase Auth session** (`supabase_access_token` / `supabase_refresh_token`) from `ensureParentAuthSession`: creates/updates `auth.users` with **`id = profiles.id`**, synthetic email `parent+{id}@users.onthebusapp.internal`, and `app_metadata` + `user_metadata` `{ role: parent, tenant_id }`. Flutter calls `auth.setSession(refresh_token)` so Realtime RLS sees `auth.uid()` and `jwt_role() = parent`.
 
+## Mobile session refresh (parent + driver)
+
+HMAC `par.*` / `drv.*` tokens are issued at OTP login with a **7-day** `exp`. They are **stateless** — Refresh in the app cannot mint a new token by itself. After idle (hours to days) the parent Supabase access JWT is also expired (~1 hour), so map RLS, Realtime, and inbox fallbacks return empty even when OS/FCM push still arrives.
+
+Recovery (no new OTP):
+
+1. **`POST /api/auth/parent-refresh`** and **`POST /api/auth/driver-refresh`** accept the stored Bearer HMAC. Signature must verify. `exp` may be in the past for up to **30 days** (`expiredGraceSeconds`). Success returns a new 7-day `access_token`. Parent may send `{ bootstrap_supabase: true }` (or `x-bootstrap-supabase: 1`) to re-issue Supabase Auth tokens via `ensureParentAuthSession` when Flutter `refreshSession()` failed.
+2. Flutter calls refresh on **cold start**, **AppLifecycle resume**, **user Refresh/sync**, and **once after HTTP 401**, then retries the data fetch with the new token. Do not call `auth.setSession` with a login-era refresh token if the SDK already rotated it (reuse detection can kill the whole Supabase session).
+3. Tampered tokens, wrong prefix, or expiry beyond grace → 401. The app then requires OTP login. Network failures must not sign the user out or wipe cached children.
+
+Driver `GET /api/driver/trips` uses **Africa/Nairobi** calendar date and weekday (same as parent live `next_trip`), not UTC `toISOString()` / Vercel `getDay()`.
+
 Live notifications:
 
 - Primary resilient path: poll `GET /api/parent/notifications` with Bearer `par.*` (service role, scoped to `user_id = parent.sub` and `tenant_id`). `PATCH` marks rows read. `DELETE` clears (hard-deletes) the parent's own inbox rows — Clear All in the app uses this, not mark-read. If that route is unavailable, the app falls back to direct Supabase under `user_id = auth.uid()` (SELECT / UPDATE / DELETE policies). The Parent app inbox renders these rows (no synthetic placeholders).

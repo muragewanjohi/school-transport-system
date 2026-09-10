@@ -21,10 +21,10 @@ class NotificationsScreen extends StatefulWidget {
   });
 
   @override
-  State<NotificationsScreen> createState() => _NotificationsScreenState();
+  State<NotificationsScreen> createState() => NotificationsScreenState();
 }
 
-class _NotificationsScreenState extends State<NotificationsScreen> {
+class NotificationsScreenState extends State<NotificationsScreen> {
   List<ParentInboxItem> _notifications = [];
   bool _isLoading = true;
   String? _error;
@@ -34,6 +34,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     super.initState();
     _loadNotifications();
   }
+
+  Future<void> reload() => _loadNotifications();
 
   Future<void> _loadNotifications() async {
     setState(() {

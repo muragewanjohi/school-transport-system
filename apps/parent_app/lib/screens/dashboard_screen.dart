@@ -22,7 +22,9 @@ import 'package:parent_app/services/parent_children_service.dart';
 import 'package:parent_app/utils/parent_children_logic.dart';
 import 'package:parent_app/services/parent_push_service.dart';
 import 'package:parent_app/services/parent_live_service.dart';
+import 'package:parent_app/services/parent_session_recovery.dart';
 import 'package:parent_app/utils/parent_attendance_logic.dart';
+import 'package:parent_app/utils/session_recovery_logic.dart';
 import 'package:parent_app/utils/parent_avatar_logic.dart';
 import 'package:parent_app/utils/parent_avatar_picker.dart';
 import 'package:parent_app/utils/parent_grade_label.dart';
@@ -38,7 +40,7 @@ class DashboardScreen extends StatefulWidget {
   State<DashboardScreen> createState() => _DashboardScreenState();
 }
 
-class _DashboardScreenState extends State<DashboardScreen> {
+class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingObserver {
   int _currentIndex = 0;
   int _selectedStudentIndex = 0;
   String _parentName = 'Parent';
@@ -67,6 +69,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
   RealtimeChannel? _notificationsChannel;
   int _unreadCount = 0;
   NotificationsScreen? _notificationsTab;
+  final GlobalKey<NotificationsScreenState> _notificationsInboxKey =
+      GlobalKey<NotificationsScreenState>();
   String? _latestNotificationId;
   bool _inboxPrimed = false;
 
@@ -352,11 +356,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadSessionAndData();
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadSessionAndData(showLoading: false);
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _etaPollTimer?.cancel();
     _notificationPollTimer?.cancel();
     _notificationsChannel?.unsubscribe();
@@ -559,9 +572,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
-  Future<void> _loadSessionAndData() async {
-    if (mounted) setState(() => _isLoading = true);
+  Future<void> _loadSessionAndData({bool showLoading = true}) async {
+    if (showLoading && mounted) setState(() => _isLoading = true);
     try {
+      final recovered = await ParentSessionRecovery.recover();
+      if (recovered == SessionRecoveryStatus.unauthorized) {
+        await _handleLogout();
+        return;
+      }
       final prefs = await SharedPreferences.getInstance();
       _parentId = prefs.getString('parent_id') ?? '';
       _parentName = prefs.getString('parent_name') ?? 'Parent';
@@ -589,6 +607,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       await prefs.setString('children_json', json.encode(nextStudents));
       _startEtaPolling();
       await _refreshProfile();
+      _notificationsInboxKey.currentState?.reload();
     } catch (e) {
       debugPrint('Error loading parent dashboard data');
     } finally {
@@ -798,6 +817,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         break;
       case 2:
         _notificationsTab ??= NotificationsScreen(
+          key: _notificationsInboxKey,
           isEmbedded: true,
           onUnreadCountChanged: (count) {
             if (!mounted) return;

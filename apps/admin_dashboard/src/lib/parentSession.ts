@@ -17,9 +17,19 @@ function sessionSecret(): string {
   );
 }
 
+/** Sliding HMAC lifetime issued at login and on `/api/auth/parent-refresh`. */
+export const PARENT_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+
+/** Signed but expired `par.*` tokens may be refreshed within this window. */
+export const PARENT_SESSION_REFRESH_GRACE_SECONDS = 60 * 60 * 24 * 30;
+
+export type ParentSessionVerifyOptions = {
+  expiredGraceSeconds?: number;
+};
+
 export function signParentSession(
   payload: Omit<ParentSessionPayload, "exp" | "role"> & { role?: "parent" },
-  ttlSeconds = 60 * 60 * 24 * 7
+  ttlSeconds = PARENT_SESSION_TTL_SECONDS
 ): string {
   const body: ParentSessionPayload = {
     sub: payload.sub,
@@ -32,7 +42,10 @@ export function signParentSession(
   return `par.${data}.${sig}`;
 }
 
-export function verifyParentSession(token: string): ParentSessionPayload | null {
+export function verifyParentSession(
+  token: string,
+  options?: ParentSessionVerifyOptions
+): ParentSessionPayload | null {
   if (!token.startsWith("par.")) {
     return null;
   }
@@ -56,7 +69,8 @@ export function verifyParentSession(token: string): ParentSessionPayload | null 
     if (!payload.sub || !payload.tenant_id || !payload.exp || payload.role !== "parent") {
       return null;
     }
-    if (payload.exp < Math.floor(Date.now() / 1000)) {
+    const grace = options?.expiredGraceSeconds ?? 0;
+    if (payload.exp + grace < Math.floor(Date.now() / 1000)) {
       return null;
     }
     return payload;
@@ -66,10 +80,13 @@ export function verifyParentSession(token: string): ParentSessionPayload | null 
 }
 
 /** Returns verified parent session from Authorization: Bearer par.* or null. */
-export function parentSessionFromRequest(request: Request): ParentSessionPayload | null {
+export function parentSessionFromRequest(
+  request: Request,
+  options?: ParentSessionVerifyOptions
+): ParentSessionPayload | null {
   const token = extractBearerToken(request);
   if (!token) {
     return null;
   }
-  return verifyParentSession(token);
+  return verifyParentSession(token, options);
 }

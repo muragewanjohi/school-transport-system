@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:parent_app/config/api_config.dart';
-import 'package:parent_app/services/parent_api_auth.dart';
+import 'package:parent_app/services/parent_session_recovery.dart';
 import 'package:parent_app/utils/eta_utils.dart';
 
 class ParentEtasService {
@@ -14,15 +14,14 @@ class ParentEtasService {
     if (!uuid.hasMatch(studentId)) return null;
 
     try {
-      final headers = await ParentApiAuth.headers();
-      if (headers['Authorization'] == null) return null;
-
       final uri = Uri.parse('${ApiConfig.baseUrl}/api/parent/etas').replace(
         queryParameters: {'student_id': studentId},
       );
-      final response = await http.get(uri, headers: headers).timeout(
-            const Duration(seconds: 10),
-          );
+      final response = await ParentSessionRecovery.sendWithRetry(
+        (headers) => http.get(uri, headers: headers).timeout(
+              const Duration(seconds: 10),
+            ),
+      );
 
       if (response.statusCode != 200) {
         return null;

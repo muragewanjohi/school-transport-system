@@ -20,9 +20,19 @@ function sessionSecret(): string {
   );
 }
 
+/** Sliding HMAC lifetime issued at login and on `/api/auth/driver-refresh`. */
+export const DRIVER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
+
+/** Signed but expired `drv.*` tokens may be refreshed within this window. */
+export const DRIVER_SESSION_REFRESH_GRACE_SECONDS = 60 * 60 * 24 * 30;
+
+export type DriverSessionVerifyOptions = {
+  expiredGraceSeconds?: number;
+};
+
 export function signDriverSession(
   payload: Omit<DriverSessionPayload, "exp">,
-  ttlSeconds = 60 * 60 * 24 * 7
+  ttlSeconds = DRIVER_SESSION_TTL_SECONDS
 ): string {
   const body: DriverSessionPayload = {
     ...payload,
@@ -33,7 +43,10 @@ export function signDriverSession(
   return `drv.${data}.${sig}`;
 }
 
-export function verifyDriverSession(token: string): DriverSessionPayload | null {
+export function verifyDriverSession(
+  token: string,
+  options?: DriverSessionVerifyOptions
+): DriverSessionPayload | null {
   if (!token.startsWith("drv.")) {
     return null;
   }
@@ -57,7 +70,8 @@ export function verifyDriverSession(token: string): DriverSessionPayload | null 
     if (!payload.sub || !payload.tenant_id || !payload.exp) {
       return null;
     }
-    if (payload.exp < Math.floor(Date.now() / 1000)) {
+    const grace = options?.expiredGraceSeconds ?? 0;
+    if (payload.exp + grace < Math.floor(Date.now() / 1000)) {
       return null;
     }
     return payload;

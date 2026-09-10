@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:parent_app/config/api_config.dart';
-import 'package:parent_app/services/parent_api_auth.dart';
+import 'package:parent_app/services/parent_session_recovery.dart';
+import 'package:parent_app/services/parent_supabase_session.dart';
 import 'package:parent_app/services/supabase_service.dart';
 import 'package:parent_app/utils/parent_map_logic.dart';
 
@@ -22,15 +23,14 @@ class ParentLiveService {
 
   static Future<ParentLiveSnapshot?> _fetchViaApi(String studentId) async {
     try {
-      final headers = await ParentApiAuth.headers();
-      if (headers['Authorization'] == null) return null;
-
       final uri = Uri.parse('${ApiConfig.baseUrl}/api/parent/live').replace(
         queryParameters: {'student_id': studentId},
       );
-      final response = await http.get(uri, headers: headers).timeout(
-            const Duration(seconds: 10),
-          );
+      final response = await ParentSessionRecovery.sendWithRetry(
+        (headers) => http.get(uri, headers: headers).timeout(
+              const Duration(seconds: 10),
+            ),
+      );
       if (response.statusCode != 200) return null;
 
       final body = json.decode(response.body) as Map<String, dynamic>;
@@ -46,6 +46,7 @@ class ParentLiveService {
     String? routeId,
   }) async {
     try {
+      await ParentSupabaseSession.ensureActive();
       final client = SupabaseService.client;
       if (client.auth.currentSession == null) return null;
 
