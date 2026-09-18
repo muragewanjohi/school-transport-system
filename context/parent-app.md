@@ -747,8 +747,10 @@ WebSockets
 
 # Future Features (Phase 2)
 
-- NFC boarding confirmation
-- QR boarding
+- BLE boarding confirmation (driver-side auto-detect) — parents already receive boarding notifications when `trip_manifests` updates; no parent tap required. Spec: [boarding-technology.md](boarding-technology.md).
+- School gate / classroom presence via same BLE tag (Phase 2+ after bus detection)
+- Low-battery / tag-not-seen parent or school alerts
+- QR boarding (legacy alternative)
 - Parent chat
 - Driver chat
 - Pickup authorization

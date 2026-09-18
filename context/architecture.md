@@ -4,7 +4,7 @@
 
 | Layer | Technology | Role |
 | :--- | :--- | :--- |
-| **Cross-Platform Mobile** | Flutter + Dart | Powers both the Driver App (GPS telemetry/NFC scanning) and Parent App (real-time map tracking) using the Supabase Flutter SDK. |
+| **Cross-Platform Mobile** | Flutter + Dart | Powers both the Driver App (GPS telemetry / BLE iBeacon boarding) and Parent App (real-time map tracking) using the Supabase Flutter SDK. Boarding tech: [boarding-technology.md](boarding-technology.md). |
 | **Web & API Host** | Next.js + TypeScript | High-concurrency serverless web environment hosted on Vercel, managing administrative pages and API routes. |
 | **Database Engine** | PostgreSQL + PostGIS | Multi-tenant persistent relational data storage hosted on Supabase. Enforces strict access boundaries via Postgres Row Level Security (RLS) and handles spatial geofencing via PostGIS. |
 | **Real-Time Pipeline** | Supabase Realtime | Establishes low-latency, WebSocket-based real-time channels to broadcast GPS telemetry vectors directly from driver devices to parent map views. |
@@ -12,9 +12,9 @@
 
 ## System Boundaries
 
-- `apps/driver_app` — Flutter mobile application. Connects to Supabase to stream GPS coordinates via Realtime Broadcast channels and scans physical NFC cards to verify student boarding.
+- `apps/driver_app` — Flutter mobile application. Connects to Supabase to stream GPS coordinates via Realtime Broadcast channels and (when implemented) scans student **BLE iBeacon** advertisements for hands-free boarding/drop-off confirmation. Until BLE ships, boarding is the manual geofence-gated checklist.
 - `apps/parent_app` — Flutter mobile application. Subscribes to Supabase Realtime channels to track active bus coordinates and view static route configurations. Public store/home-screen name is **OnTheBus**. Android `applicationId` is `com.schooltrack.parent_app`. iOS bundle ID is `com.schooltrack.parentApp` (Firebase/Apple allow letters, numbers, dots, and hyphens — not underscores; same camelCase pattern as driver `com.schooltrack.driverApp`). iOS IPA is built on Codemagic (not Windows). v1 ships iPhone-only.
-- `apps/admin_dashboard` — Next.js administrative web console hosted on Vercel. Manages user provisioning, route layouts, NFC card bindings, and exposes secure API Route Handlers.
+- `apps/admin_dashboard` — Next.js administrative web console hosted on Vercel. Manages user provisioning, route layouts, student **beacon / legacy NFC identity** bindings, and exposes secure API Route Handlers.
 - `supabase/migrations/` — Relational database tables, spatial indexes, schema migrations, and SQL Row Level Security (RLS) policies defining data isolation rules.
 - `supabase/functions/` — Deno Edge Functions hosted on Supabase (e.g., Africa's Talking SMS dispatcher trigger).
 
@@ -41,14 +41,14 @@ Production **must not** use the AT sandbox app. Username `sandbox` and host `api
 
 ## Storage Model
 
-- **PostgreSQL Relational DB**: Dedicated database instance on Supabase. Stores multi-tenant assets (tenant records, student registry, user accounts, assigned NFC card mappings, static polyline route coordinates). Holds vehicle inventories (`vehicles` table, including capacity, status, odometer, fuel level, optional last/next service and insurance dates, and `notify_compliance_alerts`) and service history logs (`maintenance_logs` table). Year-2000 date-picker defaults are stored as null. When notify is on, the fleet console alerts at 1 month, 2 weeks, and 1 day before next service or insurance expiry.
+- **PostgreSQL Relational DB**: Dedicated database instance on Supabase. Stores multi-tenant assets (tenant records, student registry, user accounts, assigned boarding-tag mappings — legacy `nfc_card_hash` today; BLE beacon assignment schema when implemented — static polyline route coordinates). Holds vehicle inventories (`vehicles` table, including capacity, status, odometer, fuel level, optional last/next service and insurance dates, and `notify_compliance_alerts`) and service history logs (`maintenance_logs` table). Year-2000 date-picker defaults are stored as null. When notify is on, the fleet console alerts at 1 month, 2 weeks, and 1 day before next service or insurance expiry.
 - **PostGIS Spatial Indexing**: Spatial tables managing student pickup coordinates, route geofence boundaries, and transient coordinate logs. Uses `GIST` indexes for fast geometric intersection calculations.
 
 ## Auth and Access Model
 
 - **Row Level Security (RLS):** All database tables have RLS active. Every client request, API invocation, and WebSockets subscription carries a JWT containing the user's authenticated `tenant_id` (nullable for platform roles) and role context (`super_admin`, `school_admin`, `driver`, `parent`, `conductor`).
 - **Unified Web Dashboard Access Control:**
-  - **School Admins (`school_admin`):** Access is strictly scoped to their matching `tenant_id`. They can register students, assign routes, bind NFC cards, view metrics, manage vehicles/conductors, and log service checks. Within a tenant, sub-roles are expressed via `admin_role` (e.g. Super Admin, Dispatcher, Fleet Manager) — these are still tenant-bound and never have a null `tenant_id`.
+  - **School Admins (`school_admin`):** Access is strictly scoped to their matching `tenant_id`. They can register students, assign routes, bind **BLE tags** (legacy NFC hash field until migrated), view metrics, manage vehicles/conductors, and log service checks. Within a tenant, sub-roles are expressed via `admin_role` (e.g. Super Admin, Dispatcher, Fleet Manager) — these are still tenant-bound and never have a null `tenant_id`.
   - **Platform Support (`profiles.role = super_admin`):** Platform operators are **not** members of any school. Their `tenant_id` is **null**. They have system-wide access to onboard schools (tenants), monitor cross-tenant metrics, and troubleshoot anomalies. Do not confuse platform `super_admin` with a school admin whose `admin_role` is `"Super Admin"`.
   - **Tenant Impersonation Mode:** Platform `super_admin` users can enter a specific school's dashboard context. During impersonation, support roles are restricted to read-only views on student identities, and all sensitive contact details are dynamically masked in the UI.
 - **School (Tenant) Lifecycle:**
@@ -261,7 +261,7 @@ Trips that never start transmitting are caught by Vercel Cron → `GET /api/trip
 For `schedules.direction = SCHOOL_TO_HOME` (drop-off, school to home), students gather at campus and must be accounted for **before** the trip leaves:
 
 1. While a daily trip is still `scheduled`, `trip_manifests` is **not** a frozen snapshot: it is re-synced to current `students.schedule_ids` for that schedule on driver trip list, trip-manifest GET, and student trip assignment changes. Students added in the registry appear on the driver roster; students removed from the trip drop off the roster. Once the trip is `in_progress` or `completed`, the manifest is frozen.
-2. While the daily trip is `scheduled`, the driver processes the full `trip_manifests` roster at campus with a **SwitchListTile** per student (on = boarded, off = absent; pending starts off). Start Trip does **not** auto-mark remaining Pending as boarded. **Mark remaining absent** writes leftover Pending → Absent via the same per-manifest PUT as the switch (not a trip-row PATCH).
+2. While the daily trip is `scheduled`, the driver processes the full `trip_manifests` roster at campus with a **SwitchListTile** per student (on = boarded, off = absent; pending starts off). Start Trip does **not** auto-mark remaining Pending as boarded. **Mark remaining absent** writes leftover Pending → Absent via the same per-manifest PUT as the switch (not a trip-row PATCH). BLE may later **assist** highlighting likely-present tags but does not auto-start the trip or silent-board the roster until a separate unlock ([boarding-technology.md](boarding-technology.md)).
 3. `PUT /api/trips` with `status: in_progress` returns **409** if any manifest is still `pending`. An empty roster may start. `HOME_TO_SCHOOL` (pickup) may still start with pending manifests and boards at pickup stops after GPS is live.
 4. Campus roll-call is **not** stop-geofence gated and does not require live telemetry. Writes go to `trip_manifests` (`boarded` / `absent`), not driver `PUT /api/students/:id` (that path maps Absent → `dropped_off` and requires a stop geofence).
 5. Parent “has boarded” notifications still fire from `on_manifest_attendance_update` when attendance becomes `boarded` (including on a still-`scheduled` trip). Parent **absent** notifications also fire from that trigger when attendance becomes `absent`, gated by school `/config`:
@@ -318,15 +318,15 @@ Rules:
 1. **Campus exit** — GPS leaves the active campus pin (campus `location` + **150 m** radius), or trip start if the bus is already outside campus. Each parent of a student on the trip gets that child’s ETA to pickup (`HOME_TO_SCHOOL`) or drop-off (`SCHOOL_TO_HOME`) from stored leg durations / `trip_stop_etas`.
 2. **Stage approach** — bus within `tenant_configs.geofence_radius_meters` (default **500 m**) of that student’s pickup or drop-off stop for this run. Once per student per trip. Pickup copy may ask the parent to prepare the child. **Drop-off (`SCHOOL_TO_HOME`) must not** — the child is already on the bus; the message is `{student_name} will be dropped off shortly.`
 
-Boarding/drop-off confirmation when the driver ticks a student remains attendance (in-app always; SMS if enabled), not an approach alert. Absent confirmation is a separate configurable attendance event (`notify_on_absent_stop` / `notify_on_absent_campus`). There is no “arrived at pin” parent ping.
+Boarding/drop-off confirmation when attendance becomes `boarded` / `dropped_off` (manual tick **or** BLE auto-confirm when implemented) remains attendance (in-app always; SMS if enabled), not an approach alert. Parent SMS/push for those events must wait until attendance is **confirmed**, not a BLE candidate sighting. Absent confirmation is a separate configurable attendance event (`notify_on_absent_stop` / `notify_on_absent_campus`). There is no “arrived at pin” parent ping.
 
 ## Student & Parent Data Protection Model
 
-School-facing summary of controls (suitable for IT / procurement review): **[architecture-security.md](architecture-security.md)**.
+School-facing summary of controls (suitable for IT / procurement review): **[architecture-security.md](architecture-security.md)**. Boarding hardware rules: **[boarding-technology.md](boarding-technology.md)**.
 
-- **Telemetry Log Lifecycle (Short TTL):** High-resolution coordinate tracking logs are pruned automatically after 7 days via database cleanup routines. Long-term analytics store only aggregated route summaries (e.g. route completion durations, total boarding taps), eliminating persistent history of student movements.
+- **Telemetry Log Lifecycle (Short TTL):** High-resolution coordinate tracking logs are pruned automatically after 7 days via database cleanup routines. Long-term analytics store only aggregated route summaries (e.g. route completion durations, total boarding **events**), eliminating persistent history of student movements.
 - **Dynamic PII Masking:** Parent phone numbers and student names are masked in support dashboards and system-level error trackers (e.g. `J*** Doe`, `+254 712 *** 345`). Only authenticated school admins with direct administrative custody see raw identifiers.
-- **Anonymized NFC Badge Tokens:** Physical NFC badges do not store names or student details. They store only an encrypted UUID token. The driver app verifies this UUID against the backend database; if a badge is lost, no personal data can be extracted from it.
+- **Anonymized BLE Beacon Identifiers:** Physical student tags broadcast opaque iBeacon/Eddystone identifiers only — no names, phones, or school slugs. The driver app resolves the identifier against the school’s backend under authenticated access; lost tags are revoked. Static beacon IDs are cloneable — mitigations in [boarding-technology.md](boarding-technology.md) and [architecture-security.md](architecture-security.md).
 - **Geofence Boundary Isolation:** The parent application renders the school bus position and the school location. It does not display the home address markers or pickup coordinates of other children on the map.
 
 ## Invariants

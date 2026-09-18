@@ -40,7 +40,7 @@
 - **Supabase Integration:** Access databases, auth, and realtime channels exclusively using the `supabase_flutter` package.
 - **State Management:** Use `flutter_riverpod` or `flutter_bloc` to handle local and global application states. Never mutate state directly in UI widgets.
 - **Realtime Broadcasts:** Use `RealtimeChannel` to broadcast (Driver App) and listen (Parent App) to live GPS coordinate feeds.
-- **Hardware Fail-Safes:** Wrap all NFC/RFID hardware scans and location polling operations in system permission checks. Ensure the application gracefully degrades if the user denies GPS/NFC access.
+- **Hardware Fail-Safes:** Wrap all BLE beacon scans and location polling operations in system permission checks. Ensure the application gracefully degrades to the manual checklist if the user denies GPS/Bluetooth access or Bluetooth is off.
 
 ## Styling
 
@@ -66,12 +66,13 @@ Modules must satisfy the **Definition of Done (testing gate)** in [progress-trac
 ### Flutter
 
 - Unit-test pure Dart and state notifiers; widget-test UI with `testWidgets` and overridden providers; use `integration_test` only when claiming end-to-end Done.
-- Fake NFC/location channels; mock Supabase/HTTP. `flutter analyze` and `flutter test` must pass for the touched package.
+- Fake BLE/location channels; mock Supabase/HTTP. `flutter analyze` and `flutter test` must pass for the touched package.
 
 ## File Organization
 
-- `apps/driver_app/` — Flutter mobile application for bus drivers (tracking & NFC boarding).
+- `apps/driver_app/` — Flutter mobile application for bus drivers (tracking & BLE hands-free boarding; manual checklist until BLE ships).
 - `apps/parent_app/` — Flutter mobile application for parents (real-time tracking map & alerts).
 - `apps/admin_dashboard/` — Next.js web dashboard (includes Next.js API routes in `src/app/api/`).
 - `supabase/migrations/` — SQL schema migrations and RLS policies.
 - `supabase/functions/` — Deno Edge Functions (SMS alerts, webhooks).
+- `context/boarding-technology.md` — Boarding radio, detection rules, tag provisioning (source of truth for BLE).

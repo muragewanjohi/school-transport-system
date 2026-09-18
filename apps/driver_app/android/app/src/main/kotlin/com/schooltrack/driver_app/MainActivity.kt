@@ -10,8 +10,21 @@ import android.os.Bundle
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
+    private val dxBeaconPlugin = DxBeaconPlugin()
+
+    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
+        super.configureFlutterEngine(flutterEngine)
+        dxBeaconPlugin.attach(this)
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            DxBeaconPlugin.CHANNEL
+        ).setMethodCallHandler(dxBeaconPlugin)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         createNotificationChannel()

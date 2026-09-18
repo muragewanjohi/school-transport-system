@@ -26,7 +26,8 @@ Seed play-review from `apps/admin_dashboard`: `npm run seed:play-review` (creden
 
 | Gap | Reality today |
 | :--- | :--- |
-| NFC boarding | Permissions exist; boarding is **manual checklist** + stop geofence gate. Badges should still store UUID only when used. |
+| BLE boarding | **Committed** primary path ([boarding-technology.md](boarding-technology.md)). Spec written; DX-CP35 samples not field-validated; Driver App has **no BLE scan** yet. Boarding remains **manual checklist** + stop geofence. Do not claim auto boarding to schools until field go + code Done. |
+| Legacy NFC | Permissions / `nfc_manager` may exist; NFC is **non-primary** and not wired for boarding. |
 | Parent lock-screen push | Inbox + trip-start rows work without FCM. Lock-screen needs `FIREBASE_SERVICE_ACCOUNT` on `send-push`, a live `user_fcm_tokens` row after login, and an APNs Authentication Key on Firebase project `school-transport-system-f606a` for iOS bundle `com.schooltrack.parentApp`. Parent iOS must be rebuilt with the Push entitlement; login waits for an APNs token before FCM `getToken()`. |
 | Attendance / alerts history consoles | Still Next Up on admin — live dashboard + mobile are the proof. |
 | Traffic-aware ETA | Out of scope for v1 — geometric progress + stored leg durations (not Distance Matrix / live traffic). |
@@ -182,7 +183,7 @@ Core proof before schools. Recommended path: start on `[play-review]` or `[demo]
 - [ ] **D18** At Stop A → student assigned to Stop B → board blocked.
 - [ ] **D19** Drop-off phase: inside dropoff geofence → drop allowed; outside → blocked.
 - [ ] **D20** Stop unlock UX: entering a fence unlocks Pickup/Dropoff for that stop’s students only.
-- [ ] **D21** NFC badge tap — **document result** (expect manual-only today). Do not claim NFC live to schools until wired.
+- [ ] **D21** BLE / boarding tag — **document result**. Expect **manual-only** until [boarding-technology.md](boarding-technology.md) field tests (T2–T4) pass and Driver App BLE ships. Do not claim auto BLE boarding to schools until then.
 
 ### 5.4 Parent app
 
@@ -273,7 +274,7 @@ Hard gates from [architecture.md](architecture.md) and [architecture-security.md
 4. Proximity dedupe (A-P2)
 5. On `[qa-school]` with SMS enabled: at least one real proximity or delay SMS received
 6. No PII leakage spotted in logs (I5)
-7. You did not depend on NFC or Parent Notifications tab as proof
+7. You did not depend on unimplemented boarding tech (BLE auto-detect) or Parent Notifications tab as proof
 
 | Section | Pass / Fail | Blocker notes |
 | :--- | :--- | :--- |

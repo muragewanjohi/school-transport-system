@@ -10,6 +10,7 @@ This repo is built spec-first against the files in [context/](context/). Before 
 - [context/architecture.md](context/architecture.md) — stack, tenancy/subdomain rules, auth/RLS model, storage model, invariants. **Source of truth for multi-tenant behavior.**
 - [context/code-standards.md](context/code-standards.md) — per-stack conventions (TS, Next.js, Supabase/RLS, Edge Functions, Flutter).
 - [context/ui-context.md](context/ui-context.md) — design tokens/colors per surface (marketing vs admin console vs mobile apps). Never hardcode colors — use the CSS variables / ThemeData listed there.
+- [context/boarding-technology.md](context/boarding-technology.md) — BLE iBeacon primary boarding (detection rules, tags, field-test gate). **Update this first** for boarding-radio changes.
 - [context/bdd.md](context/bdd.md) — Given/When/Then for the module currently in progress. **Overwrite, don't append**, when starting a new module.
 - [context/progress-tracker.md](context/progress-tracker.md) — milestones, Definition of Done (testing gate), Open Questions.
 
@@ -22,7 +23,7 @@ Rules that apply repo-wide:
 ## Repo layout (npm workspaces monorepo)
 
 - `apps/admin_dashboard/` — Next.js (App Router) web console + serverless API routes. The only JS/TS package with its own build/test tooling.
-- `apps/driver_app/` — Flutter app for drivers (GPS streaming, NFC boarding scans).
+- `apps/driver_app/` — Flutter app for drivers (GPS streaming, BLE hands-free boarding when implemented; manual checklist today).
 - `apps/parent_app/` — Flutter app for parents (live map, child status).
 - `supabase/migrations/` — incremental, declarative SQL (schema, RLS policies, PostGIS/GIST indexes). Filenames are timestamp-prefixed and applied in order; never edit one that has already run.
 - `supabase/functions/` — Deno Edge Functions: `calculate-eta`, `send-push`, `send-sms` (Africa's Talking SMS gateway).
@@ -89,7 +90,7 @@ Three roles carried in the JWT / session: platform `super_admin` (`tenant_id` is
 - Driver app streams GPS via Supabase Realtime broadcast channels scoped to its active `route_id`; parent app subscribes read-only to the channel(s) for its own children's routes.
 - Proximity SMS alerts are deduplicated per trip via a `sent_proximity_alerts` tracking table before calling the `send-sms` Edge Function (Africa's Talking).
 - High-resolution telemetry has a 7-day TTL and is pruned automatically; only aggregated route summaries persist long-term.
-- NFC badges store only an encrypted UUID (no PII on the physical card); the driver app resolves it against the backend on scan.
+- BLE student tags broadcast opaque identifiers only (no PII on the physical tag); the driver app resolves them against the backend. See [context/boarding-technology.md](context/boarding-technology.md).
 
 ### admin_dashboard internals
 
@@ -104,4 +105,4 @@ Vanilla CSS only (no Tailwind) for the dashboard; all colors/spacing/radii come 
 
 ## Testing gate
 
-A module isn't done until it satisfies `progress-tracker.md`'s Definition of Done: `bdd.md` overwritten with this module's Given/When/Then, automated tests passing for the changed stack, and no invariant from `context/architecture.md` violated (no cross-tenant data mixing, no PII leakage in logs). For Node/Next.js/Deno code this means behavior-focused test names, AAA/GWT structure, mocked third-party I/O (Resend, SMS, Maps, Vercel), and covered auth/validation error paths — see [Node.js Testing Best Practices](https://github.com/goldbergyoni/nodejs-testing-best-practices). For Flutter, unit-test pure Dart/state notifiers, widget-test UI, fake NFC/location channels, and mock Supabase/HTTP.
+A module isn't done until it satisfies `progress-tracker.md`'s Definition of Done: `bdd.md` overwritten with this module's Given/When/Then, automated tests passing for the changed stack, and no invariant from `context/architecture.md` violated (no cross-tenant data mixing, no PII leakage in logs). For Node/Next.js/Deno code this means behavior-focused test names, AAA/GWT structure, mocked third-party I/O (Resend, SMS, Maps, Vercel), and covered auth/validation error paths — see [Node.js Testing Best Practices](https://github.com/goldbergyoni/nodejs-testing-best-practices). For Flutter, unit-test pure Dart/state notifiers, widget-test UI, fake BLE/location channels, and mock Supabase/HTTP.

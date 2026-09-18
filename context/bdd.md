@@ -1,56 +1,56 @@
-# BDD — Current Module
+# Module: BLE tag provisioning — CP35 GATT (Driver App Android)
 
-## Module
-
-| Field | Value |
-| :--- | :--- |
-| **Name** | Mobile session recovery after idle |
-| **Stack** | Flutter parent + driver apps, Next.js `/api/auth/parent-refresh` and `/api/auth/driver-refresh` |
-| **Owner path(s)** | `apps/admin_dashboard/src/lib/parentSession.ts`, `apps/admin_dashboard/src/lib/driverSession.ts`, `apps/admin_dashboard/src/app/api/auth/parent-refresh/route.ts`, `apps/admin_dashboard/src/app/api/auth/driver-refresh/route.ts`, `apps/parent_app/lib/utils/session_recovery_logic.dart`, `apps/driver_app/lib/utils/session_recovery_logic.dart` |
-| **Started** | 2026-09-10 |
-| **Status** | `passing` |
-
-## Goal
-
-After the apps sit unused (days), Home/map/inbox must reload current data on open or Refresh without forcing logout. HMAC `par.*` / `drv.*` tokens are re-issued from a still-signed token (including recently expired), and the parent app refreshes or bootstraps the Supabase Auth JWT used for map RLS and Realtime.
+**Status:** `passing`  
+**Stack:** Flutter driver_app MethodChannel + Kotlin `Cp35GattClient` + Next.js `/api/driver/beacon/*`
 
 ## Scenarios
 
+### Happy — first provision with factory password
 ```gherkin
-Feature: Mobile session recovery after idle
+Given a CP35 tag still using factory password DX1234
+And a driver session for tenant T with beacon_uuid configured
+When the driver provisions the tag for student S with Minor N
+Then the GATT client unlocks via FFE3 within 30s
+And the tag iBeacon UUID/Major/Minor match the tenant template
+And the device password is changed to the tenant password (cmd 0x24)
+And student_beacon_tags stores an active row for S
+```
 
-  Scenario: Expired but signed parent HMAC can be refreshed within grace
-    Given a parent HMAC whose exp is in the past but within 30 days
-    When POST /api/auth/parent-refresh is called with that Bearer token
-    Then 200 is returned with a new par.* access_token
+### Happy — re-provision with tenant password
+```gherkin
+Given a tag already locked with the tenant password
+When the driver re-provisions with the correct password
+Then configuration succeeds and the assignment is updated
+```
 
-  Scenario: Parent HMAC beyond grace is rejected
-    Given a parent HMAC expired more than 30 days ago
-    When POST /api/auth/parent-refresh is called
-    Then 401 Unauthorized is returned
+### Failure — wrong password
+```gherkin
+Given a locked tag
+When unlock is attempted with DX1234 or any wrong password
+Then provisioning fails and no student_beacon_tags row is written
+```
 
-  Scenario: Expired but signed driver HMAC can be refreshed within grace
-    Given a driver HMAC whose exp is in the past but within 30 days
-    When POST /api/auth/driver-refresh is called with that Bearer token
-    Then 200 is returned with a new drv.* access_token
+### Failure — DX-SMART after lock
+```gherkin
+Given a tag locked by OnTheBus
+When DX-SMART tries to edit frames with DX1234
+Then the vendor app cannot apply changes
+```
 
-  Scenario: HMAC should refresh when less than 24 hours remain
-    Given a stored HMAC expiring in under 24 hours
-    When the app decides whether to call the refresh route
-    Then it refreshes before fetching trips, map, or notifications
-
-  Scenario: HTTP 401 retries once after a successful refresh
-    Given an API call returned 401 and the session has not been refreshed yet
-    When session recovery runs
-    Then the client retries the request once with the new token
+### Failure — provision radio unavailable
+```gherkin
+Given Bluetooth adapter is absent or provision radio reports unavailable
+When the driver opens Provision Tag
+Then the UI shows BLE provisioning unavailable and does not start a GATT session
 ```
 
 ## Automation map
 
-| Scenario | Test path | Status |
-| :--- | :--- | :--- |
-| Expired but signed parent HMAC can be refreshed within grace | `apps/admin_dashboard/src/app/api/auth/parent-refresh/route.test.ts` | passing |
-| Parent HMAC beyond grace is rejected | `apps/admin_dashboard/src/app/api/auth/parent-refresh/route.test.ts` | passing |
-| Expired but signed driver HMAC can be refreshed within grace | `apps/admin_dashboard/src/app/api/auth/driver-refresh/route.test.ts` | passing |
-| HMAC should refresh when less than 24 hours remain | `apps/parent_app/test/session_recovery_logic_test.dart`, `apps/driver_app/test/session_recovery_logic_test.dart` | passing |
-| HTTP 401 retries once after a successful refresh | `apps/parent_app/test/session_recovery_logic_test.dart`, `apps/driver_app/test/session_recovery_logic_test.dart` | passing |
+| Scenario | Test |
+| :--- | :--- |
+| Frame pack / xor / golden cmds | `apps/driver_app/android/app/src/test/java/com/schooltrack/driver_app/ble/Cp35FrameCodecTest.kt`, `Cp35CommandsTest.kt` |
+| Fake transport unlock / wrong pwd / happy path | `apps/driver_app/android/app/src/test/java/com/schooltrack/driver_app/ble/Cp35GattClientTest.kt` |
+| MethodChannel fake | `apps/driver_app/test/beacon_provision_service_test.dart` |
+| Template + next minor | `src/lib/beaconProvision.test.ts` |
+| Provision / revoke API auth | `src/app/api/driver/beacon/**/*.test.ts` |
+| DX-SMART after lock | Manual pilot checklist ([boarding-technology.md](boarding-technology.md) §11) — not CI |

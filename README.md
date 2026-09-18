@@ -1,6 +1,6 @@
 # School Transport Tracking System
 
-A multi-tenant B2B2C school transport tracking and student security platform designed for private schools. This platform provides real-time fleet telemetry for school administrations, proximity alerts for parents, and driver manifests via a hybrid driver GPS tracking and smart NFC/RFID badge check-in architecture.
+A multi-tenant B2B2C school transport tracking and student security platform designed for private schools. This platform provides real-time fleet telemetry for school administrations, proximity alerts for parents, and driver manifests via a hybrid driver GPS tracking and **BLE iBeacon** student-tag boarding architecture (see `context/boarding-technology.md`).
 
 ---
 
@@ -22,11 +22,11 @@ The system utilizes a **Pure Serverless Architecture** designed for rapid scalab
 This project is organized as a workspace monorepo:
 
 * `apps/admin_dashboard/` — Next.js Web Dashboard & Serverless API Routes (`src/app/api/`).
-* `apps/driver_app/` — Flutter mobile application for bus drivers (GPS streaming & NFC scans).
+* `apps/driver_app/` — Flutter mobile application for bus drivers (GPS streaming & BLE boarding when implemented).
 * `apps/parent_app/` — Flutter mobile application for parents (real-time maps & check-in notifications).
 * `supabase/migrations/` — PostgreSQL migrations containing schemas, spatial indices, triggers, and Row Level Security (RLS) policies.
 * `supabase/functions/` — Deno Edge Functions (SMS notification queues).
-* `context/` — Specifications, visual guides, progress logs, and code standards.
+* `context/` — Specifications, visual guides, progress logs, and code standards (including `boarding-technology.md`).
 
 ---
 
@@ -34,7 +34,7 @@ This project is organized as a workspace monorepo:
 
 1. **Row Level Security (RLS):** Enabled on every database table. Access is cryptographically isolated by `tenant_id` read from the user's JWT. Cross-tenant leakage is prevented directly at the PostgreSQL engine level.
 2. **7-Day Telemetry TTL:** Raw coordinates logs are pruned automatically after 7 days. Long-term analytics store only aggregated route summaries.
-3. **Anonymized NFC Badge Tokens:** Physical cards store only an encrypted UUID token. No PII is kept on the badge, ensuring lost cards leak zero data.
+3. **Anonymized BLE Tag Identifiers:** Physical tags broadcast opaque beacon IDs only. No PII is kept on the tag; lost tags are revoked in the backend.
 4. **Impersonation Masking:** Support admins (`super_admin`) can view school-level console frames for troubleshooting, but all parent contacts and student details are dynamically masked inside the UI.
 
 ---

@@ -4,7 +4,7 @@
 
 **Product:** OnTheBus (school transport tracking — admin console, driver app, parent app).
 
-**Last updated:** 2026-08-10
+**Last updated:** 2026-09-15
 
 This document describes **how security is designed and implemented** in the running system. It is complementary to the public [Privacy Policy](https://onthebusapp.com/privacy) and [Terms](https://onthebusapp.com/terms). Technical implementation details for engineers live in [architecture.md](architecture.md) and [code-standards.md](code-standards.md).
 
@@ -15,7 +15,7 @@ This document describes **how security is designed and implemented** in the runn
 1. **School data stays inside the school.** Each school is a separate tenant. One school cannot read another school’s students, routes, locations, or messages.
 2. **Least privilege by role.** Parents, drivers, school admins, and platform operators each see only what their role requires.
 3. **Server-enforced controls.** Access rules are enforced in the database and API, not only in the mobile or web UI.
-4. **Minimize sensitive data.** Physical cards carry no names or phone numbers. Parent maps do not show other children’s home locations. High-resolution GPS history is short-lived by policy.
+4. **Minimize sensitive data.** Physical BLE tags carry no names or phone numbers. Parent maps do not show other children’s home locations. High-resolution GPS history is short-lived by policy.
 5. **Fail closed on demos.** Sales and Play Store demo environments do not send real operational SMS to families.
 
 ---
@@ -26,7 +26,7 @@ This document describes **how security is designed and implemented** in the runn
 | :--- | :--- | :--- |
 | School directory | Student names, grades, assigned routes/stops | School admins |
 | Guardian contact | Parent phone (for OTP login and alerts) | School admins; used by messaging gateway when alerts are enabled |
-| Transport operations | Routes, stops, vehicles, trip status, boarding events | School admins, drivers/conductors |
+| Transport operations | Routes, stops, vehicles, trip status, boarding events, opaque beacon IDs | School admins, drivers/conductors |
 | Live location | Bus GPS during active trips | Parents (own child’s route only), school ops |
 | Credentials | Auth sessions, OTP codes (short-lived) | The account holder |
 
@@ -55,7 +55,7 @@ School consoles are further separated by **subdomain**: `{school}.onthebusapp.co
 | Role | Access summary |
 | :--- | :--- |
 | **School admin** | Manage that school’s students, fleet, routes, schedules, and settings. Scoped to their `tenant_id`. Sub-roles (e.g. Fleet Manager, Roster Manager) limit capabilities inside the school. |
-| **Driver / conductor** | Operate assigned trips: GPS telemetry, boarding/drop-off for students on the run. Cannot browse other schools. |
+| **Driver / conductor** | Operate assigned trips: GPS telemetry, boarding/drop-off for students on the run (manual checklist today; BLE auto-confirm when implemented). Cannot browse other schools. |
 | **Parent / guardian** | See status and live bus position for **their registered children only**. Cannot see other families’ home pins or unrelated routes. |
 | **Platform operator** | Onboard and support schools at the platform level. Not a member of a school tenant. Support access to school data is governed by platform policy (including masking of sensitive contacts where impersonation/support views apply). |
 
@@ -96,9 +96,11 @@ The parent application is designed to show:
 
 It does **not** display the home addresses or exact pickup pins of **other** children on the same route.
 
-### 6.2 NFC / boarding badges
+### 6.2 BLE / boarding tags
 
-Physical badges store an **encrypted identifier (UUID-class token)**, not the student’s name, phone, or school. Lost cards do not expose personal details by themselves; the driver app resolves the token against the school’s backend under authenticated access.
+Physical student tags broadcast an **opaque BLE identifier** (iBeacon UUID / Major / Minor and/or Eddystone UID), not the student’s name, phone, or school. Lost tags do not expose personal details by themselves; the driver app resolves the identifier against the school’s backend under authenticated access. Static beacon advertisements can be observed or cloned nearby — product mitigations include opaque random IDs, stop-geofence + bus-movement confirmation before parent notify, immediate revoke/replace on loss, and driver correction.
+
+**Configuration lock:** CP35 tags use a 6-character device password (factory `DX1234`). OnTheBus replaces it with a **tenant-scoped password** on first provision so the public DX-SMART app cannot change UUID/Major/Minor/TX without that password. The password is stored encrypted in `tenant_configs` and returned only to authenticated driver/conductor provision sessions — never logged or shown to parents. Full rules: [boarding-technology.md](boarding-technology.md). Legacy NFC hash fields may remain in the schema until migration; NFC is **not** the primary boarding path.
 
 ### 6.3 Location data lifecycle
 
@@ -156,7 +158,7 @@ Schools should also apply their own controls: strong admin passwords, limited ad
 | :--- | :--- |
 | Isolation from other schools | Tenant ID + RLS + subdomain-bound school console |
 | Role-appropriate access | Distinct parent / driver / school-admin / platform roles |
-| Reduced PII on physical media | NFC token design |
+| Reduced PII on physical media | Opaque BLE beacon identifier design (see [boarding-technology.md](boarding-technology.md)) |
 | Family privacy on maps | No other children’s homes on the parent map |
 | Controlled messaging | School SMS toggle, templates, dedupe, demo dry-run |
 | Account lifecycle | Soft-delete / retention purge for departed schools; invite-based admin onboarding |

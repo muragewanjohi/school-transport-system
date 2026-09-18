@@ -37,6 +37,7 @@ dependencies:
   supabase_flutter: ^2.14.2
   flutter_riverpod: 2.5.1
   nfc_manager: ^4.2.1
+  flutter_blue_plus: ^1.35.5
   geolocator: ^14.0.2
   flutter_background_service: ^5.1.0
   shared_preferences: ^2.2.0

@@ -14,7 +14,7 @@ Build this project incrementally using a spec-driven, test-driven workflow. Cont
 
 Split an implementation step if it combines:
 
-- **Mobile Background Logic and UI:** Separate the Flutter background geolocation service or NFC reader configuration from their respective UI manifestations.
+- **Mobile Background Logic and UI:** Separate the Flutter background geolocation service or **BLE iBeacon scanner** configuration from their respective UI manifestations.
 - **Multiple API Boundaries:** Keep the telemetry data ingestion APIs separate from CRUD operations on the student/school registry.
 - **Complex Geofencing logic and Notification Delivery:** Separate PostGIS spatial database query calculations from the Africa's Talking API message dispatch pipeline.
 
@@ -29,7 +29,7 @@ If a change cannot be verified end-to-end (e.g. through unit tests or dry runs) 
 
 Do not modify the following unless explicitly instructed:
 
-- Native Gradle / Podfile / Info.plist / AndroidManifest.xml configuration files unless specifically setting up permissions for NFC/Location.
+- Native Gradle / Podfile / Info.plist / AndroidManifest.xml configuration files unless specifically setting up permissions for **Bluetooth/BLE** and/or Location (legacy NFC only if retaining NFC fallback).
 - Node.js auto-generated files (e.g., `package-lock.json` manually without `npm install`).
 - Auto-generated database migration scripts manually after they have run.
 
@@ -37,6 +37,7 @@ Do not modify the following unless explicitly instructed:
 
 Update the relevant context file whenever implementation changes:
 
+- Boarding radio, detection rules, or tag provisioning in [boarding-technology.md](boarding-technology.md) (**first** for boarding changes).
 - System architecture or boundaries in [architecture.md](file:///c:/Dev/School-Transpot/context/architecture.md).
 - School-facing security / data-protection narrative in [architecture-security.md](architecture-security.md).
 - Storage schema changes or model updates in [architecture.md](file:///c:/Dev/School-Transpot/context/architecture.md).

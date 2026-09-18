@@ -3,7 +3,7 @@
 ## Workflow & Development Rules
 
 ### 1. Spec-Driven & Spec-First Development
-- Always read and follow files in the `context/` directory (`project-overview.md`, `architecture.md`, `code-standards.md`, `ui-context.md`, `progress-tracker.md`, `ai-workflow-rules.md`).
+- Always read and follow files in the `context/` directory (`project-overview.md`, `architecture.md`, `boarding-technology.md`, `code-standards.md`, `ui-context.md`, `progress-tracker.md`, `ai-workflow-rules.md`).
 - Before modifying production code for architectural or core changes, update the relevant specification file in `context/`.
 - Do not guess or invent product behavior that is not documented in the context files. If a requirement is missing or ambiguous, document it in `progress-tracker.md` under **Open Questions** and resolve it before writing code.
 
@@ -14,11 +14,12 @@
   - Mobile background telemetry logic and mobile UI layouts.
   - Telemetry API ingestion endpoints and administrative CRUD operations.
   - Spatial PostGIS trigger logic and SMS gateway notification dispatches.
+  - BLE scanner service and boarding UI.
 - If a change cannot be verified end-to-end (e.g. through unit tests or dry runs) in under 10 minutes, the scope is too broad—split the task immediately.
 
 ### 3. Protected Files & Directories
 Do not modify the following unless explicitly instructed:
-- Native mobile build configurations (`android/app/build.gradle`, `ios/Podfile`, `Info.plist`, `AndroidManifest.xml`) unless adding raw NFC/Location permissions.
+- Native mobile build configurations (`android/app/build.gradle`, `ios/Podfile`, `Info.plist`, `AndroidManifest.xml`) unless adding raw Bluetooth/BLE or Location permissions.
 - Node.js auto-generated files (e.g., `package-lock.json` manually without running `npm`).
 - Auto-generated database migration scripts manually after they have already been executed.
 
@@ -32,9 +33,10 @@ Do not modify the following unless explicitly instructed:
 - **Database:** PostgreSQL + PostGIS (via Supabase). Enforce Row Level Security (RLS) policies on all tables.
 - **Telemetry Realtime:** Supabase Realtime Channels (Broadcasts/Subscriptions).
 - **SMS Gateway:** Africa's Talking API (triggered from Deno Edge Functions on Supabase).
+- **Boarding:** BLE iBeacon student tags (primary) — see `context/boarding-technology.md`. Manual checklist fallback. NFC is legacy/non-primary.
 
 ### 2. Code Conventions
 - **Row Level Security (RLS):** Every table must have RLS active. Filter data scoped to `tenant_id` by extracting the claim from the JWT: `auth.jwt() ->> 'tenant_id'`.
 - **TypeScript:** Strict mode is mandatory. The `any` type is strictly forbidden. Validate external inputs at API boundaries via `zod`.
 - **Styling:** CSS variables/custom properties only. Refer to variables defined in `ui-context.md` (Outfit font, JetBrains Mono font, specific HSL variables).
-- **Data Protection Invariant (PII):** Do not leak parent phone numbers, student names, or exact coordinates in logs. Dynamic UI masking must be used for support accounts. High-resolution telemetry logs must have a 7-day TTL and prune automatically. Physical NFC badges must only store encrypted UUIDs.
+- **Data Protection Invariant (PII):** Do not leak parent phone numbers, student names, or exact coordinates in logs. Dynamic UI masking must be used for support accounts. High-resolution telemetry logs must have a 7-day TTL and prune automatically. Physical BLE tags must only broadcast opaque identifiers (no student PII).

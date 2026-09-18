@@ -12,6 +12,7 @@ import 'package:driver_app/screens/login_screen.dart';
 import 'package:driver_app/services/driver_api_auth.dart';
 import 'package:driver_app/utils/session_recovery_logic.dart';
 import 'package:driver_app/screens/campus_boarding_screen.dart';
+import 'package:driver_app/screens/provision_tag_screen.dart';
 import 'package:driver_app/screens/student_selection_screen.dart';
 import 'package:driver_app/screens/trip_screen.dart';
 import 'package:driver_app/config/api_config.dart';
@@ -1795,6 +1796,26 @@ class _MyHomePageState extends ConsumerState<MyHomePage> with WidgetsBindingObse
                     );
                   },
                   tooltip: 'Sync service status',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: IconButton(
+                  icon: const Icon(Icons.bluetooth_connected, color: Colors.white),
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const ProvisionTagScreen(),
+                      ),
+                    );
+                  },
+                  tooltip: 'Provision Tag',
                 ),
               ),
               const SizedBox(width: 12),

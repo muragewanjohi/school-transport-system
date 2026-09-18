@@ -51,3 +51,13 @@ supabase/functions/.import_map.json
 
 # Local Play Store AAB copies
 releases/
+
+# Vendor BLE SDK packages (large / proprietary)
+vendor/dx-smart/*.rar
+vendor/dx-smart/*.zip
+apps/*.zip
+apps/*.rar
+apps/ibeacon.zip
+apps/DX-CP35*
+apps/driver_app/android/app/libs/*.aar
+apps/driver_app/android/app/libs/*.jar
