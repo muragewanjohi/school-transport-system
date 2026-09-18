@@ -16,6 +16,8 @@ interface SearchableSelectProps {
   onChange: (id: string) => void;
   disabled?: boolean;
   placeholder: string;
+  searchPlaceholder?: string;
+  searchAriaLabel?: string;
   emptyLabel?: string;
   error?: boolean;
 }
@@ -27,6 +29,8 @@ export default function SearchableSelect({
   onChange,
   disabled = false,
   placeholder,
+  searchPlaceholder = "Search stages",
+  searchAriaLabel = "Filter stages",
   emptyLabel = "No matches",
   error = false,
 }: Readonly<SearchableSelectProps>) {
@@ -102,8 +106,8 @@ export default function SearchableSelect({
               className="searchable-select-search-input"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search stages"
-              aria-label="Filter stages"
+              placeholder={searchPlaceholder}
+              aria-label={searchAriaLabel}
               autoComplete="off"
             />
           </div>

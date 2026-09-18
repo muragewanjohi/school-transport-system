@@ -55,7 +55,6 @@ interface DBStop {
   };
   sequence_no: number;
   geofence_radius_meters: number;
-  stop_type: "PICKUP" | "DROPOFF" | "BOTH";
   distance_from_prev_meters?: number;
   duration_from_prev_seconds?: number;
 }
@@ -220,7 +219,6 @@ function RoutesManagement() {
     latitude: -1.2721,
     sequence_no: 1,
     geofence_radius_meters: 50,
-    stop_type: "BOTH" as "PICKUP" | "DROPOFF" | "BOTH"
   });
 
   // Form states for schedules
@@ -1714,7 +1712,6 @@ function RoutesManagement() {
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Coordinates</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Geofence</th>
                           <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Leg Dist / Time</th>
-                          <th style={{ padding: "10px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Type</th>
                           <th style={{ padding: "10px", textAlign: "right", fontSize: "0.75rem", color: "var(--text-muted)" }}>Actions</th>
                         </tr>
                       </thead>
@@ -1769,18 +1766,6 @@ function RoutesManagement() {
                                   );
                                 })()
                               )}
-                            </td>
-                            <td style={{ padding: "12px 10px" }}>
-                              <span style={{ 
-                                padding: "2px 6px", 
-                                borderRadius: "4px", 
-                                fontSize: "0.7rem", 
-                                fontWeight: 600,
-                                background: stop.stop_type === "PICKUP" ? "rgba(16,185,129,0.1)" : stop.stop_type === "DROPOFF" ? "rgba(244,63,94,0.1)" : "rgba(99,102,241,0.1)",
-                                color: stop.stop_type === "PICKUP" ? "var(--state-success)" : stop.stop_type === "DROPOFF" ? "var(--state-error)" : "var(--accent-secondary)"
-                              }}>
-                                {stop.stop_type}
-                              </span>
                             </td>
                             <td style={{ padding: "12px 10px", textAlign: "right" }}>
                               <button 

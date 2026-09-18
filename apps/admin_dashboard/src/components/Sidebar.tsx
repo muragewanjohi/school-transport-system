@@ -27,11 +27,15 @@ import {
   School,
   Menu,
   X,
+  Edit3,
 } from "lucide-react";
 import {
   isRoutesSectionNavActive,
   isSchoolCampusNavActive,
+  isTripsSectionNavActive,
   SCHOOL_CAMPUS_PATH,
+  TRIPS_HISTORY_PATH,
+  TRIPS_OVERRIDE_PATH,
 } from "@/lib/schoolCampusNav";
 
 export default function Sidebar() {
@@ -65,6 +69,7 @@ function SidebarContent() {
 
   const [staffExpanded, setStaffExpanded] = React.useState(false);
   const [routesExpanded, setRoutesExpanded] = React.useState(false);
+  const [tripsExpanded, setTripsExpanded] = React.useState(false);
   const [pendingDemoRequests, setPendingDemoRequests] = React.useState(0);
 
   useEffect(() => {
@@ -73,6 +78,9 @@ function SidebarContent() {
     }
     if (isRoutesSectionNavActive(pathname, tabParam)) {
       setRoutesExpanded(true);
+    }
+    if (isTripsSectionNavActive(pathname)) {
+      setTripsExpanded(true);
     }
   }, [pathname, tabParam]);
 
@@ -394,21 +402,67 @@ function SidebarContent() {
                           <span>Stops & Stages</span>
                         </Link>
                       </li>
+                    </ul>
+                  )}
+                </li>
+
+                <li>
+                  <div
+                    onClick={() => setTripsExpanded(!tripsExpanded)}
+                    className={`menu-item ${isTripsSectionNavActive(pathname) ? "active" : ""}`}
+                    style={{
+                      cursor: "pointer",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <Clock size={18} />
+                      <span>Trips</span>
+                    </div>
+                    {tripsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </div>
+
+                  {tripsExpanded && (
+                    <ul
+                      style={{
+                        listStyle: "none",
+                        paddingLeft: "24px",
+                        marginTop: "4px",
+                        marginBottom: "4px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "2px",
+                      }}
+                    >
                       <li>
                         <Link
-                          href="/routes/today-trips"
+                          href={TRIPS_HISTORY_PATH}
                           onClick={onNavClick}
-                          className={`menu-item ${pathname === "/routes/today-trips" ? "active" : ""}`}
+                          className={`menu-item ${pathname === TRIPS_HISTORY_PATH ? "active" : ""}`}
                           style={{ padding: "6px 12px", fontSize: "0.85rem" }}
                         >
                           <Clock size={14} style={{ color: "var(--accent-secondary)" }} />
-                          <span>Today&apos;s Trips</span>
+                          <span>Today&apos;s trip history</span>
+                        </Link>
+                      </li>
+                      <li>
+                        <Link
+                          href={TRIPS_OVERRIDE_PATH}
+                          onClick={onNavClick}
+                          className={`menu-item ${pathname === TRIPS_OVERRIDE_PATH ? "active" : ""}`}
+                          style={{ padding: "6px 12px", fontSize: "0.85rem" }}
+                        >
+                          <Edit3 size={14} style={{ color: "var(--accent-primary)" }} />
+                          <span>Override trip</span>
                         </Link>
                       </li>
                     </ul>
                   )}
                 </li>
 
+                {/* School Campus */}
                 <li>
                   <Link
                     href={SCHOOL_CAMPUS_PATH}

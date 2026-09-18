@@ -733,6 +733,17 @@ export default function DemoRequestDetailPage() {
                           secret
                           onCopy={() => void copyText("Password", credentials.admin_password)}
                         />
+                        {credentials.provision_pin ? (
+                          <CredRow
+                            label="BLE Provision PIN"
+                            value={credentials.provision_pin}
+                            mono
+                            secret
+                            onCopy={() =>
+                              void copyText("Provision PIN", credentials.provision_pin || "")
+                            }
+                          />
+                        ) : null}
                         <CredRow
                           label="Flutter phone"
                           value={credentials.phone}

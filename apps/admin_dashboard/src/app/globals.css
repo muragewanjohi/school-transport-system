@@ -1268,19 +1268,11 @@ select.form-input option {
   height: 100%;
 }
 
-.stops-toolbar-route,
-.stops-toolbar-type {
+.stops-toolbar-route {
   width: auto;
   flex: 0 0 auto;
   height: auto;
-}
-
-.stops-toolbar-route {
   min-width: 160px;
-}
-
-.stops-toolbar-type {
-  min-width: 130px;
 }
 
 .stops-toolbar-cta {
@@ -3189,11 +3181,30 @@ select.form-input option {
 }
 
 .lp-honeypot {
+  display: none !important;
   position: absolute;
   left: -10000px;
   opacity: 0;
   height: 0;
   overflow: hidden;
+}
+
+.lp-input.is-invalid,
+.lp-country-trigger.is-invalid {
+  border-color: var(--lp-error);
+  background: var(--lp-error-soft);
+}
+
+.lp-input.is-invalid:focus {
+  outline: 2px solid color-mix(in srgb, var(--lp-error) 35%, transparent);
+  border-color: var(--lp-error);
+}
+
+.lp-field-error {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--lp-error);
 }
 
 .lp-demo-error {

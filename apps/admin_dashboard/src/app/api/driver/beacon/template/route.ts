@@ -10,7 +10,7 @@ import {
   buildBeaconTemplate,
   encryptBeaconPassword,
   generateBeaconDevicePassword,
-  verifyProvisionPin,
+  provisionPinRejectReason,
 } from "@/lib/beaconProvision";
 
 function requireDriverOrConductor(request: Request): { ok: true } | { ok: false; response: NextResponse } {
@@ -95,11 +95,12 @@ export async function GET(request: Request) {
       );
     }
 
-    if (!verifyProvisionPin(parsed.data.provision_pin ?? "", config.beacon_provision_pin_hash)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid provision PIN" },
-        { status: 403 }
-      );
+    const pinError = provisionPinRejectReason(
+      parsed.data.provision_pin,
+      config.beacon_provision_pin_hash as string | null
+    );
+    if (pinError) {
+      return NextResponse.json({ success: false, error: pinError }, { status: 403 });
     }
 
     const updates: Record<string, string | number> = {};

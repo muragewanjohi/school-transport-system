@@ -7,7 +7,15 @@ export function isSchoolCampusNavActive(pathname: string, tab: string | null): b
 
 export function isRoutesSectionNavActive(pathname: string, tab: string | null): boolean {
   if (!pathname.startsWith("/routes")) return false;
+  if (pathname.startsWith("/routes/today-trips")) return false;
   return !isSchoolCampusNavActive(pathname, tab);
+}
+
+export const TRIPS_HISTORY_PATH = "/trips/history";
+export const TRIPS_OVERRIDE_PATH = "/trips/override";
+
+export function isTripsSectionNavActive(pathname: string): boolean {
+  return pathname.startsWith("/trips") || pathname.startsWith("/routes/today-trips");
 }
 
 export type RoutePlannerTab = "stops" | "schedules" | "schools";

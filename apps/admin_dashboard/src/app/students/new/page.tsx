@@ -15,6 +15,7 @@ import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
 import HomeLocationMapPicker from "@/components/HomeLocationMapPicker";
 import StudentStopAssignmentFields from "@/components/StudentStopAssignmentFields";
+import StudentTripAssignmentFields from "@/components/StudentTripAssignmentFields";
 import StudentGuardiansFields from "@/components/StudentGuardiansFields";
 import {
   defaultDifferentStopIds,
@@ -516,130 +517,14 @@ export default function RegisterStudentPage() {
                   />
                 </div>
 
-                {/* Resolve selected pickup & dropoff IDs for the radio button states */}
-                {(() => {
-                  const routeSchedules = schedules.filter(s => s.route_id === formValues.route_id);
-                  const pickupSchedules = routeSchedules.filter(s => s.direction === "HOME_TO_SCHOOL");
-                  const dropoffSchedules = routeSchedules.filter(s => s.direction === "SCHOOL_TO_HOME");
-
-                  const selectedPickupId = formValues.schedule_ids.find(id => pickupSchedules.some(s => s.id === id)) || "";
-                  const selectedDropoffId = formValues.schedule_ids.find(id => dropoffSchedules.some(s => s.id === id)) || "";
-
-                  // Helper to update schedule_ids based on pickup/dropoff selections
-                  const handlePickupChange = (newPickupId: string) => {
-                    const newIds = [newPickupId, selectedDropoffId].filter(Boolean);
-                    setFormValues(prev => ({ ...prev, schedule_ids: newIds }));
-                  };
-
-                  const handleDropoffChange = (newDropoffId: string) => {
-                    const newIds = [selectedPickupId, newDropoffId].filter(Boolean);
-                    setFormValues(prev => ({ ...prev, schedule_ids: newIds }));
-                  };
-
-                  return (
-                    <div className="form-grid">
-                      {/* Pick up trip selection */}
-                      <div className="form-group">
-                        <label className="form-label">Pick up trip</label>
-                        <div style={{
-                          background: "var(--input-bg)",
-                          border: "1px solid var(--border-default)",
-                          borderRadius: "6px",
-                          padding: "12px",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "8px",
-                          maxHeight: "150px",
-                          overflowY: "auto"
-                        }}>
-                          {formValues.route_id ? (
-                            pickupSchedules.length === 0 ? (
-                              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>No pick-up schedules configured.</span>
-                            ) : (
-                              <>
-                                <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                                  <input
-                                    type="radio"
-                                    name="pickup_trip"
-                                    checked={selectedPickupId === ""}
-                                    onChange={() => handlePickupChange("")}
-                                  />
-                                  <span style={{ fontWeight: 500, color: "var(--text-muted)" }}>None (No Pick up)</span>
-                                </label>
-                                {pickupSchedules.map(sched => (
-                                  <label key={sched.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                                    <input
-                                      type="radio"
-                                      name="pickup_trip"
-                                      checked={selectedPickupId === sched.id}
-                                      onChange={() => handlePickupChange(sched.id)}
-                                    />
-                                    <div>
-                                      <span style={{ fontWeight: 500 }}>{sched.name}</span>
-                                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginLeft: "6px" }}>({sched.departure_time})</span>
-                                    </div>
-                                  </label>
-                                ))}
-                              </>
-                            )
-                          ) : (
-                            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Select a route first.</span>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* Drop off trip selection */}
-                      <div className="form-group">
-                        <label className="form-label">Drop off trip</label>
-                        <div style={{
-                          background: "var(--input-bg)",
-                          border: "1px solid var(--border-default)",
-                          borderRadius: "6px",
-                          padding: "12px",
-                          display: "flex",
-                          flexDirection: "column",
-                          gap: "8px",
-                          maxHeight: "150px",
-                          overflowY: "auto"
-                        }}>
-                          {formValues.route_id ? (
-                            dropoffSchedules.length === 0 ? (
-                              <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>No drop-off schedules configured.</span>
-                            ) : (
-                              <>
-                                <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                                  <input
-                                    type="radio"
-                                    name="dropoff_trip"
-                                    checked={selectedDropoffId === ""}
-                                    onChange={() => handleDropoffChange("")}
-                                  />
-                                  <span style={{ fontWeight: 500, color: "var(--text-muted)" }}>None (No Drop off)</span>
-                                </label>
-                                {dropoffSchedules.map(sched => (
-                                  <label key={sched.id} style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "var(--text-primary)", cursor: "pointer" }}>
-                                    <input
-                                      type="radio"
-                                      name="dropoff_trip"
-                                      checked={selectedDropoffId === sched.id}
-                                      onChange={() => handleDropoffChange(sched.id)}
-                                    />
-                                    <div>
-                                      <span style={{ fontWeight: 500 }}>{sched.name}</span>
-                                      <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginLeft: "6px" }}>({sched.departure_time})</span>
-                                    </div>
-                                  </label>
-                                ))}
-                              </>
-                            )
-                          ) : (
-                            <span style={{ fontSize: "0.8rem", color: "var(--text-muted)" }}>Select a route first.</span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
+                <StudentTripAssignmentFields
+                  routeId={formValues.route_id}
+                  schedules={schedules}
+                  scheduleIds={formValues.schedule_ids}
+                  onChange={(schedule_ids) =>
+                    setFormValues((prev) => ({ ...prev, schedule_ids }))
+                  }
+                />
               </div>
 
               {/* Form Buttons */}

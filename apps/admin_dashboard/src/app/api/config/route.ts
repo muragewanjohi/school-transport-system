@@ -7,6 +7,11 @@ import {
   DEFAULT_ABSENT_CAMPUS_TEMPLATE,
   DEFAULT_ABSENT_STOP_TEMPLATE,
 } from "@/lib/absentParentAlert";
+import {
+  generateProvisionPin,
+  hashProvisionPin,
+  sanitizeTenantConfigForClient,
+} from "@/lib/beaconProvision";
 
 const mockConfig = {
   school_name: "Safaricom Track School",
@@ -34,7 +39,8 @@ const mockConfig = {
   holidays: [],
   sms_notifications_enabled: false,
   google_maps_api_key: "",
-  mapbox_access_token: ""
+  mapbox_access_token: "",
+  beacon_provision_pin_configured: false,
 };
 
 export async function GET(request: Request) {
@@ -95,7 +101,11 @@ export async function GET(request: Request) {
       config = insertedConfig;
     }
 
-    return NextResponse.json({ success: true, source: "supabase", data: config });
+    return NextResponse.json({
+      success: true,
+      source: "supabase",
+      data: sanitizeTenantConfigForClient(config as Record<string, unknown>),
+    });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";
@@ -110,7 +120,23 @@ export async function POST(request: Request) {
     const token = authHeader?.startsWith("Bearer ") ? authHeader.split(" ")[1] : undefined;
 
     if (!isSupabaseConfigured) {
-      return NextResponse.json({ success: true, source: "mock", data: body });
+      if (body.rotate_beacon_provision_pin === true) {
+        const pin = generateProvisionPin();
+        return NextResponse.json({
+          success: true,
+          source: "mock",
+          data: {
+            ...mockConfig,
+            beacon_provision_pin_configured: true,
+          },
+          provision_pin: pin,
+        });
+      }
+      return NextResponse.json({
+        success: true,
+        source: "mock",
+        data: sanitizeTenantConfigForClient({ ...mockConfig, ...body }),
+      });
     }
 
     const scope = await requireOperationalTenant(request);
@@ -132,27 +158,68 @@ export async function POST(request: Request) {
       }
     }
 
+    if (body.rotate_beacon_provision_pin === true) {
+      const pin = generateProvisionPin();
+      const { data: updatedConfig, error } = await client
+        .from("tenant_configs")
+        .upsert(
+          {
+            tenant_id: tenantId,
+            beacon_provision_pin_hash: hashProvisionPin(pin),
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "tenant_id" }
+        )
+        .select("*")
+        .single();
+
+      if (error) {
+        return NextResponse.json({ success: false, error: error.message }, { status: 400 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        source: "supabase",
+        data: sanitizeTenantConfigForClient(updatedConfig as Record<string, unknown>),
+        provision_pin: pin,
+      });
+    }
+
     const minDwell = clampMinStopDwellSeconds(
       typeof body.min_stop_dwell_seconds === "number" ? body.min_stop_dwell_seconds : undefined
     );
+
+    const {
+      rotate_beacon_provision_pin: _rotate,
+      beacon_provision_pin_hash: _hash,
+      beacon_device_password_enc: _enc,
+      beacon_provision_pin_configured: _configured,
+      provision_pin: _plain,
+      mapbox_access_token: _mapbox,
+      ...safeBody
+    } = body;
 
     // Update settings for the tenant
     const { data: updatedConfig, error } = await client
       .from("tenant_configs")
       .upsert({
         tenant_id: tenantId,
-        ...body,
+        ...safeBody,
         min_stop_dwell_seconds: minDwell,
         updated_at: new Date().toISOString()
       }, { onConflict: "tenant_id" })
-      .select()
+      .select("*")
       .single();
 
     if (error) {
       return NextResponse.json({ success: false, error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, source: "supabase", data: updatedConfig });
+    return NextResponse.json({
+      success: true,
+      source: "supabase",
+      data: sanitizeTenantConfigForClient(updatedConfig as Record<string, unknown>),
+    });
 
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Internal Server Error";

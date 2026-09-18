@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
+import { hashProvisionPin } from "@/lib/beaconProvision";
 
 const mockRequireOperationalTenant = vi.fn();
 const mockVerifyDriverSession = vi.fn();
@@ -24,6 +25,9 @@ vi.mock("@/lib/supabaseClient", () => ({
 
 import { GET } from "./route";
 
+const PIN = "482913";
+const PIN_HASH = hashProvisionPin(PIN);
+
 describe("GET /api/driver/beacon/template › driver session › returns template", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -37,12 +41,12 @@ describe("GET /api/driver/beacon/template › driver session › returns templat
     });
   });
 
-  it("Given driver auth and config, When template requested, Then 200 with unlock passwords", async () => {
+  it("Given driver auth and PIN, When template requested, Then 200 with unlock passwords", async () => {
     const maybeSingle = vi.fn().mockResolvedValue({
       data: {
         beacon_uuid: "A1B2C3D4-E5F6-4789-A012-3456789ABCDE",
         beacon_device_password_enc: null,
-        beacon_provision_pin_hash: null,
+        beacon_provision_pin_hash: PIN_HASH,
         beacon_next_minor: 2,
       },
     });
@@ -73,7 +77,9 @@ describe("GET /api/driver/beacon/template › driver session › returns templat
       },
     });
 
-    const res = await GET(new Request("http://localhost/api/driver/beacon/template"));
+    const res = await GET(
+      new Request(`http://localhost/api/driver/beacon/template?provision_pin=${PIN}`)
+    );
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.success).toBe(true);
@@ -81,6 +87,60 @@ describe("GET /api/driver/beacon/template › driver session › returns templat
     expect(json.data.minor).toBe(2);
     expect(json.data.unlock_password).toBe("DX1234");
     expect(json.data.new_device_password).toHaveLength(6);
+  });
+
+  it("Given missing PIN hash, When template requested, Then 403 not configured", async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: {
+        beacon_uuid: "A1B2C3D4-E5F6-4789-A012-3456789ABCDE",
+        beacon_device_password_enc: null,
+        beacon_provision_pin_hash: null,
+        beacon_next_minor: 1,
+      },
+    });
+    mockRequireOperationalTenant.mockResolvedValue({
+      ok: true,
+      tenantId: "11111111-1111-4111-8111-111111111111",
+      client: {
+        from: () => ({
+          select: () => ({ eq: () => ({ maybeSingle }) }),
+        }),
+      },
+    });
+
+    const res = await GET(
+      new Request("http://localhost/api/driver/beacon/template?provision_pin=123456")
+    );
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toMatch(/not configured/i);
+  });
+
+  it("Given wrong PIN, When template requested, Then 403 invalid", async () => {
+    const maybeSingle = vi.fn().mockResolvedValue({
+      data: {
+        beacon_uuid: "A1B2C3D4-E5F6-4789-A012-3456789ABCDE",
+        beacon_device_password_enc: null,
+        beacon_provision_pin_hash: PIN_HASH,
+        beacon_next_minor: 1,
+      },
+    });
+    mockRequireOperationalTenant.mockResolvedValue({
+      ok: true,
+      tenantId: "11111111-1111-4111-8111-111111111111",
+      client: {
+        from: () => ({
+          select: () => ({ eq: () => ({ maybeSingle }) }),
+        }),
+      },
+    });
+
+    const res = await GET(
+      new Request("http://localhost/api/driver/beacon/template?provision_pin=000000")
+    );
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toMatch(/invalid/i);
   });
 });
 

@@ -22,6 +22,11 @@ import {
   getDialCodeOptions,
   normalizeLocalPhone,
 } from "@/lib/countries";
+import {
+  demoRequestSchema,
+  flattenDemoRequestFieldErrors,
+  summarizeDemoRequestErrors,
+} from "@/lib/demoRequestValidation";
 
 type FormState = {
   full_name: string;
@@ -29,12 +34,10 @@ type FormState = {
   school_name: string;
   country: string;
   city: string;
-  phone: string;
   email: string;
   fleet_size: string;
   preferred_time: string;
   notes: string;
-  company_website: string;
 };
 
 const INITIAL: FormState = {
@@ -43,12 +46,10 @@ const INITIAL: FormState = {
   school_name: "",
   country: "Kenya",
   city: "",
-  phone: "",
   email: "",
   fleet_size: "1-5",
   preferred_time: "This week",
   notes: "",
-  company_website: "",
 };
 
 const EXPERIENCE = [
@@ -76,6 +77,19 @@ const EXPERIENCE = [
 
 const DIAL_CODES = getDialCodeOptions();
 
+function inputClass(invalid: boolean, extra = "") {
+  return ["lp-input", extra, invalid ? "is-invalid" : ""].filter(Boolean).join(" ");
+}
+
+function FieldError({ id, message }: { id: string; message?: string }) {
+  if (!message) return null;
+  return (
+    <p id={id} className="lp-field-error" role="alert">
+      {message}
+    </p>
+  );
+}
+
 export default function RequestDemoPage() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [form, setForm] = useState<FormState>(INITIAL);
@@ -85,9 +99,11 @@ export default function RequestDemoPage() {
   const [countryQuery, setCountryQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitted, setSubmitted] = useState(false);
   const countryPickerRef = useRef<HTMLDivElement>(null);
   const countrySearchRef = useRef<HTMLInputElement>(null);
+  const honeypotRef = useRef<HTMLInputElement>(null);
 
   const filteredCountries = useMemo(() => filterCountries(countryQuery), [countryQuery]);
 
@@ -122,8 +138,24 @@ export default function RequestDemoPage() {
     }
   }, [countryOpen]);
 
+  function clearFieldError(key: string) {
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }
+
   function updateField<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
+    clearFieldError(key);
+  }
+
+  function focusFirstInvalid(errors: Record<string, string>) {
+    const first = Object.keys(errors)[0];
+    if (!first) return;
+    document.getElementById(`demo-${first}`)?.focus();
   }
 
   function selectCountry(name: string) {
@@ -142,37 +174,54 @@ export default function RequestDemoPage() {
 
   function onPhoneLocalChange(value: string) {
     setPhoneLocal(normalizeLocalPhone(value));
+    clearFieldError("phone");
   }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
-    if (!findCountryByName(form.country)) {
-      setError("Please select a country from the list.");
-      return;
-    }
+    setFieldErrors({});
 
     const local = normalizeLocalPhone(phoneLocal);
-    if (local.length < 7 || local.length > 12) {
-      setError("Enter a valid phone number (7–12 digits after the country code).");
+    const phone = formatInternationalPhone(dialCode, local);
+    const payload = {
+      ...form,
+      phone,
+      company_website: honeypotRef.current?.value ?? "",
+    };
+
+    const clientErrors: Record<string, string> = {};
+    if (!findCountryByName(form.country)) {
+      clientErrors.country = "Please select a country from the list.";
+    }
+    const parsed = demoRequestSchema.safeParse(payload);
+    if (!parsed.success) {
+      Object.assign(clientErrors, flattenDemoRequestFieldErrors(parsed.error));
+    }
+    if (Object.keys(clientErrors).length > 0) {
+      setFieldErrors(clientErrors);
+      setError(summarizeDemoRequestErrors(clientErrors));
+      focusFirstInvalid(clientErrors);
       return;
     }
 
-    const phone = formatInternationalPhone(dialCode, local);
     setSubmitting(true);
     try {
       const res = await fetch("/api/demo-requests", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form, phone }),
+        body: JSON.stringify(payload),
       });
       const json = (await res.json()) as {
         success: boolean;
         error?: string;
+        fields?: Record<string, string>;
       };
       if (!res.ok || !json.success) {
+        const fields = json.fields && Object.keys(json.fields).length > 0 ? json.fields : {};
+        setFieldErrors(fields);
         setError(json.error || "Could not submit your request.");
+        focusFirstInvalid(fields);
         return;
       }
       setSubmitted(true);
@@ -308,52 +357,68 @@ export default function RequestDemoPage() {
                   </Link>
                 </div>
               ) : (
-                <form className="lp-demo-form" onSubmit={onSubmit}>
+                <form className="lp-demo-form" onSubmit={onSubmit} noValidate>
                   <h2>Book your walkthrough</h2>
                   <p className="lp-demo-form-sub">We respond within one business day.</p>
 
                   <label>
                     Full name *
                     <input
-                      className="lp-input"
+                      id="demo-full_name"
+                      className={inputClass(Boolean(fieldErrors.full_name))}
                       value={form.full_name}
                       onChange={(e) => updateField("full_name", e.target.value)}
-                      required
                       autoComplete="name"
+                      aria-invalid={Boolean(fieldErrors.full_name)}
+                      aria-describedby={fieldErrors.full_name ? "demo-full_name-error" : undefined}
                     />
+                    <FieldError id="demo-full_name-error" message={fieldErrors.full_name} />
                   </label>
 
                   <label>
                     Role *
                     <select
-                      className="lp-input"
+                      id="demo-role"
+                      className={inputClass(Boolean(fieldErrors.role))}
                       value={form.role}
                       onChange={(e) => updateField("role", e.target.value)}
+                      aria-invalid={Boolean(fieldErrors.role)}
+                      aria-describedby={fieldErrors.role ? "demo-role-error" : undefined}
                     >
                       <option>Transport Manager</option>
                       <option>School Admin</option>
                       <option>Principal</option>
                       <option>Other</option>
                     </select>
+                    <FieldError id="demo-role-error" message={fieldErrors.role} />
                   </label>
 
                   <label>
                     School name *
                     <input
-                      className="lp-input"
+                      id="demo-school_name"
+                      className={inputClass(Boolean(fieldErrors.school_name))}
                       value={form.school_name}
                       onChange={(e) => updateField("school_name", e.target.value)}
-                      required
+                      aria-invalid={Boolean(fieldErrors.school_name)}
+                      aria-describedby={fieldErrors.school_name ? "demo-school_name-error" : undefined}
                     />
+                    <FieldError id="demo-school_name-error" message={fieldErrors.school_name} />
                   </label>
 
                   <div className="lp-field" ref={countryPickerRef}>
-                    <span className="lp-field-label">Country *</span>
+                    <span className="lp-field-label" id="demo-country-label">
+                      Country *
+                    </span>
                     <button
                       type="button"
-                      className="lp-input lp-country-trigger"
+                      id="demo-country"
+                      className={inputClass(Boolean(fieldErrors.country), "lp-country-trigger")}
                       aria-haspopup="listbox"
                       aria-expanded={countryOpen}
+                      aria-labelledby="demo-country-label"
+                      aria-invalid={Boolean(fieldErrors.country)}
+                      aria-describedby={fieldErrors.country ? "demo-country-error" : undefined}
                       onClick={() => {
                         setCountryOpen((open) => {
                           const next = !open;
@@ -404,28 +469,37 @@ export default function RequestDemoPage() {
                         </ul>
                       </div>
                     ) : null}
-                    <input type="hidden" name="country" value={form.country} required readOnly />
+                    <FieldError id="demo-country-error" message={fieldErrors.country} />
                   </div>
 
                   <label>
                     City / area *
                     <input
-                      className="lp-input"
+                      id="demo-city"
+                      className={inputClass(Boolean(fieldErrors.city))}
                       value={form.city}
                       onChange={(e) => updateField("city", e.target.value)}
-                      required
                       placeholder="e.g. Nairobi, Westlands"
+                      aria-invalid={Boolean(fieldErrors.city)}
+                      aria-describedby={fieldErrors.city ? "demo-city-error" : undefined}
                     />
+                    <FieldError id="demo-city-error" message={fieldErrors.city} />
                   </label>
 
                   <div className="lp-field">
-                    <span className="lp-field-label">WhatsApp or phone *</span>
+                    <span className="lp-field-label" id="demo-phone-label">
+                      WhatsApp or phone *
+                    </span>
                     <div className="lp-phone-row">
                       <select
-                        className="lp-input lp-phone-code"
+                        className={inputClass(Boolean(fieldErrors.phone), "lp-phone-code")}
                         value={dialCode}
-                        onChange={(e) => onDialCodeChange(e.target.value)}
+                        onChange={(e) => {
+                          onDialCodeChange(e.target.value);
+                          clearFieldError("phone");
+                        }}
                         aria-label="Country calling code"
+                        aria-invalid={Boolean(fieldErrors.phone)}
                       >
                         {DIAL_CODES.map((code) => (
                           <option key={code} value={code}>
@@ -434,84 +508,117 @@ export default function RequestDemoPage() {
                         ))}
                       </select>
                       <input
-                        className="lp-input lp-phone-local"
+                        id="demo-phone"
+                        className={inputClass(Boolean(fieldErrors.phone), "lp-phone-local")}
                         type="tel"
                         inputMode="numeric"
                         value={phoneLocal}
                         onChange={(e) => onPhoneLocalChange(e.target.value)}
-                        required
                         autoComplete="tel-national"
                         placeholder="712 345 678"
                         aria-label="Phone number"
+                        aria-labelledby="demo-phone-label"
+                        aria-invalid={Boolean(fieldErrors.phone)}
+                        aria-describedby={fieldErrors.phone ? "demo-phone-error" : undefined}
                       />
                     </div>
                     <span className="lp-field-hint">
                       Saved as {formatInternationalPhone(dialCode, phoneLocal || "…")}
                     </span>
+                    <FieldError id="demo-phone-error" message={fieldErrors.phone} />
                   </div>
 
                   <label>
                     Work email *
                     <input
-                      className="lp-input"
+                      id="demo-email"
+                      className={inputClass(Boolean(fieldErrors.email))}
                       type="email"
                       value={form.email}
                       onChange={(e) => updateField("email", e.target.value)}
                       autoComplete="email"
-                      required
+                      aria-invalid={Boolean(fieldErrors.email)}
+                      aria-describedby={fieldErrors.email ? "demo-email-error" : undefined}
                     />
+                    <FieldError id="demo-email-error" message={fieldErrors.email} />
                   </label>
 
                   <div className="lp-demo-form-row">
                     <label>
                       Approx. buses *
                       <select
-                        className="lp-input"
+                        id="demo-fleet_size"
+                        className={inputClass(Boolean(fieldErrors.fleet_size))}
                         value={form.fleet_size}
                         onChange={(e) => updateField("fleet_size", e.target.value)}
+                        aria-invalid={Boolean(fieldErrors.fleet_size)}
+                        aria-describedby={fieldErrors.fleet_size ? "demo-fleet_size-error" : undefined}
                       >
                         <option value="1-5">1–5</option>
                         <option value="6-15">6–15</option>
                         <option value="16+">16+</option>
                       </select>
+                      <FieldError id="demo-fleet_size-error" message={fieldErrors.fleet_size} />
                     </label>
                     <label>
                       Preferred time *
                       <select
-                        className="lp-input"
+                        id="demo-preferred_time"
+                        className={inputClass(Boolean(fieldErrors.preferred_time))}
                         value={form.preferred_time}
                         onChange={(e) => updateField("preferred_time", e.target.value)}
+                        aria-invalid={Boolean(fieldErrors.preferred_time)}
+                        aria-describedby={
+                          fieldErrors.preferred_time ? "demo-preferred_time-error" : undefined
+                        }
                       >
                         <option value="ASAP">ASAP</option>
                         <option value="This week">This week</option>
                         <option value="Next week">Next week</option>
                       </select>
+                      <FieldError
+                        id="demo-preferred_time-error"
+                        message={fieldErrors.preferred_time}
+                      />
                     </label>
                   </div>
 
                   <label>
                     Notes
                     <textarea
-                      className="lp-input lp-textarea"
+                      id="demo-notes"
+                      className={inputClass(Boolean(fieldErrors.notes), "lp-textarea")}
                       value={form.notes}
                       onChange={(e) => updateField("notes", e.target.value)}
                       rows={3}
                       placeholder="Anything we should know before the call?"
+                      aria-invalid={Boolean(fieldErrors.notes)}
+                      aria-describedby={fieldErrors.notes ? "demo-notes-error" : undefined}
                     />
+                    <FieldError id="demo-notes-error" message={fieldErrors.notes} />
                   </label>
 
-                  {/* Honeypot */}
-                  <label className="lp-honeypot" aria-hidden="true">
-                    Company website
+                  <div className="lp-honeypot" aria-hidden="true" hidden>
+                    <label htmlFor="otb_hp">Leave blank</label>
                     <input
+                      id="otb_hp"
+                      ref={honeypotRef}
+                      name="otb_hp"
+                      type="text"
                       tabIndex={-1}
                       autoComplete="off"
-                      value={form.company_website}
-                      onChange={(e) => updateField("company_website", e.target.value)}
+                      defaultValue=""
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      data-form-type="other"
                     />
-                  </label>
+                  </div>
 
-                  {error ? <p className="lp-demo-error">{error}</p> : null}
+                  {error ? (
+                    <p className="lp-demo-error" role="alert">
+                      {error}
+                    </p>
+                  ) : null}
 
                   <button
                     type="submit"

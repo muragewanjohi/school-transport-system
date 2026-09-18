@@ -59,13 +59,63 @@ export function hashProvisionPin(pin: string): string {
   return crypto.createHash("sha256").update(`${passwordSecret()}:${pin}`).digest("hex");
 }
 
+/** Fixed Provision PIN for the permanent Play Store review tenant. */
+export const PLAY_REVIEW_PROVISION_PIN = "654321";
+
+/** 6-digit numeric PIN for Driver App Provision Tag (admins set; drivers enter). */
+export function generateProvisionPin(): string {
+  const n = crypto.randomInt(0, 1_000_000);
+  return n.toString().padStart(6, "0");
+}
+
+/**
+ * Verify driver-entered Provision PIN against stored hash.
+ * Missing hash (legacy / not configured) → false (no open gate).
+ */
 export function verifyProvisionPin(pin: string, hash: string | null | undefined): boolean {
-  if (!hash) return true;
-  const candidate = hashProvisionPin(pin);
+  if (!hash) return false;
+  if (!pin || pin.trim().length === 0) return false;
+  const candidate = hashProvisionPin(pin.trim());
   const a = Buffer.from(candidate);
   const b = Buffer.from(hash);
   if (a.length !== b.length) return false;
   return crypto.timingSafeEqual(a, b);
+}
+
+export function provisionPinConfigured(hash: string | null | undefined): boolean {
+  return Boolean(hash && hash.length > 0);
+}
+
+/** Null when PIN is valid; otherwise human-readable 403 message. */
+export function provisionPinRejectReason(
+  pin: string | undefined,
+  hash: string | null | undefined
+): string | null {
+  if (!provisionPinConfigured(hash)) {
+    return "Provision PIN not configured — ask school admin";
+  }
+  if (!verifyProvisionPin(pin ?? "", hash)) {
+    return "Invalid provision PIN";
+  }
+  return null;
+}
+
+/** Strip secrets before sending tenant_configs to the browser. */
+export function sanitizeTenantConfigForClient(
+  config: Record<string, unknown>
+): Record<string, unknown> {
+  const {
+    beacon_device_password_enc: _enc,
+    beacon_provision_pin_hash: hash,
+    mapbox_access_token: _mapbox,
+    ...rest
+  } = config;
+  return {
+    ...rest,
+    beacon_provision_pin_configured: provisionPinConfigured(
+      typeof hash === "string" ? hash : null
+    ),
+  };
 }
 
 export function normalizeBeaconUuid(uuid: string): string {

@@ -20,8 +20,7 @@ import {
   Info,
   Clock,
   CheckSquare,
-  ShieldAlert,
-  Key
+  ShieldAlert
 } from "lucide-react";
 import {
   DEFAULT_ABSENT_CAMPUS_TEMPLATE,
@@ -65,12 +64,14 @@ export default function ConfigConsole() {
   const [smsTemplateAbsentStop, setSmsTemplateAbsentStop] = useState(DEFAULT_ABSENT_STOP_TEMPLATE);
   const [smsTemplateAbsentCampus, setSmsTemplateAbsentCampus] = useState(DEFAULT_ABSENT_CAMPUS_TEMPLATE);
   const [googleMapsApiKey, setGoogleMapsApiKey] = useState("");
-  const [mapboxAccessToken, setMapboxAccessToken] = useState("");
 
   const [operatingHoursStart, setOperatingHoursStart] = useState("06:00");
   const [operatingHoursEnd, setOperatingHoursEnd] = useState("18:00");
   const [operatingDays, setOperatingDays] = useState<string[]>(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [beaconPinConfigured, setBeaconPinConfigured] = useState(false);
+  const [rotatingPin, setRotatingPin] = useState(false);
+  const [revealedProvisionPin, setRevealedProvisionPin] = useState<string | null>(null);
 
   // Holiday Add State
   const [newHolidayLabel, setNewHolidayLabel] = useState("");
@@ -115,7 +116,8 @@ export default function ConfigConsole() {
           setHolidays(config.holidays || []);
           setSmsNotificationsEnabled(config.sms_notifications_enabled || false);
           setGoogleMapsApiKey(config.google_maps_api_key || "");
-          setMapboxAccessToken(config.mapbox_access_token || "");
+          setBeaconPinConfigured(Boolean(config.beacon_provision_pin_configured));
+          setRevealedProvisionPin(null);
         }
       } catch (err) {
         console.error("Failed to fetch system configurations:", err);
@@ -159,7 +161,6 @@ export default function ConfigConsole() {
       holidays: holidays,
       sms_notifications_enabled: smsNotificationsEnabled,
       google_maps_api_key: googleMapsApiKey,
-      mapbox_access_token: mapboxAccessToken
     };
 
     try {
@@ -180,6 +181,39 @@ export default function ConfigConsole() {
     } finally {
       setSaving(false);
       setTimeout(() => setToast(null), 4000);
+    }
+  };
+
+  const handleRotateProvisionPin = async () => {
+    if (!canEdit) return;
+    setRotatingPin(true);
+    setToast(null);
+    try {
+      const res = await fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rotate_beacon_provision_pin: true }),
+      });
+      const json = await res.json();
+      if (json.success && typeof json.provision_pin === "string") {
+        setBeaconPinConfigured(true);
+        setRevealedProvisionPin(json.provision_pin);
+        setToast({
+          message: "Provision PIN rotated — copy it now; it will not be shown again.",
+          type: "success",
+        });
+      } else {
+        setToast({
+          message: json.error || "Failed to rotate Provision PIN",
+          type: "error",
+        });
+      }
+    } catch (err) {
+      console.error("Failed to rotate provision PIN:", err);
+      setToast({ message: "An unexpected network error occurred", type: "error" });
+    } finally {
+      setRotatingPin(false);
+      setTimeout(() => setToast(null), 6000);
     }
   };
 
@@ -401,6 +435,43 @@ export default function ConfigConsole() {
                       </div>
                     </div>
                   </div>
+
+                  <div style={{ marginTop: "28px", paddingTop: "20px", borderTop: "1px solid var(--border-subtle, #333)" }}>
+                    <span className="panel-title" style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <ShieldAlert size={16} />
+                      BLE Provision PIN
+                    </span>
+                    <p className="panel-desc">
+                      Drivers and conductors must enter this PIN in the Driver App to provision student tags.
+                      Only school admins can generate or rotate it. The plaintext PIN is shown once after rotate.
+                    </p>
+                    <p style={{ marginBottom: "12px" }}>
+                      Status:{" "}
+                      <strong>
+                        {beaconPinConfigured ? "Configured" : "Not configured — generate a PIN"}
+                      </strong>
+                    </p>
+                    {revealedProvisionPin && (
+                      <p style={{ marginBottom: "12px" }}>
+                        New PIN (copy now):{" "}
+                        <code style={{ fontSize: "1.1rem", letterSpacing: "0.08em" }}>
+                          {revealedProvisionPin}
+                        </code>
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      disabled={!canEdit || rotatingPin}
+                      onClick={() => void handleRotateProvisionPin()}
+                    >
+                      {rotatingPin
+                        ? "Working…"
+                        : beaconPinConfigured
+                          ? "Rotate Provision PIN"
+                          : "Generate Provision PIN"}
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -409,33 +480,6 @@ export default function ConfigConsole() {
                 <div className="config-panel">
                   <span className="panel-title">Geofencing & Alerts Dispatch</span>
                   <p className="panel-desc">Define the operational radius triggers and configure custom message templates sent to parents.</p>
-
-                  <div className="form-group" style={{ marginBottom: "28px" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "8px" }}>
-                      <Key size={16} style={{ color: "var(--accent-primary)" }} />
-                      <span>Mapbox Access Token (for Live Traffic ETAs)</span>
-                    </label>
-                    <input
-                      type="text"
-                      disabled={!canEdit}
-                      value={mapboxAccessToken}
-                      onChange={(e) => setMapboxAccessToken(e.target.value)}
-                      placeholder="pk.ey..."
-                      style={{
-                        width: "100%",
-                        background: "var(--background-card)",
-                        border: "1px solid var(--border-default)",
-                        borderRadius: "8px",
-                        padding: "10px",
-                        color: "var(--text-primary)",
-                        fontSize: "0.85rem",
-                        outline: "none"
-                      }}
-                    />
-                    <span style={{ fontSize: "0.75rem", color: "var(--text-muted)", marginTop: "4px", display: "block" }}>
-                      Add your Mapbox Public Token to enable live traffic routing matrix calculations. If empty, the system defaults to static stop duration estimates.
-                    </span>
-                  </div>
 
                   <div className="form-group" style={{ marginBottom: "28px" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "8px" }}>

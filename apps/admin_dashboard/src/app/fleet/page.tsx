@@ -30,8 +30,8 @@ import {
 interface DBVehicle {
   id: string;
   license_plate: string;
-  model: string;
-  capacity: number;
+  model: string | null;
+  capacity: number | null;
   status: "Active" | "Maintenance" | "Out of Service";
   fuel_level: number;
   odometer: number;
@@ -69,7 +69,7 @@ export default function FleetManagement() {
   const [formValues, setFormValues] = useState({
     license_plate: "",
     model: "",
-    capacity: 30,
+    capacity: "",
     status: "Active" as "Active" | "Maintenance" | "Out of Service",
     last_service_date: UNSET_VEHICLE_DATE,
     next_service_date: UNSET_VEHICLE_DATE,
@@ -146,7 +146,7 @@ export default function FleetManagement() {
     setFormValues(prev => ({
       ...prev,
       [name]: name === "capacity"
-        ? Number(value) 
+        ? value.replace(/[^\d]/g, "")
         : value
     }));
     if (formErrors[name]) {
@@ -161,7 +161,7 @@ export default function FleetManagement() {
     setFormValues({
       license_plate: "",
       model: "",
-      capacity: 33,
+      capacity: "",
       status: "Active",
       last_service_date: UNSET_VEHICLE_DATE,
       next_service_date: UNSET_VEHICLE_DATE,
@@ -178,8 +178,8 @@ export default function FleetManagement() {
     setCurrentEditId(vehicle.id);
     setFormValues({
       license_plate: vehicle.license_plate,
-      model: vehicle.model,
-      capacity: vehicle.capacity,
+      model: vehicle.model ?? "",
+      capacity: vehicle.capacity != null ? String(vehicle.capacity) : "",
       status: vehicle.status,
       last_service_date: dateToFormValue(vehicle.last_service_date),
       next_service_date: dateToFormValue(vehicle.next_service_date),
@@ -199,11 +199,14 @@ export default function FleetManagement() {
       errors.license_plate = "Enter a valid plate number (e.g. KCD 123X)";
     }
     
-    if (!formValues.model.trim()) {
-      errors.model = "Bus model description is required";
+    if (formValues.model.trim() && formValues.model.trim().length < 2) {
+      errors.model = "Maker & model must be at least 2 characters if provided";
     }
-    if (formValues.capacity <= 0) {
-      errors.capacity = "Capacity must be positive";
+    if (formValues.capacity.trim()) {
+      const seats = Number(formValues.capacity);
+      if (!Number.isInteger(seats) || seats < 1) {
+        errors.capacity = "Seating capacity must be at least 1 seat if provided";
+      }
     }
 
     setFormErrors(errors);
@@ -219,6 +222,8 @@ export default function FleetManagement() {
 
     const payload = {
       ...formValues,
+      model: formValues.model.trim() || null,
+      capacity: formValues.capacity.trim() ? Number(formValues.capacity) : null,
       last_service_date: normalizeVehicleDate(formValues.last_service_date),
       next_service_date: normalizeVehicleDate(formValues.next_service_date),
       insurance_expiry: normalizeVehicleDate(formValues.insurance_expiry),
@@ -360,7 +365,7 @@ export default function FleetManagement() {
   const activeBuses = vehicles.filter(v => v.status === "Active").length;
   const maintenanceBuses = vehicles.filter(v => v.status === "Maintenance").length;
   const outOfServiceBuses = vehicles.filter(v => v.status === "Out of Service").length;
-  const totalCapacity = vehicles.reduce((acc, v) => acc + v.capacity, 0);
+  const totalCapacity = vehicles.reduce((acc, v) => acc + (v.capacity ?? 0), 0);
 
   // Filtered vehicles list
   const filteredVehicles = vehicles.filter(v => 
@@ -695,7 +700,7 @@ export default function FleetManagement() {
                             </span>
                           </div>
                           <div style={{ fontSize: "0.8rem", color: "var(--text-muted)", marginTop: "4px" }}>
-                            {vehicle.model}
+                            {vehicle.model || "Maker & model not set"}
                           </div>
                         </div>
 
@@ -724,7 +729,9 @@ export default function FleetManagement() {
                           <div style={{ fontSize: "0.7rem", color: "var(--text-muted)", textTransform: "uppercase" }}>Seating Capacity</div>
                           <div style={{ fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "6px", marginTop: "2px" }}>
                             <User size={14} style={{ color: "var(--accent-secondary)" }} />
-                            <span style={{ fontWeight: 500 }}>{vehicle.capacity} Seats Available</span>
+                            <span style={{ fontWeight: 500 }}>
+                              {vehicle.capacity != null ? `${vehicle.capacity} Seats Available` : "Not set"}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -1033,7 +1040,7 @@ export default function FleetManagement() {
 
               {/* Model Description */}
               <div className="form-group">
-                <label className="form-label">Bus Maker & Model *</label>
+                <label className="form-label">Bus Maker & Model</label>
                 <input
                   type="text"
                   name="model"
@@ -1047,11 +1054,12 @@ export default function FleetManagement() {
 
               {/* Seating Capacity */}
               <div className="form-group">
-                <label className="form-label">Seating Capacity *</label>
+                <label className="form-label">Seating Capacity</label>
                 <input
                   type="number"
                   name="capacity"
                   className={`form-input ${formErrors.capacity ? "error" : ""}`}
+                  placeholder="e.g. 33"
                   value={formValues.capacity}
                   onChange={handleInputChange}
                 />
@@ -1133,7 +1141,7 @@ export default function FleetManagement() {
                     Notify me when service or insurance is due
                   </span>
                   <p style={{ margin: "4px 0 0", fontSize: "0.75rem", color: "var(--text-muted)" }}>
-                    Alerts show on this vehicle 1 month, 2 weeks, and 1 day before next service or insurance expiry.
+                    Alerts show on the fleet card 1 month, 2 weeks, and 1 day before next service or insurance expiry. Email is not sent.
                   </p>
                 </div>
               </label>

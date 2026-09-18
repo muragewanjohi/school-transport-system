@@ -142,7 +142,7 @@ Run on `[qa-school]` (preferred) or `[demo]`. One pass through critical CRUD.
 
 ### 4.5 Trips, config, billing, users
 
-- [ ] **A14** `/routes/today-trips` — today’s trip rows visible; set status override (e.g. Delayed / Cancelled) and confirm UI.
+- [ ] **A14** `/trips/override` — today’s trip rows visible; set status override (e.g. Delayed / Cancelled) and confirm UI. `/trips/history` is the same list without Update Status.
 - [ ] **A15** `/config` — edit SMS templates (`{student_name}`, `{duration_mins}`, etc.); toggle `sms_notifications_enabled`.
 - [ ] **A16** `/billing` — plan metrics load (students/routes/drivers/SMS); school cannot edit platform campus fee.
 - [ ] **A17** `/users` — visible only to tenant `admin_role === "Super Admin"`; create secondary admin with a role; non–Super Admin does not see nav item.

@@ -24,7 +24,6 @@ describe("PUT /api/stops/[id]", () => {
         longitude: 36.8095462,
         sequence_no: 1,
         geofence_radius_meters: 50,
-        stop_type: "PICKUP",
       }),
       { params: Promise.resolve({ id: "stop-1-1" }) }
     );

@@ -2,8 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
-import { getTenantInviteRedirectUrl, isValidTenantSlug } from "@/lib/tenantHost";
+import { getTenantInviteRedirectUrl, getTenantPublicUrl, isValidTenantSlug } from "@/lib/tenantHost";
 import { extractBearerToken, getCallerProfile, isPlatformSuperAdmin } from "@/lib/authApi";
+import {
+  generateProvisionPin,
+  hashProvisionPin,
+} from "@/lib/beaconProvision";
+import { notifySchoolProvisionPin } from "@/lib/demoRequestEmails";
 
 const createSchoolSchema = z.object({
   name: z.string().min(2, "School name must be at least 2 characters"),
@@ -355,6 +360,7 @@ export async function POST(request: Request) {
       { onConflict: "tenant_id" }
     );
 
+    const provisionPin = generateProvisionPin();
     await adminClient.from("tenant_configs").upsert(
       {
         tenant_id: tenant.id,
@@ -362,6 +368,7 @@ export async function POST(request: Request) {
         school_phone: input.contact_phone || input.admin_phone || null,
         school_email: input.contact_email || input.admin_email,
         school_address: campusName,
+        beacon_provision_pin_hash: hashProvisionPin(provisionPin),
       },
       { onConflict: "tenant_id" }
     );
@@ -380,6 +387,18 @@ export async function POST(request: Request) {
         },
       }
     );
+
+    const pinEmailTo = input.contact_email || input.admin_email;
+    if (pinEmailTo) {
+      await notifySchoolProvisionPin({
+        fullName: input.admin_name,
+        email: pinEmailTo,
+        schoolName: input.name,
+        schoolUrl: getTenantPublicUrl(input.domain, "/login"),
+        provisionPin,
+        isDemo: false,
+      });
+    }
 
     if (inviteError) {
       return NextResponse.json({

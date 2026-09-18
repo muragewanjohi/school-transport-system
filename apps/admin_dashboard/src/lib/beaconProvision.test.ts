@@ -2,13 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_BEACON_UUID,
   FACTORY_TAG_PASSWORD,
+  PLAY_REVIEW_PROVISION_PIN,
   buildBeaconTemplate,
   decryptBeaconPassword,
   encryptBeaconPassword,
   generateBeaconDevicePassword,
+  generateProvisionPin,
   hashProvisionPin,
   normalizeBeaconUuid,
   nextMinorValue,
+  provisionPinConfigured,
   verifyProvisionPin,
 } from "@/lib/beaconProvision";
 
@@ -17,6 +20,18 @@ describe("generateBeaconDevicePassword › length and alphabet › returns 6 cha
     const pwd = generateBeaconDevicePassword();
     expect(pwd).toHaveLength(6);
     expect(pwd).toMatch(/^[A-Z0-9]+$/);
+  });
+});
+
+describe("generateProvisionPin › format › six digits", () => {
+  it("Given generateProvisionPin, When called, Then returns 6 numeric digits", () => {
+    const pin = generateProvisionPin();
+    expect(pin).toHaveLength(6);
+    expect(pin).toMatch(/^\d{6}$/);
+  });
+
+  it("Given play-review constant, When checked, Then is 654321", () => {
+    expect(PLAY_REVIEW_PROVISION_PIN).toBe("654321");
   });
 });
 
@@ -58,7 +73,7 @@ describe("buildBeaconTemplate › encrypted tenant password › not factory", ()
       beaconUuid: DEFAULT_BEACON_UUID,
       nextMinor: 3,
       encryptedPassword: enc,
-      provisionPinHash: hashProvisionPin("9999"),
+      provisionPinHash: hashProvisionPin("999999"),
     });
     expect(t.device_password).toBe("QWERTY");
     expect(t.is_factory_password).toBe(false);
@@ -67,15 +82,19 @@ describe("buildBeaconTemplate › encrypted tenant password › not factory", ()
   });
 });
 
-describe("verifyProvisionPin › optional hash › allows empty when unset", () => {
-  it("Given no pin hash, When verifying any pin, Then allowed", () => {
-    expect(verifyProvisionPin("anything", null)).toBe(true);
+describe("verifyProvisionPin › mandatory hash › denies unset and wrong", () => {
+  it("Given no pin hash, When verifying any pin, Then rejected", () => {
+    expect(verifyProvisionPin("123456", null)).toBe(false);
+    expect(verifyProvisionPin("", null)).toBe(false);
+    expect(provisionPinConfigured(null)).toBe(false);
   });
 
-  it("Given hash for 1234, When wrong pin, Then rejected", () => {
-    const hash = hashProvisionPin("1234");
-    expect(verifyProvisionPin("0000", hash)).toBe(false);
-    expect(verifyProvisionPin("1234", hash)).toBe(true);
+  it("Given hash for 123456, When wrong or empty pin, Then rejected; correct accepted", () => {
+    const hash = hashProvisionPin("123456");
+    expect(provisionPinConfigured(hash)).toBe(true);
+    expect(verifyProvisionPin("000000", hash)).toBe(false);
+    expect(verifyProvisionPin("", hash)).toBe(false);
+    expect(verifyProvisionPin("123456", hash)).toBe(true);
   });
 });
 

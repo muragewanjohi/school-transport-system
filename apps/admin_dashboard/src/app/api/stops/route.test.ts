@@ -18,7 +18,6 @@ const validStop = {
   longitude: 36.8095462,
   sequence_no: 1,
   geofence_radius_meters: 50,
-  stop_type: "PICKUP" as const,
 };
 
 function jsonRequest(body: unknown) {
@@ -35,12 +34,13 @@ describe("POST /api/stops", () => {
     expect(res.status).toBe(200);
     const json = (await res.json()) as {
       success: boolean;
-      data: { name: string; location: { coordinates: [number, number] } };
+      data: { name: string; stop_type: string; location: { coordinates: [number, number] } };
     };
     expect(json.success).toBe(true);
     expect(json.data.name).toBe("Stop Riverside");
     expect(json.data.location.coordinates[0]).toBe(validStop.longitude);
     expect(json.data.location.coordinates[1]).toBe(validStop.latitude);
+    expect(json.data.stop_type).toBe("BOTH");
   });
 
   it("missing name › returns 400", async () => {

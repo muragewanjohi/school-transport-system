@@ -4,7 +4,7 @@ import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { verifyDriverSession } from "@/lib/driverSession";
 import { extractBearerToken } from "@/lib/authApi";
-import { normalizeBeaconUuid, verifyProvisionPin } from "@/lib/beaconProvision";
+import { normalizeBeaconUuid, provisionPinRejectReason } from "@/lib/beaconProvision";
 
 function requireDriverOrConductor(request: Request): { ok: true } | { ok: false; response: NextResponse } {
   const token = extractBearerToken(request);
@@ -88,11 +88,12 @@ export async function POST(request: Request) {
       .eq("tenant_id", scope.tenantId)
       .maybeSingle();
 
-    if (!verifyProvisionPin(payload.provision_pin ?? "", config?.beacon_provision_pin_hash)) {
-      return NextResponse.json(
-        { success: false, error: "Invalid provision PIN" },
-        { status: 403 }
-      );
+    const pinError = provisionPinRejectReason(
+      payload.provision_pin,
+      config?.beacon_provision_pin_hash as string | null | undefined
+    );
+    if (pinError) {
+      return NextResponse.json({ success: false, error: pinError }, { status: 403 });
     }
 
     const { data: student } = await scope.client

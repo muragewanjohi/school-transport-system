@@ -6,6 +6,7 @@ export type DemoProvisionCredentials = {
   otp: string;
   expires_at: string;
   slug: string;
+  provision_pin?: string;
 };
 
 const storageKey = (requestId: string) => `demo-request-creds:${requestId}`;

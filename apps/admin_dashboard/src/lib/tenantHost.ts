@@ -120,6 +120,7 @@ export const SCHOOL_CONSOLE_PREFIXES = [
   "/students",
   "/staff",
   "/routes",
+  "/trips",
   "/billing",
   "/config",
   "/users",

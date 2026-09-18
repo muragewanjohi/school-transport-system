@@ -108,6 +108,10 @@ export async function notifyDemoReady(
     `Phone: ${params.phone}`,
     `Request a fresh OTP from the app. Each code expires after 15 minutes.`,
     ``,
+    `BLE Provision PIN (Driver App → Provision Tag)`,
+    `PIN: ${params.provisionPin}`,
+    `Share this PIN only with staff who configure student BLE tags. School admins can rotate it under Config.`,
+    ``,
     `If you did not request this, you can ignore this email.`,
     ``,
     `— The OnTheBus team`,
@@ -124,6 +128,9 @@ export async function notifyDemoReady(
     <p><strong>Flutter parent &amp; driver apps</strong><br />
     Phone: <code>${escapeHtml(params.phone)}</code><br />
     Request a fresh OTP from the app. Each code expires after 15 minutes.</p>
+    <p><strong>BLE Provision PIN</strong> (Driver App → Provision Tag)<br />
+    PIN: <code>${escapeHtml(params.provisionPin)}</code><br />
+    Share this PIN only with staff who configure student BLE tags. School admins can rotate it under Config.</p>
     <p>If you did not request this, you can ignore this email.</p>
     <p>— The OnTheBus team</p>
   `.trim();
@@ -134,6 +141,51 @@ export async function notifyDemoReady(
     text,
     html,
     from: process.env.DEMO_REQUESTS_FROM_EMAIL || undefined,
+  });
+}
+
+/** Real-school onboard: Provision PIN (Supabase invite is sent separately). */
+export async function notifySchoolProvisionPin(params: {
+  fullName: string;
+  email: string;
+  schoolName: string;
+  schoolUrl: string;
+  provisionPin: string;
+  isDemo: boolean;
+}): Promise<boolean> {
+  const firstName = params.fullName.trim().split(/\s+/)[0] || params.fullName;
+  const subject = `OnTheBus BLE Provision PIN for ${params.schoolName}`;
+  const text = [
+    `Hi ${firstName},`,
+    ``,
+    `Your school ${params.schoolName} is set up on OnTheBus.`,
+    `School URL: ${params.schoolUrl}`,
+    ``,
+    `BLE Provision PIN (Driver App → Provision Tag): ${params.provisionPin}`,
+    ``,
+    `Drivers and conductors need this PIN to load the beacon template and lock student tags.`,
+    `Only school admins can rotate the PIN under Config in the web console.`,
+    `You should also receive a separate email to set your admin password.`,
+    ``,
+    `— The OnTheBus team`,
+  ].join("\n");
+
+  const html = `
+    <p>Hi ${escapeHtml(firstName)},</p>
+    <p>Your school <strong>${escapeHtml(params.schoolName)}</strong> is set up on OnTheBus.</p>
+    <p><strong>School URL:</strong> <a href="${escapeHtml(params.schoolUrl)}">${escapeHtml(params.schoolUrl)}</a></p>
+    <p><strong>BLE Provision PIN</strong> (Driver App → Provision Tag): <code>${escapeHtml(params.provisionPin)}</code></p>
+    <p>Drivers and conductors need this PIN to load the beacon template and lock student tags.
+    Only school admins can rotate the PIN under <strong>Config</strong> in the web console.</p>
+    <p>You should also receive a separate email to set your admin password.</p>
+    <p>— The OnTheBus team</p>
+  `.trim();
+
+  return sendResendEmail({
+    to: params.email,
+    subject,
+    text,
+    html,
   });
 }
 

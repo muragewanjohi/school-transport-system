@@ -2,7 +2,6 @@ export type StudentStopMode = "same" | "different";
 
 export type RouteStopOption = {
   id: string;
-  stop_type?: string;
 };
 
 export function inferStudentStopMode(pickupStopId: string, dropoffStopId: string): StudentStopMode {
@@ -16,25 +15,15 @@ export function sameStageIds(stopId: string): { pickup_stop_id: string; dropoff_
 }
 
 export function defaultSameStopId(routeStops: RouteStopOption[]): string {
-  return (
-    routeStops.find((s) => s.stop_type === "BOTH" || s.stop_type === "PICKUP")?.id ||
-    routeStops[0]?.id ||
-    ""
-  );
+  return routeStops[0]?.id || "";
 }
 
 export function defaultDifferentStopIds(routeStops: RouteStopOption[]): {
   pickup_stop_id: string;
   dropoff_stop_id: string;
 } {
-  const pickup =
-    routeStops.find((s) => s.stop_type === "PICKUP" || s.stop_type === "BOTH")?.id ||
-    routeStops[0]?.id ||
-    "";
-  const dropoff =
-    routeStops.find((s) => s.stop_type === "DROPOFF" || s.stop_type === "BOTH")?.id ||
-    routeStops[0]?.id ||
-    "";
+  const pickup = routeStops[0]?.id || "";
+  const dropoff = routeStops[routeStops.length - 1]?.id || pickup;
   return { pickup_stop_id: pickup, dropoff_stop_id: dropoff };
 }
 

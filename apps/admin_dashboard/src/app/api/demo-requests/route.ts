@@ -19,25 +19,12 @@ import {
   notifyRequesterReceived,
   notifySales,
 } from "@/lib/demoRequestEmails";
-
-const demoRequestSchema = z.object({
-  full_name: z.string().min(2, "Name is required").max(120),
-  role: z.enum(["Transport Manager", "School Admin", "Principal", "Other"]),
-  school_name: z.string().min(2, "School name is required").max(160),
-  country: z.string().min(2, "Country is required").max(120),
-  city: z.string().min(2, "City / area is required").max(120),
-  phone: z
-    .string()
-    .min(10, "WhatsApp or phone is required")
-    .max(40)
-    .regex(/^\+\d{8,18}$/, "Phone must include a country code, e.g. +254712345678"),
-  email: z.string().min(1, "Work email is required").email("Valid work email required"),
-  fleet_size: z.enum(["1-5", "6-15", "16+"]),
-  preferred_time: z.enum(["ASAP", "This week", "Next week"]),
-  notes: z.string().max(1000).optional().or(z.literal("")),
-  /** Honeypot — must stay empty */
-  company_website: z.string().max(0).optional().or(z.literal("")),
-});
+import {
+  demoRequestSchema,
+  flattenDemoRequestFieldErrors,
+  isDemoRequestHoneypotFilled,
+  summarizeDemoRequestErrors,
+} from "@/lib/demoRequestValidation";
 
 const demoRequestStatusSchema = z.enum(["pending", "confirmed", "completed", "declined"]);
 
@@ -101,6 +88,7 @@ function credentialsPayload(provision: DemoProvisionResult) {
     otp: provision.otp,
     expires_at: provision.expiresAt,
     slug: provision.slug,
+    provision_pin: provision.provisionPin,
   };
 }
 
@@ -608,13 +596,18 @@ export async function POST(request: Request) {
     const json: unknown = await request.json();
     const parsed = demoRequestSchema.safeParse(json);
     if (!parsed.success) {
+      const fields = flattenDemoRequestFieldErrors(parsed.error);
       return NextResponse.json(
-        { success: false, error: parsed.error.issues[0]?.message || "Invalid form data" },
+        {
+          success: false,
+          error: summarizeDemoRequestErrors(fields),
+          fields,
+        },
         { status: 400 }
       );
     }
 
-    if (parsed.data.company_website) {
+    if (isDemoRequestHoneypotFilled(parsed.data.company_website)) {
       return NextResponse.json({ success: true, data: { id: "honeypot" } });
     }
 

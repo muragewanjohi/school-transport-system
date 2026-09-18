@@ -24,7 +24,7 @@ vi.mock("@/lib/demoRequestEmails", () => ({
   notifySales: vi.fn(),
 }));
 
-import { GET, PATCH } from "@/app/api/demo-requests/route";
+import { GET, PATCH, POST } from "@/app/api/demo-requests/route";
 import { getCallerProfile, isPlatformSuperAdmin } from "@/lib/authApi";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import {
@@ -47,6 +47,7 @@ const provisionResult = {
   phone: "+254712345678",
   otp: "654321",
   expiresAt: "2026-08-24T00:00:00.000Z",
+  provisionPin: "482913",
 };
 
 function jsonRequest(body: unknown) {
@@ -211,7 +212,7 @@ describe("PATCH /api/demo-requests › resend_access_email", () => {
 });
 
 describe("PATCH /api/demo-requests › demo_expires_at", () => {
-  const futureExpiry = "2026-09-15T12:00:00.000Z";
+  const futureExpiry = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
   const readyToOnboard = {
     id: REQUEST_ID,
@@ -357,6 +358,55 @@ describe("GET /api/demo-requests › summary badge", () => {
       ready_to_onboard_count: 1,
       attention_count: 0,
     });
+  });
+});
+
+describe("POST /api/demo-requests › validation", () => {
+  const validLead = {
+    full_name: "Alex Kamwende",
+    role: "School Admin",
+    school_name: "Alex school",
+    country: "Kenya",
+    city: "Nairobi",
+    phone: "+254784414714",
+    email: "alex@school.example",
+    fleet_size: "1-5",
+    preferred_time: "This week",
+    notes: "to test",
+  };
+
+  function postRequest(body: unknown, ip: string) {
+    return new Request("http://localhost/api/demo-requests", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-forwarded-for": ip,
+      },
+      body: JSON.stringify(body),
+    });
+  }
+
+  it("Given an autofilled honeypot, When submitted, Then it is accepted without a Too big error", async () => {
+    const res = await POST(
+      postRequest({ ...validLead, company_website: "https://password-manager.example" }, "203.0.113.21")
+    );
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(JSON.stringify(body)).not.toMatch(/too big/i);
+    expect(body.data.id).toBe("honeypot");
+  });
+
+  it("Given an invalid work email, When submitted, Then the email field is named", async () => {
+    const res = await POST(postRequest({ ...validLead, email: "not-an-email" }, "203.0.113.22"));
+    const body = await res.json();
+
+    expect(res.status).toBe(400);
+    expect(body.success).toBe(false);
+    expect(body.fields.email).toBe("Enter a valid work email");
+    expect(body.error).toBe("Enter a valid work email");
+    expect(body.error).not.toMatch(/too big/i);
   });
 });
 

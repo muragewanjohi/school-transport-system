@@ -70,7 +70,20 @@ export function studentDbWriteFields(data: StudentMutationInput): Record<string,
   return payload;
 }
 
-export function mapStudentProfile<T extends StudentProfileRow>(student: T) {
+export type ActiveBeaconTag = {
+  uuid: string;
+  major: number;
+  minor: number;
+  mac: string | null;
+  device_name: string | null;
+  status: string;
+  provisioned_at: string | null;
+};
+
+export function mapStudentProfile<T extends StudentProfileRow>(
+  student: T,
+  beaconTag: ActiveBeaconTag | null = null
+) {
   let parsedGuardians: unknown[] = [];
   if (student.guardians) {
     parsedGuardians =
@@ -86,6 +99,7 @@ export function mapStudentProfile<T extends StudentProfileRow>(student: T) {
     address: student.address ?? null,
     latitude: point?.lat ?? null,
     longitude: point?.lng ?? null,
+    beacon_tag: beaconTag,
   };
 }
 

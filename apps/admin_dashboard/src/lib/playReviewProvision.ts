@@ -2,6 +2,10 @@ import { randomBytes } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { getTenantPublicUrl } from "@/lib/tenantHost";
+import {
+  PLAY_REVIEW_PROVISION_PIN,
+  hashProvisionPin,
+} from "@/lib/beaconProvision";
 
 /** Permanent Play Store review sandbox — never set demo_expires_at. */
 export const PLAY_REVIEW_SLUG = "play-review";
@@ -64,6 +68,7 @@ export type PlayReviewProvisionResult = {
   driverPhone: string;
   parentPhone: string;
   otp: string;
+  provisionPin: string;
   neverExpires: true;
 };
 
@@ -210,6 +215,7 @@ export async function provisionPlayReviewStore(): Promise<
         school_phone: PLAY_REVIEW_DRIVER_PHONE,
         school_email: PLAY_REVIEW_ADMIN_EMAIL,
         school_address: "Nairobi, Kenya",
+        beacon_provision_pin_hash: hashProvisionPin(PLAY_REVIEW_PROVISION_PIN),
       },
       { onConflict: "tenant_id" }
     );
@@ -554,6 +560,7 @@ export async function provisionPlayReviewStore(): Promise<
       driverPhone: PLAY_REVIEW_DRIVER_PHONE,
       parentPhone: PLAY_REVIEW_PARENT_PHONE,
       otp: PLAY_REVIEW_OTP,
+      provisionPin: PLAY_REVIEW_PROVISION_PIN,
       neverExpires: true,
     };
   } catch (err) {

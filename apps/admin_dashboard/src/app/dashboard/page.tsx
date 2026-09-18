@@ -680,7 +680,7 @@ export default function DashboardPage() {
             <div className="dash-card">
               <div className="dash-card-header">
                 <span className="dash-card-title">Trip Summary (Today)</span>
-                <Link href="/routes/today-trips" className="dash-card-link">
+                <Link href="/trips/history" className="dash-card-link">
                   View all trips →
                 </Link>
               </div>

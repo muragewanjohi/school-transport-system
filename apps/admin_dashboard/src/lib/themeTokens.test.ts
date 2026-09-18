@@ -31,7 +31,7 @@ describe("admin theme tokens › form inputs › inset trip-summary fill", () =>
   });
 
   it("Given Today's Trips page, When markup is inspected, Then it does not hardcode white text", () => {
-    const page = readFileSync(resolve(process.cwd(), "src/app/routes/today-trips/page.tsx"), "utf8");
+    const page = readFileSync(resolve(process.cwd(), "src/components/TodayTripsConsole.tsx"), "utf8");
     expect(page).not.toMatch(/color:\s*["']#FFF["']/i);
     expect(page).not.toMatch(/rgba\(\s*6,\s*9,\s*19/);
   });

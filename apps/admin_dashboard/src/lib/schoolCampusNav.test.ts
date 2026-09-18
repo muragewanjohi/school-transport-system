@@ -5,11 +5,14 @@ import {
   DEFAULT_ROUTE_PLANNER_TAB,
   isRoutesSectionNavActive,
   isSchoolCampusNavActive,
+  isTripsSectionNavActive,
   resolveRoutePlannerTab,
   ROUTE_DETAIL_TAB_ORDER,
   SCHOOL_CAMPUS_ICON_URL,
   SCHOOL_CAMPUS_PATH,
   schoolCampusMapIcon,
+  TRIPS_HISTORY_PATH,
+  TRIPS_OVERRIDE_PATH,
 } from "@/lib/schoolCampusNav";
 
 describe("school campus navigation", () => {
@@ -32,6 +35,27 @@ describe("school campus navigation", () => {
     expect(isRoutesSectionNavActive("/routes", "schools")).toBe(false);
     expect(isRoutesSectionNavActive("/routes", null)).toBe(true);
     expect(isRoutesSectionNavActive("/routes/stops", null)).toBe(true);
+    expect(isRoutesSectionNavActive("/routes/today-trips", null)).toBe(false);
+    expect(isRoutesSectionNavActive("/trips/history", null)).toBe(false);
+  });
+
+  it("Trips is a top-level sidebar item with history and override submenus", () => {
+    const sidebar = readFileSync(resolve(process.cwd(), "src/components/Sidebar.tsx"), "utf8");
+    const submenuStart = sidebar.indexOf("{routesExpanded &&");
+    const tripsStart = sidebar.indexOf("{tripsExpanded &&");
+    const campusItemStart = sidebar.indexOf("{/* School Campus */}");
+    const routesSubmenu = sidebar.slice(submenuStart, tripsStart);
+
+    expect(tripsStart).toBeGreaterThan(submenuStart);
+    expect(campusItemStart).toBeGreaterThan(tripsStart);
+    expect(routesSubmenu).not.toContain("Today");
+    expect(sidebar).toContain("Today&apos;s trip history");
+    expect(sidebar).toContain("Override trip");
+    expect(TRIPS_HISTORY_PATH).toBe("/trips/history");
+    expect(TRIPS_OVERRIDE_PATH).toBe("/trips/override");
+    expect(isTripsSectionNavActive("/trips/history")).toBe(true);
+    expect(isTripsSectionNavActive("/trips/override")).toBe(true);
+    expect(isTripsSectionNavActive("/routes")).toBe(false);
   });
 
   it("campus map icon › uses the Transit Route Planner school asset", () => {

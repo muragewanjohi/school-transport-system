@@ -136,10 +136,30 @@ export async function GET(
       return NextResponse.json({ success: false, error: "Student not found" }, { status: 404 });
     }
 
+    const { data: beaconRow } = await scope.client
+      .from("student_beacon_tags")
+      .select("uuid, major, minor, mac, device_name, status, provisioned_at")
+      .eq("tenant_id", scope.tenantId)
+      .eq("student_id", id)
+      .eq("status", "active")
+      .maybeSingle();
+
+    const beaconTag = beaconRow
+      ? {
+          uuid: beaconRow.uuid as string,
+          major: beaconRow.major as number,
+          minor: beaconRow.minor as number,
+          mac: (beaconRow.mac as string | null) ?? null,
+          device_name: (beaconRow.device_name as string | null) ?? null,
+          status: beaconRow.status as string,
+          provisioned_at: (beaconRow.provisioned_at as string | null) ?? null,
+        }
+      : null;
+
     return NextResponse.json({
       success: true,
       source: "supabase",
-      data: mapStudentProfile(student),
+      data: mapStudentProfile(student, beaconTag),
     });
 
   } catch (err: unknown) {

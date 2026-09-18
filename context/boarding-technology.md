@@ -152,13 +152,16 @@ iOS driver provisioning is out of scope until vendor iOS SDK is confirmed. Admin
 | Layer | Purpose | Where stored |
 | :--- | :--- | :--- |
 | **Tag device password** | CP35 requires 6-char password on FFE3 within 30s of connect; change via cmd `0x24` (factory default **`DX1234`**) | On tag firmware; active password encrypted in `tenant_configs.beacon_device_password_enc` |
-| **App provision gate** | Only authenticated driver/conductor may open Provision Tag; optional school **provision PIN** per session | `tenant_configs.beacon_provision_pin_hash` |
+| **App provision gate** | **Mandatory** 6-digit **Provision PIN** for Driver App → Provision Tag (Load template / provision). Drivers/conductors **enter** it; only school admins **set/rotate** it on web Config | Hash only in `tenant_configs.beacon_provision_pin_hash` |
 
 Rules:
 
-- Generate a **tenant-scoped random 6-character alphanumeric** password once per school (rotatable by school admin).
-- After lock, **DX-SMART cannot modify** the tag without that password.
-- Never log passwords, write them to analytics, or show them in parent UI.
+- On **real school create**, **demo store provision**, and **play-review** seed: auto-generate a 6-digit Provision PIN, store the hash, and email the plaintext once to the school contact (demo access email / onboard email). Play-review uses fixed PIN **`654321`**.
+- School admin may **rotate** the PIN on `/config` (plaintext shown once in the UI; never persisted). Drivers cannot set or rotate the PIN.
+- Empty or wrong PIN → API `403`. Legacy tenants with null hash → `403` “Provision PIN not configured — ask school admin” until Config generates one.
+- Generate a **tenant-scoped random 6-character alphanumeric** **tag device** password once per school (first template load if missing).
+- After tag lock, **DX-SMART cannot modify** the tag without the device password.
+- Never log PINs/passwords, write them to analytics, or show them in parent UI. Do not email the tag device password.
 - Factory-reset password **`1234`** is support-only; reset reverts vendor defaults and requires re-provision in OnTheBus.
 
 ### 4.5 Data model
@@ -170,7 +173,8 @@ Rules:
 
 ### 4.6 Admin UX
 
-- Student create/edit: prefer beacon assignment from Driver Provision Tag; optional read-only display of UUID/Major/Minor.
+- Student create/edit: prefer beacon assignment from Driver Provision Tag; **read-only BLE Tag** section on student edit (UUID, Major, Minor, MAC, status, provisioned_at). NFC Card Hash labeled legacy.
+- `/config`: show whether Provision PIN is configured; **Generate / Rotate** returns plaintext once. Never display stored PIN (hash only).
 - Show tag health (last seen, TLM battery) when available.
 - Revoke lost tags from admin (metadata only).
 

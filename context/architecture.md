@@ -41,7 +41,7 @@ Production **must not** use the AT sandbox app. Username `sandbox` and host `api
 
 ## Storage Model
 
-- **PostgreSQL Relational DB**: Dedicated database instance on Supabase. Stores multi-tenant assets (tenant records, student registry, user accounts, assigned boarding-tag mappings — legacy `nfc_card_hash` today; BLE beacon assignment schema when implemented — static polyline route coordinates). Holds vehicle inventories (`vehicles` table, including capacity, status, odometer, fuel level, optional last/next service and insurance dates, and `notify_compliance_alerts`) and service history logs (`maintenance_logs` table). Year-2000 date-picker defaults are stored as null. When notify is on, the fleet console alerts at 1 month, 2 weeks, and 1 day before next service or insurance expiry.
+- **PostgreSQL Relational DB**: Dedicated database instance on Supabase. Stores multi-tenant assets (tenant records, student registry, user accounts, assigned boarding-tag mappings — legacy `nfc_card_hash` today; BLE beacon assignment schema when implemented — static polyline route coordinates). Holds vehicle inventories (`vehicles` table, including optional maker/model and seating capacity, status, odometer, fuel level, optional last/next service and insurance dates, and `notify_compliance_alerts`) and service history logs (`maintenance_logs` table). Year-2000 date-picker defaults are stored as null. When notify is on, the fleet console shows due/overdue banners on the vehicle card at 1 month, 2 weeks, and 1 day before next service or insurance expiry — it does not email the school admin.
 - **PostGIS Spatial Indexing**: Spatial tables managing student pickup coordinates, route geofence boundaries, and transient coordinate logs. Uses `GIST` indexes for fast geometric intersection calculations.
 
 ## Auth and Access Model
@@ -247,10 +247,21 @@ Trips that never start transmitting are caught by Vercel Cron → `GET /api/trip
 
 ### Today's trip status overrides (admin)
 
-`/routes/today-trips` lists each **daily trip run** (a `schedules` row for today, joined to `trips` on `schedule_id` + `trip_date`). **Update Status** patches that `trips` row via `PUT /api/trips` with `trip_id` — never the corridor `routes` row. Two runs on the same route (e.g. Corridor AM pickup and Corridor PM drop-off) are independent.
+`/trips/override` lists each **daily trip run** (a `schedules` row for today, joined to `trips` on `schedule_id` + `trip_date`) and exposes **Update Status**. `/trips/history` is the same list without override actions. `/routes/today-trips` redirects to `/trips/override`. **Update Status** patches that `trips` row via `PUT /api/trips` with `trip_id` — never the corridor `routes` row. Two runs on the same route (e.g. Corridor AM pickup and Corridor PM drop-off) are independent.
 
 - Completed trips (`trips.status = 'completed'`, UI **Completed**) cannot be overridden: the console hides Update Status; `PUT /api/trips` returns **409** (`Completed trips cannot be updated`) for status / `status_override` / description / `custom_departure_time` patches.
+- There is **no clock-hour cap** on override: a 06:45 run may still be overridden at 11:00 the same `trip_date` (Africa/Nairobi), unless it is completed.
 - `on_trip_status_update` is a no-op when `OLD.status = 'completed'`. Parent fan-out matches students whose `schedule_ids` contain the trip's `schedule_id` (fallback `route_id` only when `schedule_id` is null), so a corridor AM override does not alert corridor PM families.
+
+### Starting a trip (driver)
+
+`PUT /api/trips` with `status: in_progress` has **no max-hours-after-departure gate**. A 06:45 trip may still be started at 09:00 the same `trip_date`. Drop-off campus boarding still blocks start until every manifest is boarded or absent.
+
+### Missed vs Delayed (never started)
+
+- **Delayed (persisted):** cron `GET /api/trips/predeparture-check` every 5 minutes. Today's `status = scheduled` rows with `started_at` null become `status_override = Delayed` when `now ≥ expected_departure + 10 minutes` (`PREDEPARTURE_GRACE_MINUTES`). Does not auto-cancel or auto-complete.
+- **Missed (display-only):** the school console chips **Missed** after **30 minutes** past scheduled departure if the trip has not started and has no override. This is not written to the database and does not notify parents. Admins can persist Missed via Override trip.
+- In-progress lateness (parents): `evaluate_trip_delay()` notifies at ≥ **5 minutes** predicted delay, then every +10 minutes.
 
 ### Out of scope (v1)
 

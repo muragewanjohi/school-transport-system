@@ -57,6 +57,7 @@ async function main() {
     "",
     "Notes:",
     "- Tenant is_demo=true (SMS dry-run) and demo_expires_at=null (never auto-purged).",
+    `- BLE Provision PIN (Driver App → Provision Tag): ${result.provisionPin}`,
     "- Re-run npm run seed:play-review anytime to refresh admin password + OTP rows.",
     "- Do not commit this credentials file.",
     "",

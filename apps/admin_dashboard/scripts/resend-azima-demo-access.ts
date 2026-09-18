@@ -69,6 +69,7 @@ async function main() {
     `Admin password: ${forEmail.adminPassword}`,
     `Flutter phone: ${forEmail.phone}`,
     `Flutter OTP: ${forEmail.otp}`,
+    `BLE Provision PIN: ${forEmail.provisionPin}`,
     `Expires: ${forEmail.expiresAt}`,
     `Email sent via Resend: ${sent}`,
     `Generated at: ${new Date().toISOString()}`,

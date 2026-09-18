@@ -1,56 +1,44 @@
-# Module: BLE tag provisioning — CP35 GATT (Driver App Android)
+# Module: Trips sidebar — history vs override
 
 **Status:** `passing`  
-**Stack:** Flutter driver_app MethodChannel + Kotlin `Cp35GattClient` + Next.js `/api/driver/beacon/*`
+**Stack:** Next.js admin_dashboard (sidebar, `/trips/history`, `/trips/override`)
 
 ## Scenarios
 
-### Happy — first provision with factory password
+### Happy — Trips has its own menu
 ```gherkin
-Given a CP35 tag still using factory password DX1234
-And a driver session for tenant T with beacon_uuid configured
-When the driver provisions the tag for student S with Minor N
-Then the GATT client unlocks via FFE3 within 30s
-And the tag iBeacon UUID/Major/Minor match the tenant template
-And the device password is changed to the tenant password (cmd 0x24)
-And student_beacon_tags stores an active row for S
+Given a school admin is signed in to the school console
+When they open the sidebar
+Then Trips is a top-level item (not under Routes)
+And it has Today's trip history and Override trip
 ```
 
-### Happy — re-provision with tenant password
+### Happy — history has no override actions
 ```gherkin
-Given a tag already locked with the tenant password
-When the driver re-provisions with the correct password
-Then configuration succeeds and the assignment is updated
+Given today's scheduled runs
+When the admin opens Today's trip history
+Then they see the same trip table as before
+And there is no Overrides column or Update Status
 ```
 
-### Failure — wrong password
+### Happy — override matches today's trips
 ```gherkin
-Given a locked tag
-When unlock is attempted with DX1234 or any wrong password
-Then provisioning fails and no student_beacon_tags row is written
+Given a non-completed trip run
+When the admin opens Override trip
+Then Update Status is available (hidden for Completed)
 ```
 
-### Failure — DX-SMART after lock
+### Failure — completed trips stay locked
 ```gherkin
-Given a tag locked by OnTheBus
-When DX-SMART tries to edit frames with DX1234
-Then the vendor app cannot apply changes
-```
-
-### Failure — provision radio unavailable
-```gherkin
-Given Bluetooth adapter is absent or provision radio reports unavailable
-When the driver opens Provision Tag
-Then the UI shows BLE provisioning unavailable and does not start a GATT session
+Given a completed trip
+When override is checked
+Then Update Status is blocked
 ```
 
 ## Automation map
 
 | Scenario | Test |
 | :--- | :--- |
-| Frame pack / xor / golden cmds | `apps/driver_app/android/app/src/test/java/com/schooltrack/driver_app/ble/Cp35FrameCodecTest.kt`, `Cp35CommandsTest.kt` |
-| Fake transport unlock / wrong pwd / happy path | `apps/driver_app/android/app/src/test/java/com/schooltrack/driver_app/ble/Cp35GattClientTest.kt` |
-| MethodChannel fake | `apps/driver_app/test/beacon_provision_service_test.dart` |
-| Template + next minor | `src/lib/beaconProvision.test.ts` |
-| Provision / revoke API auth | `src/app/api/driver/beacon/**/*.test.ts` |
-| DX-SMART after lock | Manual pilot checklist ([boarding-technology.md](boarding-technology.md) §11) — not CI |
+| Trips submenu paths | `src/lib/schoolCampusNav.test.ts` |
+| History vs override display status | `src/lib/tripDisplayStatus.test.ts` |
+| Completed lock | `src/lib/todayTripOverride.test.ts` |

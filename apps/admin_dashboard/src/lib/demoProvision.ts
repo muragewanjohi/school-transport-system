@@ -5,6 +5,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { getApexPublicUrl, getTenantPublicUrl, ROOT_DOMAIN } from "@/lib/tenantHost";
 import { removeTenantSubdomain } from "@/lib/vercelDomains";
+import { generateProvisionPin, hashProvisionPin } from "@/lib/beaconProvision";
 
 export const DEMO_DEFAULT_EXPIRY_DAYS = 14;
 
@@ -33,6 +34,7 @@ export type DemoProvisionResult = {
   phone: string;
   otp: string;
   expiresAt: string;
+  provisionPin: string;
 };
 
 export type DemoProvisionError = { error: string };
@@ -267,6 +269,8 @@ export async function provisionDemoStore(
 
   const adminPassword = generatePassword();
   const otp = generateOtp();
+  const provisionPin = generateProvisionPin();
+  const provisionPinHash = hashProvisionPin(provisionPin);
   const adminEmail = `admin.${slug.replace(/-demo$/, "")}@demo.onthebus.app`.slice(0, 120);
 
   const tenantId = randomUUID();
@@ -374,6 +378,7 @@ export async function provisionDemoStore(
         school_phone: phone,
         school_email: input.email,
         school_address: `${input.city}, ${input.country}`,
+        beacon_provision_pin_hash: provisionPinHash,
       },
       { onConflict: "tenant_id" }
     );
@@ -726,6 +731,7 @@ export async function provisionDemoStore(
       phone,
       otp,
       expiresAt,
+      provisionPin,
     };
   } catch (err) {
     await rollback();
@@ -811,6 +817,12 @@ export async function resetDemoAccessCredentials(
     return { error: pwdError.message || "Failed to reset demo admin password" };
   }
 
+  const provisionPin = generateProvisionPin();
+  await adminClient
+    .from("tenant_configs")
+    .update({ beacon_provision_pin_hash: hashProvisionPin(provisionPin) })
+    .eq("tenant_id", tenantId);
+
   const expiresAt =
     tenant.demo_expires_at ||
     new Date(Date.now() + DEMO_DEFAULT_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -830,5 +842,6 @@ export async function resetDemoAccessCredentials(
     phone: driverProfile.phone,
     otp,
     expiresAt,
+    provisionPin,
   };
 }

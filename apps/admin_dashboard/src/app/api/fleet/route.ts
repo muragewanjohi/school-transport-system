@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSupabaseClient, isSupabaseConfigured } from "@/lib/supabaseClient";
-import { z } from "zod";
+import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getLocalVehicles, saveLocalVehicles } from "@/lib/jsonDb";
 import {
   demoReadonlyForbiddenResponse,
@@ -9,20 +8,7 @@ import {
 } from "@/lib/authApi";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { normalizeVehicleDate } from "@/lib/vehicleCompliance";
-
-const vehicleSchema = z.object({
-  license_plate: z.string().min(3, "License plate must be at least 3 characters"),
-  model: z.string().min(2, "Model must be at least 2 characters"),
-  capacity: z.number().int().min(1, "Capacity must be at least 1 seat"),
-  status: z.enum(["Active", "Maintenance", "Out of Service"]).default("Active"),
-  last_service_date: z.string().nullable().optional(),
-  next_service_date: z.string().nullable().optional(),
-  insurance_expiry: z.string().nullable().optional(),
-  notify_compliance_alerts: z.boolean().optional().default(false),
-  active_driver_id: z.string().nullable().optional(),
-  conductor_1_id: z.string().nullable().optional(),
-  conductor_2_id: z.string().nullable().optional(),
-});
+import { vehicleCreateSchema } from "@/lib/vehicleFields";
 
 // A standard Nairobi-based school bus mock fleet to fall back on
 const mockVehicles = [
@@ -195,7 +181,7 @@ export async function POST(request: Request) {
     }
 
     const body: unknown = await request.json();
-    const result = vehicleSchema.safeParse(body);
+    const result = vehicleCreateSchema.safeParse(body);
 
     if (!result.success) {
       return NextResponse.json({ success: false, errors: result.error.flatten().fieldErrors }, { status: 400 });

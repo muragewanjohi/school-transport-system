@@ -87,14 +87,21 @@ class _ProvisionTagScreenState extends State<ProvisionTagScreen> {
   Future<Map<String, String>> _headers() => DriverApiAuth.headers();
 
   Future<void> _loadTemplateAndStudents() async {
+    final pin = _pinController.text.trim();
+    if (pin.isEmpty) {
+      setState(() {
+        _error = 'Enter the school Provision PIN from your admin (emailed at school setup).';
+        _status = null;
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
       _status = 'Loading school beacon template…';
     });
     try {
-      final pin = _pinController.text.trim();
-      final pinQ = pin.isEmpty ? '' : '?provision_pin=${Uri.encodeComponent(pin)}';
+      final pinQ = '?provision_pin=${Uri.encodeComponent(pin)}';
       final get = widget.httpGet ??
           ((uri, {headers}) => http.get(uri, headers: headers));
       final templateRes = await get(
@@ -110,11 +117,17 @@ class _ProvisionTagScreenState extends State<ProvisionTagScreen> {
       if (templateRes.statusCode != 200 ||
           templateBody is! Map ||
           templateBody['success'] != true) {
-        throw Exception(
-          templateBody is Map
-              ? (templateBody['error']?.toString() ?? 'Template failed')
-              : 'Template failed',
-        );
+        final err = templateBody is Map
+            ? (templateBody['error']?.toString() ?? 'Template failed')
+            : 'Template failed';
+        if (templateRes.statusCode == 403) {
+          throw Exception(
+            err.contains('not configured')
+                ? 'Provision PIN not configured — ask your school admin to generate one under Config.'
+                : 'Invalid Provision PIN. Ask your school admin for the current PIN.',
+          );
+        }
+        throw Exception(err);
       }
 
       final studentsBody = json.decode(studentsRes.body);
@@ -131,7 +144,8 @@ class _ProvisionTagScreenState extends State<ProvisionTagScreen> {
         _status = 'Template ready. Scan for a CP35 tag.';
       });
     } catch (e) {
-      setState(() => _error = e.toString());
+      final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      setState(() => _error = msg);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -229,7 +243,7 @@ class _ProvisionTagScreenState extends State<ProvisionTagScreen> {
           'minor': minor,
           'mac': hit.mac,
           'device_name': hit.name,
-          if (pin.isNotEmpty) 'provision_pin': pin,
+          'provision_pin': pin,
           'password_locked': true,
         }),
       );
@@ -237,11 +251,17 @@ class _ProvisionTagScreenState extends State<ProvisionTagScreen> {
       if (res.statusCode != 200 ||
           body is! Map ||
           body['success'] != true) {
-        throw Exception(
-          body is Map
-              ? (body['error']?.toString() ?? 'API provision failed')
-              : 'API provision failed',
-        );
+        final err = body is Map
+            ? (body['error']?.toString() ?? 'API provision failed')
+            : 'API provision failed';
+        if (res.statusCode == 403) {
+          throw Exception(
+            err.contains('not configured')
+                ? 'Provision PIN not configured — ask your school admin to generate one under Config.'
+                : 'Invalid Provision PIN. Ask your school admin for the current PIN.',
+          );
+        }
+        throw Exception(err);
       }
 
       if (!mounted) return;
@@ -255,7 +275,8 @@ class _ProvisionTagScreenState extends State<ProvisionTagScreen> {
         ),
       );
     } catch (e) {
-      setState(() => _error = e.toString());
+      final msg = e.toString().replaceFirst(RegExp(r'^Exception:\s*'), '');
+      setState(() => _error = msg);
     } finally {
       try {
         await _provisionService.disconnect();
@@ -279,10 +300,11 @@ class _ProvisionTagScreenState extends State<ProvisionTagScreen> {
           TextField(
             controller: _pinController,
             decoration: const InputDecoration(
-              labelText: 'School provision PIN (if required)',
+              labelText: 'School provision PIN (required)',
               border: OutlineInputBorder(),
             ),
             obscureText: true,
+            keyboardType: TextInputType.number,
           ),
           const SizedBox(height: 12),
           FilledButton(

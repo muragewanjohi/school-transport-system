@@ -48,7 +48,6 @@ interface DBStop {
   id: string;
   name: string;
   route_id: string;
-  stop_type?: string;
 }
 
 interface DBSchedule {

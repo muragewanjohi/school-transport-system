@@ -11,8 +11,6 @@ import { friendlyStopSaveError, stopsPageAfterSave } from "@/lib/stopEditorNavig
 const NAIROBI_LAT = -1.2921;
 const NAIROBI_LNG = 36.8219;
 
-type StopType = "PICKUP" | "DROPOFF" | "BOTH";
-
 interface StopEditorFormProps {
   mode: "create" | "edit";
   stopId?: string;
@@ -29,7 +27,6 @@ interface ApiStop {
   name: string;
   sequence_no: number;
   geofence_radius_meters: number;
-  stop_type: StopType;
   location: {
     type: "Point";
     coordinates: [number, number];
@@ -91,7 +88,6 @@ function StopEditorFormInner({ mode, stopId }: StopEditorFormProps) {
   const [longitude, setLongitude] = useState(NAIROBI_LNG);
   const [sequenceNo, setSequenceNo] = useState(1);
   const [geofenceRadius, setGeofenceRadius] = useState(50);
-  const [stopType, setStopType] = useState<StopType>("BOTH");
 
   useEffect(() => {
     const load = async () => {
@@ -123,7 +119,6 @@ function StopEditorFormInner({ mode, stopId }: StopEditorFormProps) {
           setSearchLocation(stop.name);
           setSequenceNo(stop.sequence_no);
           setGeofenceRadius(stop.geofence_radius_meters);
-          setStopType(stop.stop_type);
           const point = parseStopPoint(stop);
           if (point) {
             setLatitude(point.lat);
@@ -186,7 +181,6 @@ function StopEditorFormInner({ mode, stopId }: StopEditorFormProps) {
       longitude,
       sequence_no: sequenceNo,
       geofence_radius_meters: geofenceRadius,
-      stop_type: stopType,
     };
 
     try {
@@ -477,22 +471,6 @@ function StopEditorFormInner({ mode, stopId }: StopEditorFormProps) {
                       <span className="form-error-text">{formErrors.geofenceRadius}</span>
                     )}
                   </div>
-                </div>
-                <div className="form-group" style={{ marginTop: 16 }}>
-                  <label className="form-label" htmlFor="stop-type">
-                    Stop type *
-                  </label>
-                  <select
-                    id="stop-type"
-                    className="form-input"
-                    value={stopType}
-                    onChange={(e) => setStopType(e.target.value as StopType)}
-                    required
-                  >
-                    <option value="BOTH">BOTH (Pickup and Dropoff)</option>
-                    <option value="PICKUP">PICKUP Only</option>
-                    <option value="DROPOFF">DROPOFF Only</option>
-                  </select>
                 </div>
               </div>
 

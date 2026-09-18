@@ -1,23 +1,9 @@
 import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
-import { z } from "zod";
 import { getLocalVehicles, saveLocalVehicles } from "@/lib/jsonDb";
 import { requireOperationalTenant, tenantScopeError } from "@/lib/tenantScope";
 import { normalizeVehicleDate } from "@/lib/vehicleCompliance";
-
-const vehicleUpdateSchema = z.object({
-  license_plate: z.string().min(3).optional(),
-  model: z.string().min(2).optional(),
-  capacity: z.number().int().min(1).optional(),
-  status: z.enum(["Active", "Maintenance", "Out of Service"]).optional(),
-  last_service_date: z.string().nullable().optional(),
-  next_service_date: z.string().nullable().optional(),
-  insurance_expiry: z.string().nullable().optional(),
-  notify_compliance_alerts: z.boolean().optional(),
-  active_driver_id: z.string().nullable().optional(),
-  conductor_1_id: z.string().nullable().optional(),
-  conductor_2_id: z.string().nullable().optional(),
-});
+import { vehicleUpdateSchema } from "@/lib/vehicleFields";
 
 export async function PUT(
   request: Request,

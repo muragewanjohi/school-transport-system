@@ -9,11 +9,8 @@ import {
   Edit, 
   Compass, 
   Search, 
-  SlidersHorizontal,
-  Navigation,
   Globe,
   Radio,
-  Eye,
   CheckCircle2
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
@@ -30,7 +27,6 @@ interface DBStop {
   };
   sequence_no: number;
   geofence_radius_meters: number;
-  stop_type: "PICKUP" | "DROPOFF" | "BOTH";
 }
 
 interface DBRoute {
@@ -47,7 +43,6 @@ export default function StopsManagement() {
   // Filters state
   const [searchQuery, setSearchQuery] = useState("");
   const [routeFilter, setRouteFilter] = useState("All");
-  const [typeFilter, setTypeFilter] = useState("All");
   const [notice, setNotice] = useState<string | null>(null);
 
   const fetchData = async () => {
@@ -112,9 +107,8 @@ export default function StopsManagement() {
       (route && route.name.toLowerCase().includes(searchQuery.toLowerCase()));
     
     const matchesRoute = routeFilter === "All" || stop.route_id === routeFilter;
-    const matchesType = typeFilter === "All" || stop.stop_type === typeFilter;
 
-    return matchesSearch && matchesRoute && matchesType;
+    return matchesSearch && matchesRoute;
   });
 
   return (
@@ -179,18 +173,6 @@ export default function StopsManagement() {
                   <option key={r.id} value={r.id}>{r.name}</option>
                 ))}
               </select>
-
-              <select
-                className="form-input stops-toolbar-type"
-                aria-label="Filter by stop type"
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-              >
-                <option value="All">All Types</option>
-                <option value="PICKUP">PICKUP</option>
-                <option value="DROPOFF">DROPOFF</option>
-                <option value="BOTH">BOTH</option>
-              </select>
             </div>
 
             <button
@@ -229,7 +211,6 @@ export default function StopsManagement() {
                       <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Route Name</th>
                       <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)" }}>Coordinates</th>
                       <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)", width: "100px" }}>Geofence</th>
-                      <th style={{ padding: "12px 16px", textAlign: "left", fontSize: "0.75rem", color: "var(--text-muted)", width: "100px" }}>Type</th>
                       <th style={{ padding: "12px 16px", textAlign: "right", fontSize: "0.75rem", color: "var(--text-muted)", width: "100px" }}>Actions</th>
                     </tr>
                   </thead>
@@ -273,18 +254,6 @@ export default function StopsManagement() {
                               <Radio size={14} style={{ color: "var(--accent-primary)" }} />
                               {stop.geofence_radius_meters}m
                             </div>
-                          </td>
-                          <td style={{ padding: "14px 16px" }}>
-                            <span style={{
-                              padding: "2px 6px",
-                              borderRadius: "4px",
-                              fontSize: "0.7rem",
-                              fontWeight: 600,
-                              background: stop.stop_type === "PICKUP" ? "rgba(16,185,129,0.1)" : stop.stop_type === "DROPOFF" ? "rgba(244,63,94,0.1)" : "rgba(99,102,241,0.1)",
-                              color: stop.stop_type === "PICKUP" ? "var(--state-success)" : stop.stop_type === "DROPOFF" ? "var(--state-error)" : "var(--accent-secondary)"
-                            }}>
-                              {stop.stop_type}
-                            </span>
                           </td>
                           <td style={{ padding: "14px 16px", textAlign: "right" }}>
                             <button
