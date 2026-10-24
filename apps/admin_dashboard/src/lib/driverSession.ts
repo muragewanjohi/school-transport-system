@@ -20,6 +20,9 @@ function sessionSecret(): string {
   );
 }
 
+/** Roles a `drv.*` token may carry. */
+export const DRIVER_SESSION_ROLES: readonly string[] = ["driver", "conductor"];
+
 /** Sliding HMAC lifetime issued at login and on `/api/auth/driver-refresh`. */
 export const DRIVER_SESSION_TTL_SECONDS = 60 * 60 * 24 * 7;
 
@@ -68,6 +71,10 @@ export function verifyDriverSession(
   try {
     const payload = JSON.parse(Buffer.from(data, "base64url").toString("utf8")) as DriverSessionPayload;
     if (!payload.sub || !payload.tenant_id || !payload.exp) {
+      return null;
+    }
+    // Bind the payload role to the drv.* prefix so a re-prefixed par.* token is rejected
+    if (!DRIVER_SESSION_ROLES.includes(payload.role)) {
       return null;
     }
     const grace = options?.expiredGraceSeconds ?? 0;

@@ -102,7 +102,7 @@ export async function POST(request: Request) {
     const token = extractBearerToken(request);
     const driver = token ? verifyDriverSession(token) : null;
 
-    const scope = await requireOperationalTenant(request);
+    const scope = await requireOperationalTenant(request, { allowDriver: true });
     if (!scope.ok) return tenantScopeError(scope);
     const client = scope.client;
 

@@ -87,7 +87,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: filtered });
     }
 
-    const dbScope = await requireOperationalTenant(request);
+    const dbScope = await requireOperationalTenant(request, { allowDriver: true });
     if (!dbScope.ok) return tenantScopeError(dbScope);
     const client = dbScope.client;
     

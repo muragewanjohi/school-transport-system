@@ -1,44 +1,67 @@
-# Module: Trips sidebar — history vs override
+# Module: Crew token scope hardening (driver/conductor HMAC)
 
 **Status:** `passing`  
-**Stack:** Next.js admin_dashboard (sidebar, `/trips/history`, `/trips/override`)
+**Stack:** Next.js admin_dashboard (`src/lib/tenantScope.ts`, `src/lib/driverSession.ts`, `src/lib/parentSession.ts`, operational API routes)
+
+Spec: [architecture.md](architecture.md) — "Crew HMAC allowlist" and "HMAC role binding".
 
 ## Scenarios
 
-### Happy — Trips has its own menu
+### Sad — driver token on an admin-only endpoint
 ```gherkin
-Given a school admin is signed in to the school console
-When they open the sidebar
-Then Trips is a top-level item (not under Routes)
-And it has Today's trip history and Override trip
+Given a valid drv.* token for a driver at School A
+When it calls an operational endpoint that has not opted in to crew access (e.g. POST /api/users)
+Then the response is 403
+And no service-role client is handed to the route
 ```
 
-### Happy — history has no override actions
+### Happy — driver token on a crew-allowed endpoint
 ```gherkin
-Given today's scheduled runs
-When the admin opens Today's trip history
-Then they see the same trip table as before
-And there is no Overrides column or Update Status
+Given a valid drv.* token for a driver at School A
+When it calls a handler that opts in with { allowDriver: true } (e.g. GET /api/driver/trips)
+Then scope resolves to School A's tenant_id from the token
 ```
 
-### Happy — override matches today's trips
+### Happy — school admins unaffected
 ```gherkin
-Given a non-completed trip run
-When the admin opens Override trip
-Then Update Status is available (hidden for Completed)
+Given a school_admin Supabase JWT on School A's host
+When they call any operational endpoint
+Then scope resolves to School A exactly as before
 ```
 
-### Failure — completed trips stay locked
+### Sad — parent token re-prefixed as a driver token
 ```gherkin
-Given a completed trip
-When override is checked
-Then Update Status is blocked
+Given a signed par.* token with role parent
+And the driver and parent secrets are the same
+When the prefix is changed to drv.
+Then verifyDriverSession rejects it
 ```
 
-## Automation map
+### Sad — driver token re-prefixed as a parent token
+```gherkin
+Given a signed drv.* token with role driver
+And the driver and parent secrets are the same
+When the prefix is changed to par.
+Then verifyParentSession rejects it
+```
 
-| Scenario | Test |
-| :--- | :--- |
-| Trips submenu paths | `src/lib/schoolCampusNav.test.ts` |
-| History vs override display status | `src/lib/tripDisplayStatus.test.ts` |
-| Completed lock | `src/lib/todayTripOverride.test.ts` |
+### Sad — unknown crew role
+```gherkin
+Given a validly signed drv.* token whose role is not driver or conductor
+When it is verified
+Then it is rejected
+```
+
+### Happy — conductor token still verifies
+```gherkin
+Given a validly signed drv.* token with role conductor
+When it is verified
+Then the payload is returned
+```
+
+### Guard — handler allowlist does not drift
+```gherkin
+Given the operational API route files
+When the allowDriver opt-ins are counted
+Then only the documented crew handlers opt in
+```

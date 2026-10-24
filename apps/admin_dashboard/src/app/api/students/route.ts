@@ -112,7 +112,7 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: getLocalStudents() });
     }
 
-    const scope = await requireOperationalTenant(request);
+    const scope = await requireOperationalTenant(request, { allowDriver: true });
     if (!scope.ok) return tenantScopeError(scope);
     const client = scope.client;
     

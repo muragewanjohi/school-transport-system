@@ -75,7 +75,7 @@ export async function GET(request: Request) {
       });
     }
 
-    const scope = await requireOperationalTenant(request);
+    const scope = await requireOperationalTenant(request, { allowDriver: true });
     if (!scope.ok) return tenantScopeError(scope);
     const client = scope.client;
     const tenantId = scope.tenantId;

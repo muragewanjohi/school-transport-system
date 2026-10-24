@@ -62,7 +62,18 @@ export async function lookupTenantIdBySlug(slug: string): Promise<string | null>
   return typeof data?.id === "string" ? data.id : null;
 }
 
-export async function requireOperationalTenant(request: Request): Promise<OperationalTenantResult> {
+export type OperationalTenantOptions = {
+  /**
+   * Accept driver/conductor `drv.*` HMAC tokens. Only crew handlers listed in
+   * context/architecture.md ("Crew HMAC allowlist") may set this.
+   */
+  allowDriver?: boolean;
+};
+
+export async function requireOperationalTenant(
+  request: Request,
+  options: OperationalTenantOptions = {}
+): Promise<OperationalTenantResult> {
   if (!isSupabaseConfigured) {
     return { ok: false, status: 503, error: "Database is not configured" };
   }
@@ -74,6 +85,9 @@ export async function requireOperationalTenant(request: Request): Promise<Operat
 
   const driver = verifyDriverSession(token);
   if (driver) {
+    if (!options.allowDriver) {
+      return { ok: false, status: 403, error: "This endpoint is for school administrators only." };
+    }
     const service = getServiceSupabaseClient();
     const client = service ?? getSupabaseClient(token);
     return { ok: true, tenantId: driver.tenant_id, client };

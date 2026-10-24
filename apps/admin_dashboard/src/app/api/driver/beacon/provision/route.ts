@@ -79,7 +79,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const scope = await requireOperationalTenant(request);
+    const scope = await requireOperationalTenant(request, { allowDriver: true });
     if (!scope.ok) return tenantScopeError(scope);
 
     const { data: config } = await scope.client

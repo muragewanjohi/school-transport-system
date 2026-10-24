@@ -57,7 +57,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, source: "mock", data: { revoked: 1 } });
     }
 
-    const scope = await requireOperationalTenant(request);
+    const scope = await requireOperationalTenant(request, { allowDriver: true });
     if (!scope.ok) return tenantScopeError(scope);
 
     let query = scope.client
