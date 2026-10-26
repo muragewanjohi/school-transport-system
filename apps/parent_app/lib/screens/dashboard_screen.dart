@@ -18,6 +18,7 @@ import 'package:parent_app/widgets/delete_account_link.dart';
 import 'package:parent_app/widgets/logout_button.dart';
 import 'package:parent_app/services/parent_etas_service.dart';
 import 'package:parent_app/services/parent_notifications_service.dart';
+import 'package:parent_app/services/parent_children_fallback.dart';
 import 'package:parent_app/services/parent_children_service.dart';
 import 'package:parent_app/utils/parent_children_logic.dart';
 import 'package:parent_app/services/parent_push_service.dart';
@@ -532,26 +533,8 @@ class _DashboardScreenState extends State<DashboardScreen> with WidgetsBindingOb
 
   Future<List<dynamic>?> _fetchStudentsFromSupabase() async {
     if (_parentId.isEmpty || !isParentUuid(_parentId)) return null;
-
-    final nested = await awaitOrNull(
-      SupabaseService.client
-          .from('students')
-          .select(
-            'id, name, grade, class_name, address, route_id, status, guardians, avatar_url, transit_status, tenant:tenants(id, name), pickup_stop:stops!students_pickup_stop_id_fkey(id, name, location), dropoff_stop:stops!students_dropoff_stop_id_fkey(id, name, location), route:routes(id, name, schedules(id, name, departure_time, direction, days_of_week))',
-          )
-          .eq('parent_id', _parentId),
-    );
-    if (nested is List) return nested;
-
-    final simple = await awaitOrNull(
-      SupabaseService.client
-          .from('students')
-          .select(
-            'id, name, grade, class_name, address, route_id, status, guardians, avatar_url, transit_status',
-          )
-          .eq('parent_id', _parentId),
-    );
-    return simple is List ? simple : null;
+    // RLS scopes rows to this parent's children (primary or secondary guardian)
+    return ParentChildrenFallback.fetch(SupabaseService.client);
   }
 
   Future<void> _refreshProfile() async {

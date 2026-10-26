@@ -1,55 +1,111 @@
-# Module: Secondary guardians in the parent app
+# Module: Guardian-aware parent RLS + profile column guard
 
 **Status:** `passing`  
-**Stack:** Next.js admin_dashboard (`GET /api/parent/children`, `GET /api/parent/etas`, `src/lib/parentChildren.ts`)
+**Stack:** Supabase migration `20261026120000_guardian_aware_parent_rls.sql` (tested on PGlite via Vitest `apps/admin_dashboard/src/lib/rlsGuardianParent.test.ts`; Flutter `test/parent_children_fallback_test.dart`) + Flutter parent_app fallback roster query.
 
-Spec: [architecture.md](architecture.md) — "Parent Mobile Session & Live ETA API" (ownership rule).
+Spec: [architecture.md](architecture.md) — "Parent ownership in RLS" and "Profile column guard".
 
-## Scenarios
+## Scenarios — parent read access (RLS)
 
-### Happy — secondary guardian sees the child
+### Happy — secondary guardian reads the child
 ```gherkin
-Given Brian's guardians are Elizaphan (primary, parent_id) and Caroline
-And Caroline has logged in with her own phone via OTP
-When Caroline's app loads GET /api/parent/children
-Then Brian is in her children list
-And Brian's parent_id is still Elizaphan
+Given Brian's parent_id is Elizaphan and Caroline's phone is in Brian's guardians as 07…
+And Caroline is signed in with a parent JWT for the same school
+When she selects from students
+Then she sees Brian
+```
+
+### Happy — secondary guardian reads route data
+```gherkin
+Given Caroline is a guardian on Brian, whose route is R1
+When she selects from routes, stops, schedules, trips, live_coordinates and trip_stop_etas
+Then she sees R1's rows and nothing from other routes
 ```
 
 ### Happy — primary parent unchanged
 ```gherkin
-Given a parent whose id is a student's parent_id
-When they load GET /api/parent/children
-Then that student is returned
+Given Elizaphan is Brian's parent_id
+When he selects from students
+Then he sees Brian
 ```
 
-### Happy — unlinked student still auto-links
+### Sad — unrelated parent
 ```gherkin
-Given a student with no parent_id whose guardian phone matches the parent
-When the parent loads GET /api/parent/children
-Then the student is returned and parent_id is set to that parent
+Given a parent whose phone is not on any guardian list
+When they select from students or live_coordinates
+Then they see nothing
 ```
 
-### Sad — unrelated parent sees nothing
+### Sad — same phone in another school
 ```gherkin
-Given a parent whose phone is not on any student's guardians
-When they load GET /api/parent/children
-Then the children list is empty
+Given Caroline's phone is also a guardian on a student in School B
+When she (School A) selects from students
+Then the School B student is not returned
 ```
 
-### Happy — secondary guardian gets ETAs
+### Sad — secondary guardian cannot edit the child
 ```gherkin
-Given Caroline is a guardian on Brian but not his parent_id
-When she requests GET /api/parent/etas?student_id=<Brian>
-Then the response is 200 (not 403)
+Given Caroline is a guardian but not Brian's parent_id
+When she updates Brian's avatar_url
+Then no row is updated
 ```
 
-### Sad — ETAs for someone else's child
+## Scenarios — profile column guard
+
+### Sad — parent escalates own role
 ```gherkin
-Given a student whose parent_id and guardians do not include the caller
-When the caller requests GET /api/parent/etas for that student
-Then the response is 403
+Given a parent signed in with an authenticated JWT
+When they update their own profiles.role to super_admin
+Then the update is rejected
 ```
 
-## Out of scope (tracked in progress-tracker Open Questions)
-Trip-start / proximity push and SMS alerts are queued by DB triggers for `students.parent_id` only, so secondary guardians do not yet receive them.
+### Sad — parent changes own phone to claim a child
+```gherkin
+Given a parent signed in with an authenticated JWT
+When they update their own profiles.phone
+Then the update is rejected
+```
+
+### Happy — parent updates own avatar
+```gherkin
+Given a parent signed in with an authenticated JWT
+When they update their own profiles.avatar_url
+Then the update succeeds
+```
+
+### Sad — end user inserts a profile
+```gherkin
+Given an authenticated user with no profile
+When they insert a profiles row for themselves
+Then the insert is rejected
+```
+
+### Sad — forged user_metadata role
+```gherkin
+Given an authenticated user whose user_metadata.role is super_admin but app_metadata has no role
+When they update their own profiles.role
+Then the update is rejected
+```
+
+### Sad — school admin promotes to platform admin
+```gherkin
+Given a school_admin (app_metadata) in School A
+When they set a School A profile's role to super_admin
+Then the update is rejected
+```
+
+### Happy — service role unaffected
+```gherkin
+Given a service-role connection
+When it updates a profile's role, phone or tenant_id
+Then the update succeeds
+```
+
+## Scenarios — Flutter fallback roster
+
+### Happy — fallback relies on RLS, not parent_id
+```gherkin
+Given the children API is unreachable
+When the parent app falls back to a direct students query
+Then the query is not filtered by parent_id (RLS scopes it to the caller's children)
+```
