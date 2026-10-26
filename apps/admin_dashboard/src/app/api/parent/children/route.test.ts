@@ -1,52 +1,52 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const maybeSingle = vi.fn();
-const studentEq = vi.fn();
-let studentCalls = 0;
+type Row = Record<string, unknown>;
 
-function profilesQuery() {
+const PARENT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const PRIMARY_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const TENANT_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const OTHER_TENANT = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+const PARENT_PHONE = "+254701689463";
+
+const db: { profiles: Row[]; students: Row[]; updates: Array<{ patch: Row; ids: string[] }> } = {
+  profiles: [],
+  students: [],
+  updates: [],
+};
+
+/** Minimal PostgREST-style fake: applies eq / in / is filters to in-memory rows. */
+function fakeQuery(table: "profiles" | "students") {
+  const filters: Array<(row: Row) => boolean> = [];
+  let patch: Row | null = null;
+  const run = () => {
+    const rows = db[table].filter((row) => filters.every((f) => f(row)));
+    if (patch) {
+      for (const row of rows) Object.assign(row, patch);
+      db.updates.push({ patch, ids: rows.map((r) => r.id as string) });
+    }
+    return rows;
+  };
   const api = {
     select: () => api,
-    eq: () => api,
-    maybeSingle,
-  };
-  return api;
-}
-
-function studentsQuery() {
-  const api: {
-    select: () => typeof api;
-    eq: (col?: string) => typeof api | Promise<{ data: unknown; error: null }>;
-    is: () => typeof api;
-    in: () => typeof api;
-    update: () => typeof api;
-  } = {
-    select: () => api,
-    is: () => api,
-    in: () => api,
-    update: () => api,
-    eq: (col?: string) => {
-      studentEq(col);
-      if (col === "tenant_id") {
-        studentCalls += 1;
-        if (studentCalls === 1) {
-          return Promise.resolve({
-            data: [
-              {
-                id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
-                name: "Brian Demo",
-                parent_id: PARENT_ID,
-                tenant_id: TENANT_ID,
-                guardians: [],
-              },
-            ],
-            error: null,
-          });
-        }
-        return Promise.resolve({ data: [], error: null });
-      }
+    update: (p: Row) => {
+      patch = p;
       return api;
     },
+    eq: (col: string, val: unknown) => {
+      filters.push((row) => row[col] === val);
+      return api;
+    },
+    in: (col: string, vals: unknown[]) => {
+      filters.push((row) => vals.includes(row[col]));
+      return api;
+    },
+    is: (col: string, val: unknown) => {
+      filters.push((row) => (row[col] ?? null) === val);
+      return api;
+    },
+    maybeSingle: async () => ({ data: run()[0] ?? null, error: null }),
+    then: (resolve: (v: { data: Row[]; error: null }) => unknown) =>
+      Promise.resolve({ data: run().map((r) => ({ ...r })), error: null }).then(resolve),
   };
   return api;
 }
@@ -58,8 +58,7 @@ vi.mock("@/lib/supabaseClient", () => ({
 vi.mock("@/lib/supabaseAdmin", () => ({
   getServiceSupabaseClient: () => ({
     from: (table: string) => {
-      if (table === "profiles") return profilesQuery();
-      if (table === "students") return studentsQuery();
+      if (table === "profiles" || table === "students") return fakeQuery(table);
       throw new Error(`Unexpected table ${table}`);
     },
   }),
@@ -77,28 +76,36 @@ vi.mock("@/lib/parentAuthSession", () => ({
 import { GET } from "@/app/api/parent/children/route";
 import { signParentSession } from "@/lib/parentSession";
 
-const PARENT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-const TENANT_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-
-function authRequest(token: string | null) {
-  const headers = new Headers();
+function authRequest(token: string | null, extra: Record<string, string> = {}) {
+  const headers = new Headers(extra);
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  return new Request("http://localhost/api/parent/children", {
-    method: "GET",
-    headers,
-  });
+  return new Request("http://localhost/api/parent/children", { method: "GET", headers });
+}
+
+function student(id: string, name: string, parentId: string | null, guardianPhones: string[], tenantId = TENANT_ID): Row {
+  return {
+    id,
+    name,
+    parent_id: parentId,
+    tenant_id: tenantId,
+    guardians: guardianPhones.map((phone, i) => ({ name: `Guardian ${i}`, phone })),
+  };
+}
+
+async function childrenFor(token: string) {
+  const res = await GET(authRequest(token));
+  const body = (await res.json()) as { success: boolean; children: Array<{ id: string; name: string }> };
+  return { status: res.status, body };
 }
 
 describe("GET /api/parent/children", () => {
+  const token = () => signParentSession({ sub: PARENT_ID, tenant_id: TENANT_ID });
+
   beforeEach(() => {
     process.env.PARENT_SESSION_SECRET = "unit-test-parent-secret";
-    maybeSingle.mockReset();
-    studentEq.mockReset();
-    studentCalls = 0;
-    maybeSingle.mockResolvedValue({
-      data: { id: PARENT_ID, phone: "+254724511201" },
-      error: null,
-    });
+    db.profiles = [{ id: PARENT_ID, tenant_id: TENANT_ID, phone: PARENT_PHONE, name: "Caroline Mukami" }];
+    db.students = [];
+    db.updates = [];
   });
 
   it("Given missing token, When requested, Then 401", async () => {
@@ -106,30 +113,57 @@ describe("GET /api/parent/children", () => {
     expect(res.status).toBe(401);
   });
 
-  it("Given valid parent token + linked children, When requested, Then 200 with those students", async () => {
-    const token = signParentSession({ sub: PARENT_ID, tenant_id: TENANT_ID });
-    const res = await GET(authRequest(token));
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as {
-      success: boolean;
-      children: Array<{ name: string; parent_id: string }>;
-      supabase_refresh_token?: string;
-    };
-    expect(body.success).toBe(true);
-    expect(body.children).toHaveLength(1);
-    expect(body.children[0]?.name).toBe("Brian Demo");
-    expect(body.children[0]?.parent_id).toBe(PARENT_ID);
-    expect(body.supabase_refresh_token).toBeUndefined();
+  it("Given the parent is a student's parent_id, When requested, Then that student is returned", async () => {
+    db.students = [student("s-1", "Brian Demo", PARENT_ID, [])];
+
+    const { status, body } = await childrenFor(token());
+
+    expect(status).toBe(200);
+    expect(body.children.map((c) => c.name)).toEqual(["Brian Demo"]);
+  });
+
+  it("Given a secondary guardian (another parent is primary), When requested, Then the child is returned and the primary is kept", async () => {
+    // Arrange: Brian's primary is Elizaphan; Caroline is 3rd guardian in local 07… format
+    db.students = [student("s-1", "Brian Demo", PRIMARY_ID, ["+254724511201", "+254731437137", "0701689463"])];
+
+    // Act
+    const { status, body } = await childrenFor(token());
+
+    // Assert
+    expect(status).toBe(200);
+    expect(body.children.map((c) => c.name)).toEqual(["Brian Demo"]);
+    expect(db.students[0]?.parent_id).toBe(PRIMARY_ID);
+    expect(db.updates).toHaveLength(0);
+  });
+
+  it("Given an unlinked student whose guardian phone matches, When requested, Then it is returned and linked to the parent", async () => {
+    db.students = [student("s-2", "Ciru Demo", null, [PARENT_PHONE])];
+
+    const { body } = await childrenFor(token());
+
+    expect(body.children.map((c) => c.name)).toEqual(["Ciru Demo"]);
+    expect(db.students[0]?.parent_id).toBe(PARENT_ID);
+  });
+
+  it("Given no student lists the parent's phone, When requested, Then the list is empty", async () => {
+    db.students = [student("s-3", "Glen Demo", PRIMARY_ID, ["+254728581189"])];
+
+    const { status, body } = await childrenFor(token());
+
+    expect(status).toBe(200);
+    expect(body.children).toEqual([]);
+  });
+
+  it("Given the same phone is a guardian in another school, When requested, Then that school's student is not returned", async () => {
+    db.students = [student("s-4", "Other School Kid", PRIMARY_ID, [PARENT_PHONE], OTHER_TENANT)];
+
+    const { body } = await childrenFor(token());
+
+    expect(body.children).toEqual([]);
   });
 
   it("Given bootstrap header, When requested, Then refresh token is returned", async () => {
-    const token = signParentSession({ sub: PARENT_ID, tenant_id: TENANT_ID });
-    const headers = new Headers();
-    headers.set("Authorization", `Bearer ${token}`);
-    headers.set("x-bootstrap-supabase", "1");
-    const res = await GET(
-      new Request("http://localhost/api/parent/children", { method: "GET", headers })
-    );
+    const res = await GET(authRequest(token(), { "x-bootstrap-supabase": "1" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { supabase_refresh_token?: string };
     expect(body.supabase_refresh_token).toBe("refresh-test");

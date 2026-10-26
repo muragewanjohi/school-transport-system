@@ -3,6 +3,7 @@ import { z } from "zod";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { parentSessionFromRequest } from "@/lib/parentSession";
+import { studentLinkedToParent } from "@/lib/parentChildren";
 import { etaMinutesFromPredictedArrival } from "@/lib/parentLive";
 
 const querySchema = z.object({
@@ -16,6 +17,7 @@ type StudentRow = {
   route_id: string | null;
   pickup_stop_id: string | null;
   dropoff_stop_id: string | null;
+  guardians?: unknown;
 };
 
 type EtaRow = {
@@ -62,7 +64,7 @@ export async function GET(request: Request) {
 
     const { data: student, error: studentError } = await db
       .from("students")
-      .select("id, parent_id, tenant_id, route_id, pickup_stop_id, dropoff_stop_id")
+      .select("id, parent_id, tenant_id, route_id, pickup_stop_id, dropoff_stop_id, guardians")
       .eq("id", student_id)
       .eq("tenant_id", parent.tenant_id)
       .maybeSingle();
@@ -76,7 +78,16 @@ export async function GET(request: Request) {
       return NextResponse.json({ success: false, error: "Student not found" }, { status: 404 });
     }
 
-    if (row.parent_id !== parent.sub || row.tenant_id !== parent.tenant_id) {
+    const { data: profile } = await db
+      .from("profiles")
+      .select("phone")
+      .eq("id", parent.sub)
+      .eq("tenant_id", parent.tenant_id)
+      .maybeSingle();
+    const parentPhone = typeof profile?.phone === "string" ? profile.phone : "";
+
+    const allowed = studentLinkedToParent({ parentId: parent.sub, parentPhone, student: row });
+    if (!allowed || row.tenant_id !== parent.tenant_id) {
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
     }
 

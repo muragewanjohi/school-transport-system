@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabaseClient";
 import { getServiceSupabaseClient } from "@/lib/supabaseAdmin";
 import { parentSessionFromRequest } from "@/lib/parentSession";
-import { mergeParentChildRows } from "@/lib/parentChildren";
+import { studentLinkedToParent } from "@/lib/parentChildren";
 import { ensureParentAuthSession } from "@/lib/parentAuthSession";
 
 const STUDENT_SELECT =
@@ -40,36 +40,35 @@ export async function GET(request: Request) {
 
     const parentPhone = typeof profile?.phone === "string" ? profile.phone : "";
 
-    const { data: linked, error: linkedError } = await db
+    // Primary parent (parent_id) or any guardian whose phone matches, incl. secondary guardians
+    const { data: candidates, error: candidatesError } = await db
       .from("students")
-      .select(STUDENT_SELECT)
-      .eq("parent_id", parent.sub)
+      .select("id, parent_id, guardians")
       .eq("tenant_id", parent.tenant_id);
 
-    if (linkedError) {
+    if (candidatesError) {
       return NextResponse.json({ success: false, error: "Failed to load children" }, { status: 500 });
     }
 
-    const { data: unlinked, error: unlinkedError } = await db
-      .from("students")
-      .select(STUDENT_SELECT)
-      .is("parent_id", null)
-      .eq("tenant_id", parent.tenant_id);
+    const childIds = ((candidates ?? []) as StudentRow[])
+      .filter((student) => studentLinkedToParent({ parentId: parent.sub, parentPhone, student }))
+      .map((student) => student.id);
 
-    if (unlinkedError) {
-      return NextResponse.json({
-        success: true,
-        children: linked ?? [],
-      });
+    let children: StudentRow[] = [];
+    if (childIds.length > 0) {
+      const { data: rows, error: rowsError } = await db
+        .from("students")
+        .select(STUDENT_SELECT)
+        .in("id", childIds)
+        .eq("tenant_id", parent.tenant_id);
+
+      if (rowsError) {
+        return NextResponse.json({ success: false, error: "Failed to load children" }, { status: 500 });
+      }
+      children = (rows ?? []) as StudentRow[];
     }
 
-    const children = mergeParentChildRows(
-      (linked ?? []) as StudentRow[],
-      (unlinked ?? []) as StudentRow[],
-      parent.sub,
-      parentPhone
-    );
-
+    // Only fill an empty parent_id; never replace another guardian as primary
     const toLink = children.filter((row) => !row.parent_id);
     if (toLink.length > 0) {
       await db

@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const maybeSingle = vi.fn();
+const profileSingle = vi.fn();
 const limit = vi.fn();
+const tripLimit = vi.fn();
 
 function studentQuery() {
   const api = {
@@ -9,6 +11,16 @@ function studentQuery() {
     eq: () => api,
     maybeSingle,
   };
+  return api;
+}
+
+function profileQuery() {
+  const api = { select: () => api, eq: () => api, maybeSingle: profileSingle };
+  return api;
+}
+
+function tripQuery() {
+  const api = { select: () => api, eq: () => api, order: () => api, limit: tripLimit };
   return api;
 }
 
@@ -30,6 +42,8 @@ vi.mock("@/lib/supabaseAdmin", () => ({
   getServiceSupabaseClient: () => ({
     from: (table: string) => {
       if (table === "students") return studentQuery();
+      if (table === "profiles") return profileQuery();
+      if (table === "trips") return tripQuery();
       if (table === "trip_stop_etas") return etaQuery();
       throw new Error(`Unexpected table ${table}`);
     },
@@ -45,6 +59,7 @@ const TENANT_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const STUDENT_ID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 const STOP_ID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
 const ROUTE_ID = "ffffffff-ffff-4fff-8fff-ffffffffffff";
+const PARENT_PHONE = "+254701689463";
 
 function authRequest(token: string | null, studentId = STUDENT_ID) {
   const headers = new Headers();
@@ -60,6 +75,10 @@ describe("GET /api/parent/etas", () => {
     process.env.PARENT_SESSION_SECRET = "unit-test-parent-secret";
     maybeSingle.mockReset();
     limit.mockReset();
+    profileSingle.mockReset();
+    profileSingle.mockResolvedValue({ data: { phone: PARENT_PHONE }, error: null });
+    tripLimit.mockReset();
+    tripLimit.mockResolvedValue({ data: [{ id: "11111111-1111-4111-8111-111111111111" }], error: null });
   });
 
   it("Given missing token, When requested, Then 401", async () => {
@@ -121,6 +140,27 @@ describe("GET /api/parent/etas", () => {
 
     const res = await GET(authRequest(token));
     expect(res.status).toBe(403);
+  });
+
+  it("Given a secondary guardian (another parent is primary), When requested, Then 200 not 403", async () => {
+    const token = signParentSession({ sub: PARENT_ID, tenant_id: TENANT_ID });
+    maybeSingle.mockResolvedValue({
+      data: {
+        id: STUDENT_ID,
+        parent_id: OTHER_PARENT,
+        tenant_id: TENANT_ID,
+        route_id: ROUTE_ID,
+        pickup_stop_id: STOP_ID,
+        dropoff_stop_id: null,
+        guardians: [{ name: "Primary", phone: "+254724511201" }, { name: "Caroline", phone: "0701689463" }],
+      },
+      error: null,
+    });
+    limit.mockResolvedValue({ data: [], error: null });
+
+    const res = await GET(authRequest(token));
+
+    expect(res.status).toBe(200);
   });
 
   it("Given invalid student_id, When requested, Then 400", async () => {
