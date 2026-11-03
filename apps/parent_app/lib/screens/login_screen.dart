@@ -60,6 +60,9 @@ class _LoginScreenState extends State<LoginScreen> {
   String _versionLabel = '';
   String? _emailHint;
 
+  /// Channel the last code went by ('sms' or 'email'), from the API `source`.
+  String _otpSource = 'sms';
+
   @override
   void initState() {
     super.initState();
@@ -122,6 +125,16 @@ class _LoginScreenState extends State<LoginScreen> {
     final lower = error.toLowerCase();
     return lower.contains('not registered') ||
         lower.contains('profile not found');
+  }
+
+  static String _sourceFrom(
+    Map<String, dynamic>? result, {
+    required String fallback,
+  }) {
+    final source = result?['source']?.toString();
+    return source == 'email'
+        ? 'email'
+        : (source == null || source.isEmpty ? fallback : 'sms');
   }
 
   bool _looksUnregistered(String message) {
@@ -190,10 +203,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
     }
 
-    return {
-      'source': source,
-      'email_hint': emailHint,
-    };
+    return {'source': source, 'email_hint': emailHint};
   }
 
   Future<Map<String, dynamic>> _verifyOtpWithApi(
@@ -267,6 +277,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _phone = phone;
         _showVerification = true;
         _emailHint = result?['email_hint']?.toString();
+        _otpSource = _sourceFrom(result, fallback: 'sms');
       });
       _startResendTimer();
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -363,6 +374,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         setState(() {
           _emailHint = result?['email_hint']?.toString() ?? _emailHint;
+          _otpSource = _sourceFrom(result, fallback: 'sms');
         });
       }
       _startResendTimer();
@@ -396,6 +408,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (mounted) {
         setState(() {
           _emailHint = result?['email_hint']?.toString() ?? _emailHint;
+          _otpSource = _sourceFrom(result, fallback: 'email');
         });
       }
       _startResendTimer();
@@ -444,6 +457,7 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _showVerification = false;
       _emailHint = null;
+      _otpSource = 'sms';
     });
   }
 
@@ -478,6 +492,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   resendRemaining: _resendRemaining,
                   versionLabel: _versionLabel,
                   emailHint: _emailHint,
+                  codeSentByEmail:
+                      _otpSource == 'email' &&
+                      _emailHint != null &&
+                      _emailHint!.isNotEmpty,
                   onBack: _returnToPhone,
                   onVerify: _handleVerifyOtp,
                   onResend: _resendOtp,
@@ -866,6 +884,7 @@ class _VerificationView extends StatelessWidget {
     required this.resendRemaining,
     required this.versionLabel,
     this.emailHint,
+    this.codeSentByEmail = false,
     required this.onBack,
     required this.onVerify,
     required this.onResend,
@@ -879,6 +898,9 @@ class _VerificationView extends StatelessWidget {
   final int resendRemaining;
   final String versionLabel;
   final String? emailHint;
+
+  /// True when the last code was emailed: heading names the email, not the phone.
+  final bool codeSentByEmail;
   final VoidCallback onBack;
   final VoidCallback onVerify;
   final VoidCallback onResend;
@@ -934,15 +956,25 @@ class _VerificationView extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    const Text(
-                      "We've sent a 6-digit code to",
+                    Text(
+                      codeSentByEmail
+                          ? "We've emailed a 6-digit code to"
+                          : "We've sent a 6-digit code to",
+                      key: const Key('verification-sent-to-label'),
                       textAlign: TextAlign.center,
-                      style: TextStyle(color: ParentColors.muted, fontSize: 13),
+                      style: const TextStyle(
+                        color: ParentColors.muted,
+                        fontSize: 13,
+                      ),
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      phone,
-                      key: const Key('verification-phone'),
+                      codeSentByEmail ? emailHint! : phone,
+                      key: Key(
+                        codeSentByEmail
+                            ? 'verification-email'
+                            : 'verification-phone',
+                      ),
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                         color: ParentColors.primary,
@@ -950,6 +982,18 @@ class _VerificationView extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                       ),
                     ),
+                    if (codeSentByEmail) ...[
+                      const SizedBox(height: 6),
+                      const Text(
+                        "It can take a minute. Check your spam or junk folder too.",
+                        key: Key('verification-email-spam-hint'),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: ParentColors.muted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 30),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,

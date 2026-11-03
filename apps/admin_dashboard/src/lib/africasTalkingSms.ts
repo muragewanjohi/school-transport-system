@@ -50,6 +50,7 @@ export function resolveOtpDelivery(input: {
 type AtRecipient = {
   status?: string;
   statusCode?: number | string;
+  messageId?: string;
 };
 
 type AtPayload = {
@@ -112,6 +113,21 @@ export function isInvalidSenderId(payload: unknown): boolean {
   return reason.includes("invalidsenderid") || code === 402;
 }
 
+/** Provider refused the message; `reason` is AT's status (e.g. UserInBlacklist). */
+export class SmsRejectedError extends Error {
+  readonly reason: string;
+  constructor(message: string, reason: string) {
+    super(message);
+    this.name = "SmsRejectedError";
+    this.reason = reason;
+  }
+}
+
+export type SmsSendResult = {
+  /** AT messageId, used to match delivery reports. */
+  messageId: string | null;
+};
+
 export async function sendAfricasTalkingSms(input: {
   to: string;
   message: string;
@@ -120,7 +136,7 @@ export async function sendAfricasTalkingSms(input: {
   senderId?: string;
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
-}): Promise<void> {
+}): Promise<SmsSendResult> {
   const apiKey = input.apiKey ?? process.env.AFRICASTALKING_API_KEY;
   if (!apiKey) {
     throw new Error("SMS delivery is not configured");
@@ -174,11 +190,16 @@ export async function sendAfricasTalkingSms(input: {
   }
 
   if (!result.ok) {
-    throw new Error(`SMS provider returned HTTP ${result.status}`);
-  }
-  if (!africastalkingAccepted(result.payload)) {
-    throw new Error(
-      `SMS provider rejected the message (${africastalkingRejectionReason(result.payload)})`
+    throw new SmsRejectedError(
+      `SMS provider returned HTTP ${result.status}`,
+      `HTTP ${result.status}`
     );
   }
+  if (!africastalkingAccepted(result.payload)) {
+    const reason = africastalkingRejectionReason(result.payload);
+    throw new SmsRejectedError(`SMS provider rejected the message (${reason})`, reason);
+  }
+
+  const messageId = firstRecipient(result.payload)?.messageId?.trim();
+  return { messageId: messageId || null };
 }

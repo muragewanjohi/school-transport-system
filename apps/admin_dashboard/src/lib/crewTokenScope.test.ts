@@ -20,6 +20,7 @@ import { signDriverSession, verifyDriverSession } from "@/lib/driverSession";
 import { signParentSession, verifyParentSession } from "@/lib/parentSession";
 import { requireOperationalTenant } from "@/lib/tenantScope";
 import { POST as createAdmin } from "@/app/api/users/route";
+import { GET as otpDeliveries } from "@/app/api/otp-deliveries/route";
 
 const SCHOOL_A = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "11111111-1111-4111-8111-111111111111";
@@ -123,6 +124,14 @@ describe("POST /api/users › crew tokens cannot create admins", () => {
     // Assert
     expect(res.status).toBe(403);
     expect(((await res.json()) as { success: boolean }).success).toBe(false);
+  });
+});
+
+describe("GET /api/otp-deliveries › crew tokens cannot read login-code history", () => {
+  it("Given a valid driver token, When it requests OTP deliveries, Then 403", async () => {
+    const res = await otpDeliveries(bearer(driverToken(), "http://school-a.localhost/api/otp-deliveries"));
+
+    expect(res.status).toBe(403);
   });
 });
 

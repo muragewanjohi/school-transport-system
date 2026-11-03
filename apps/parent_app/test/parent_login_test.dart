@@ -84,6 +84,90 @@ void main() {
     expect(find.textContaining('Send code via email'), findsOneWidget);
   });
 
+  Future<void> sendOtpFor(WidgetTester tester) async {
+    await tester.enterText(find.byKey(const Key('parent-phone-field')), '712345678');
+    await tester.tap(find.byKey(const Key('send-otp-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+  }
+
+  testWidgets(
+    'Given the code went by email, When the verification screen opens, Then it names the email and mentions spam',
+    (tester) async {
+      await pumpLogin(
+        tester,
+        requestOtp: (phone, {channel = 'sms'}) async {
+          return {'source': 'email', 'email_hint': 'j***@gmail.com'};
+        },
+      );
+
+      await sendOtpFor(tester);
+
+      expect(find.text("We've emailed a 6-digit code to"), findsOneWidget);
+      expect(find.byKey(const Key('verification-email')), findsOneWidget);
+      expect(find.text('j***@gmail.com'), findsOneWidget);
+      expect(find.byKey(const Key('verification-email-spam-hint')), findsOneWidget);
+      expect(find.byKey(const Key('verification-phone')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Given the code went by SMS, When the verification screen opens, Then it names the phone number',
+    (tester) async {
+      await pumpLogin(
+        tester,
+        requestOtp: (phone, {channel = 'sms'}) async {
+          return {'source': 'sms', 'email_hint': 'j***@gmail.com'};
+        },
+      );
+
+      await sendOtpFor(tester);
+
+      expect(find.text("We've sent a 6-digit code to"), findsOneWidget);
+      expect(find.byKey(const Key('verification-phone')), findsOneWidget);
+      expect(find.byKey(const Key('verification-email-spam-hint')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'Given the screen shows the phone, When the parent taps Send code via email, Then the heading switches to the email',
+    (tester) async {
+      final channels = <String>[];
+      await pumpLogin(
+        tester,
+        requestOtp: (phone, {channel = 'sms'}) async {
+          channels.add(channel);
+          return {'source': channel, 'email_hint': 'j***@gmail.com'};
+        },
+      );
+      await sendOtpFor(tester);
+      expect(find.byKey(const Key('verification-phone')), findsOneWidget);
+
+      await tester.ensureVisible(find.byKey(const Key('send-otp-email-button')));
+      await tester.tap(find.byKey(const Key('send-otp-email-button')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(channels, ['sms', 'email']);
+      expect(find.text("We've emailed a 6-digit code to"), findsOneWidget);
+      expect(find.byKey(const Key('verification-email')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'Given source email but no email hint, When the screen opens, Then it falls back to the phone',
+    (tester) async {
+      await pumpLogin(
+        tester,
+        requestOtp: (phone, {channel = 'sms'}) async => {'source': 'email'},
+      );
+
+      await sendOtpFor(tester);
+
+      expect(find.byKey(const Key('verification-phone')), findsOneWidget);
+    },
+  );
+
   testWidgets('unregistered phone shows school guidance', (tester) async {
     await pumpLogin(
       tester,

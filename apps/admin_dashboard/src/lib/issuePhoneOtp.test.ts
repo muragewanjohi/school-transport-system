@@ -12,10 +12,10 @@ const TENANT_ID = "22222222-2222-4222-8222-222222222222";
 type TenantRow = { is_demo: boolean; domain: string; contact_email?: string | null } | null;
 
 vi.mock("@/lib/resendEmail", () => ({
-  sendResendEmail: vi.fn().mockResolvedValue(true),
+  sendResendEmailWithId: vi.fn().mockResolvedValue({ ok: true, id: "em_1" }),
 }));
 
-import { sendResendEmail } from "@/lib/resendEmail";
+import { sendResendEmailWithId } from "@/lib/resendEmail";
 
 function mockClient(options: {
   profile: {
@@ -27,13 +27,24 @@ function mockClient(options: {
   } | null;
   tenant: TenantRow;
   updateError?: { message: string } | null;
+  logError?: boolean;
 }) {
   const updateEq = vi.fn().mockResolvedValue({
     error: options.updateError ?? null,
   });
+  const logInserts: Array<Record<string, unknown>> = [];
 
   return {
     from: (table: string) => {
+      if (table === "otp_delivery_log") {
+        if (options.logError) throw new Error("log table unavailable");
+        return {
+          insert: async (row: Record<string, unknown>) => {
+            logInserts.push(row);
+            return { error: null };
+          },
+        };
+      }
       if (table === "profiles") {
         return {
           select: () => ({
@@ -65,6 +76,7 @@ function mockClient(options: {
       throw new Error(`Unexpected table ${table}`);
     },
     updateEq,
+    logInserts,
   };
 }
 
@@ -102,8 +114,8 @@ describe("issuePhoneOtp › registered parent in production › live SMS, no san
     process.env.VERCEL_ENV = "production";
     process.env.OTP_SMS_DRY_RUN = "false";
     process.env.RESEND_API_KEY = "re_test";
-    vi.mocked(sendResendEmail).mockClear();
-    vi.mocked(sendResendEmail).mockResolvedValue(true);
+    vi.mocked(sendResendEmailWithId).mockClear();
+    vi.mocked(sendResendEmailWithId).mockResolvedValue({ ok: true, id: "em_1" });
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
@@ -145,7 +157,7 @@ describe("issuePhoneOtp › registered parent in production › live SMS, no san
     expect(result.body.sandbox_otp).toBeUndefined();
     expect(result.body.email_hint).toBe("p***@school.ke");
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(sendResendEmail).not.toHaveBeenCalled();
+    expect(sendResendEmailWithId).not.toHaveBeenCalled();
   });
 
   it("Given UserInBlacklist and email on file, When they request an OTP, Then email fallback succeeds", async () => {
@@ -180,8 +192,8 @@ describe("issuePhoneOtp › registered parent in production › live SMS, no san
     expect(result.status).toBe(200);
     expect(result.body.source).toBe("email");
     expect(result.body.email_hint).toBe("j***@gmail.com");
-    expect(sendResendEmail).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(sendResendEmail).mock.calls[0][0].to).toBe("jane@gmail.com");
+    expect(sendResendEmailWithId).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendResendEmailWithId).mock.calls[0][0].to).toBe("jane@gmail.com");
   });
 
   it("Given UserInBlacklist and no email, When they request an OTP, Then 502", async () => {
@@ -216,7 +228,7 @@ describe("issuePhoneOtp › registered parent in production › live SMS, no san
     expect(result.status).toBe(502);
     expect(result.body.success).toBe(false);
     expect(result.body.error).toMatch(/UserInBlacklist/);
-    expect(sendResendEmail).not.toHaveBeenCalled();
+    expect(sendResendEmailWithId).not.toHaveBeenCalled();
   });
 
   it("Given channel email and usable address, When requested, Then Resend only", async () => {
@@ -239,7 +251,7 @@ describe("issuePhoneOtp › registered parent in production › live SMS, no san
     expect(result.status).toBe(200);
     expect(result.body.source).toBe("email");
     expect(fetch).not.toHaveBeenCalled();
-    expect(sendResendEmail).toHaveBeenCalledTimes(1);
+    expect(sendResendEmailWithId).toHaveBeenCalledTimes(1);
   });
 
   it("Given channel email without address, When requested, Then 422", async () => {
@@ -260,7 +272,7 @@ describe("issuePhoneOtp › registered parent in production › live SMS, no san
     });
 
     expect(result.status).toBe(422);
-    expect(sendResendEmail).not.toHaveBeenCalled();
+    expect(sendResendEmailWithId).not.toHaveBeenCalled();
   });
 
   it("Given a demo tenant, When they request an OTP in production, Then AT is still called", async () => {
@@ -327,8 +339,8 @@ describe("issuePhoneOtp › registered parent in production › live SMS, no san
     expect(result.status).toBe(200);
     expect(result.body.source).toBe("email");
     expect(result.body.email_hint).toBe("l***@school.ke");
-    expect(sendResendEmail).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(sendResendEmail).mock.calls[0][0].to).toBe("lead@school.ke");
+    expect(sendResendEmailWithId).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sendResendEmailWithId).mock.calls[0][0].to).toBe("lead@school.ke");
   });
 
   it("Given a demo driver with no lead email, When AT rejects SMS, Then 502", async () => {
@@ -368,7 +380,7 @@ describe("issuePhoneOtp › registered parent in production › live SMS, no san
 
     expect(result.status).toBe(502);
     expect(result.body.success).toBe(false);
-    expect(sendResendEmail).not.toHaveBeenCalled();
+    expect(sendResendEmailWithId).not.toHaveBeenCalled();
   });
 });
 
@@ -380,7 +392,7 @@ describe("issuePhoneOtp › dry-run and play-review › no AT call", () => {
     process.env.NODE_ENV = "test";
     delete process.env.VERCEL_ENV;
     delete process.env.OTP_SMS_DRY_RUN;
-    vi.mocked(sendResendEmail).mockClear();
+    vi.mocked(sendResendEmailWithId).mockClear();
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -412,7 +424,7 @@ describe("issuePhoneOtp › dry-run and play-review › no AT call", () => {
     expect(result.body.source).toBe("dev_sms_dry_run");
     expect(result.body.sandbox_otp).toMatch(/^\d{6}$/);
     expect(fetch).not.toHaveBeenCalled();
-    expect(sendResendEmail).not.toHaveBeenCalled();
+    expect(sendResendEmailWithId).not.toHaveBeenCalled();
   });
 
   it("Given play-review, When they request an OTP, Then 123456 is used and AT is not called", async () => {
@@ -457,5 +469,134 @@ describe("issuePhoneOtp › dry-run and play-review › no AT call", () => {
     expect(result.status).toBe(404);
     expect(result.body.code).toBe("not_registered");
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("issuePhoneOtp › delivery log", () => {
+  const envSnapshot = { ...process.env };
+  const profile = {
+    id: PROFILE_ID,
+    tenant_id: TENANT_ID,
+    role: "parent",
+    status: "Available",
+    otp_code: null,
+    email: "jane@gmail.com",
+  };
+  const tenant = { is_demo: false, domain: "acme-academy" };
+
+  function stubAt(recipient: Record<string, unknown>) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 201,
+        json: async () => ({ SMSMessageData: { Recipients: [recipient] } }),
+      })
+    );
+  }
+
+  beforeEach(() => {
+    process.env.AFRICASTALKING_USERNAME = "onthebus";
+    process.env.AFRICASTALKING_API_KEY = "test-live-key";
+    (process.env as Record<string, string>).NODE_ENV = "production";
+    process.env.VERCEL_ENV = "production";
+    process.env.OTP_SMS_DRY_RUN = "false";
+    vi.mocked(sendResendEmailWithId).mockClear();
+    vi.mocked(sendResendEmailWithId).mockResolvedValue({ ok: true, id: "em_1" });
+  });
+
+  afterEach(() => {
+    process.env = { ...envSnapshot };
+    vi.unstubAllGlobals();
+  });
+
+  it("Given AT accepts the SMS, When an OTP is requested, Then one sms row is logged as sent with the messageId and no code", async () => {
+    // Arrange
+    stubAt({ status: "Success", statusCode: 101, messageId: "ATXid_1" });
+    const client = mockClient({ profile, tenant });
+
+    // Act
+    const result = await issuePhoneOtp(client as unknown as SupabaseClient, { ...baseInput });
+
+    // Assert
+    expect(result.status).toBe(200);
+    expect(client.logInserts).toEqual([
+      expect.objectContaining({
+        tenant_id: TENANT_ID,
+        profile_id: PROFILE_ID,
+        role: "parent",
+        channel: "sms",
+        provider: "africastalking",
+        provider_message_id: "ATXid_1",
+        status: "sent",
+        failure_reason: null,
+        destination: "+254******099",
+      }),
+    ]);
+    const smsBody = String(vi.mocked(fetch).mock.calls[0]?.[1]?.body ?? "");
+    const sentCode = new URLSearchParams(smsBody).get("message")?.match(/\d{6}/)?.[0] ?? "";
+    expect(sentCode).toMatch(/^\d{6}$/);
+    expect(JSON.stringify(client.logInserts)).not.toContain(sentCode);
+  });
+
+  it("Given AT refuses with UserInBlacklist, When an OTP is requested, Then a failed sms row and a sent email row are logged", async () => {
+    stubAt({ status: "UserInBlacklist", statusCode: 406 });
+    const client = mockClient({ profile, tenant });
+
+    const result = await issuePhoneOtp(client as unknown as SupabaseClient, { ...baseInput });
+
+    expect(result.body.source).toBe("email");
+    expect(client.logInserts).toEqual([
+      expect.objectContaining({ channel: "sms", status: "failed", failure_reason: "UserInBlacklist" }),
+      expect.objectContaining({
+        channel: "email",
+        provider: "resend",
+        provider_message_id: "em_1",
+        status: "sent",
+        destination: "j***@gmail.com",
+      }),
+    ]);
+  });
+
+  it("Given the parent asks for email, When the OTP is emailed, Then only an email row is logged", async () => {
+    stubAt({ status: "Success", statusCode: 101, messageId: "ATXid_2" });
+    const client = mockClient({ profile, tenant });
+
+    await issuePhoneOtp(client as unknown as SupabaseClient, { ...baseInput, channel: "email" });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(client.logInserts).toHaveLength(1);
+    expect(client.logInserts[0]).toMatchObject({ channel: "email", status: "sent" });
+  });
+
+  it("Given Resend refuses the email, When the parent asks for email, Then a failed email row is logged and 502 returned", async () => {
+    vi.mocked(sendResendEmailWithId).mockResolvedValue({ ok: false, reason: "HTTP 422" });
+    const client = mockClient({ profile, tenant });
+
+    const result = await issuePhoneOtp(client as unknown as SupabaseClient, { ...baseInput, channel: "email" });
+
+    expect(result.status).toBe(502);
+    expect(client.logInserts[0]).toMatchObject({ channel: "email", status: "failed", failure_reason: "HTTP 422" });
+  });
+
+  it("Given the log table is unavailable, When an OTP is requested, Then the OTP response is unchanged", async () => {
+    stubAt({ status: "Success", statusCode: 101, messageId: "ATXid_3" });
+    const client = mockClient({ profile, tenant, logError: true });
+
+    const result = await issuePhoneOtp(client as unknown as SupabaseClient, { ...baseInput });
+
+    expect(result.status).toBe(200);
+    expect(result.body.source).toBe("sms");
+  });
+
+  it("Given SMS dry-run, When an OTP is requested, Then nothing is logged", async () => {
+    process.env.OTP_SMS_DRY_RUN = "true";
+    stubAt({ status: "Success", statusCode: 101 });
+    const client = mockClient({ profile, tenant });
+
+    const result = await issuePhoneOtp(client as unknown as SupabaseClient, { ...baseInput });
+
+    expect(result.body.sandbox_otp).toBeDefined();
+    expect(client.logInserts).toHaveLength(0);
   });
 });

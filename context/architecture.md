@@ -39,6 +39,19 @@ Production **must not** use the AT sandbox app. Username `sandbox` and host `api
 
 **Secrets:** Same live trio on Vercel (`AFRICASTALKING_USERNAME`, `AFRICASTALKING_API_KEY`, optional `AFRICASTALKING_SENDER_ID`) and as Supabase Edge Function secrets. Mix-and-match sandbox key + live username fails auth. Leave `AFRICASTALKING_SENDER_ID` unset until the alphanumeric ID is operator-approved; unapproved `from` returns `InvalidSenderId` (empty Recipients). The dispatcher retries once without `from`. Login email OTP uses existing `RESEND_API_KEY` / `DEMO_REQUESTS_FROM_EMAIL` (or `PUBLIC_CONTACT_FROM_EMAIL`).
 
+**Parent app code screen:** When the response `source` is `email`, the verification screen heading reads "We've emailed a 6-digit code to" + the masked `email_hint` and shows a "check spam" hint, instead of the phone number. When `source` is `sms` it shows the phone. The same applies after **Send code via email**.
+
+### OTP delivery log
+
+Support must be able to answer "was the code sent, and did it arrive?" without reading provider dashboards.
+
+- **Table `otp_delivery_log`** (tenant-scoped): `tenant_id`, `profile_id`, `role`, `channel` (`sms` \| `email`), `provider` (`africastalking` \| `resend`), `provider_message_id`, masked `destination`, `status`, `failure_reason`, `created_at`, `updated_at`. **Never stores the OTP code** or a full email address. `status`: `sent` (accepted by provider), `failed` (provider refused), `delivered`, `undelivered` (from delivery reports).
+- **Writes:** only `issuePhoneOtp` (service role), one row per live SMS or email attempt — so parent and driver/conductor OTPs are both covered. Dry-run and Play Review sends are not logged. A logging failure must never fail the OTP request.
+- **Delivery reports:** `POST /api/webhooks/africastalking/delivery-report?token=…` (Africa's Talking DLR callback, form-encoded; token = `AFRICASTALKING_DLR_TOKEN`, constant-time compared; 503 when unset) and `POST /api/webhooks/resend` (Svix signature with `RESEND_WEBHOOK_SECRET`, 5-minute timestamp tolerance). Both update the row matching `(provider, provider_message_id)` and answer 200 for unknown ids (alert SMS share the AT callback). AT `Success` → `delivered`; `Failed`/`Rejected` → `undelivered` + `failureReason`; Resend `email.delivered` → `delivered`, `email.bounced` → `undelivered`, `email.complained` → `delivered` + "marked as spam".
+- **Read:** `GET /api/otp-deliveries` via `requireOperationalTenant` (school admins of that tenant; platform `super_admin` on the school's subdomain; crew tokens rejected) returns the latest attempt per profile from the last 30 days. Shown as a status chip beside driver, conductor and guardian phone numbers in the school console.
+- **RLS:** SELECT for `school_admin` in tenant and `super_admin`; no client INSERT/UPDATE/DELETE.
+- **Retention:** rows older than **30 days** are deleted by the nightly `/api/platform/purge` cron.
+
 ## Storage Model
 
 - **PostgreSQL Relational DB**: Dedicated database instance on Supabase. Stores multi-tenant assets (tenant records, student registry, user accounts, assigned boarding-tag mappings — legacy `nfc_card_hash` today; BLE beacon assignment schema when implemented — static polyline route coordinates). Holds vehicle inventories (`vehicles` table, including optional maker/model and seating capacity, status, odometer, fuel level, optional last/next service and insurance dates, and `notify_compliance_alerts`) and service history logs (`maintenance_logs` table). Year-2000 date-picker defaults are stored as null. When notify is on, the fleet console shows due/overdue banners on the vehicle card at 1 month, 2 weeks, and 1 day before next service or insurance expiry — it does not email the school admin.

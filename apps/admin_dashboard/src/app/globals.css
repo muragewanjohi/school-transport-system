@@ -1340,6 +1340,27 @@ select.form-input option {
   margin-top: 12px;
 }
 
+/* Login-code (OTP) delivery status beside staff / guardian phones — see ui-context.md */
+.otp-delivery-chip {
+  display: inline-block;
+  max-width: 100%;
+  min-width: 0;
+  padding: 1px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+.otp-delivery-chip--success { color: var(--state-success-ink); }
+.otp-delivery-chip--muted { color: var(--text-muted); }
+.otp-delivery-chip--error { color: var(--state-error-ink); }
+
 .roster-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);

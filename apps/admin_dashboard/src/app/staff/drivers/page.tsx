@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
+import { OtpDeliveryChip, useOtpDeliveries } from "@/components/OtpDeliveryChip";
 
 interface DBProfile {
   id: string;
@@ -37,6 +38,7 @@ interface DBVehicle {
 }
 
 export default function DriversManagement() {
+  const otpDeliveries = useOtpDeliveries();
   const [drivers, setDrivers] = useState<DBProfile[]>([]);
   const [vehicles, setVehicles] = useState<DBVehicle[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -637,6 +639,7 @@ export default function DriversManagement() {
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <Phone size={12} style={{ color: "var(--accent-primary-ink)" }} />
                           <span>{driver.phone}</span>
+                          <OtpDeliveryChip delivery={otpDeliveries.forProfile(driver.id)} />
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                           <Mail size={12} style={{ color: "var(--accent-secondary)" }} />

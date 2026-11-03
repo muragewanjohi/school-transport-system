@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import Sidebar from "@/components/Sidebar";
 import UserProfileBadge from "@/components/UserProfileBadge";
+import { OtpDeliveryChip, useOtpDeliveries } from "@/components/OtpDeliveryChip";
 import { assignmentForNewRoute } from "@/lib/studentStopAssignment";
 import {
   mergeStudentTripIds,
@@ -82,6 +83,7 @@ interface DBStudent {
 }
 
 export default function StudentsManagement() {
+  const otpDeliveries = useOtpDeliveries();
   const router = useRouter();
   const [students, setStudents] = useState<DBStudent[]>([]);
   const [routes, setRoutes] = useState<DBRoute[]>([]);
@@ -1291,11 +1293,12 @@ export default function StudentsManagement() {
                           <td>
                             <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                               {student.guardians && student.guardians.map((g, idx) => (
-                                <div key={idx} style={{ display: "flex", alignItems: "baseline", gap: "6px", fontSize: "0.8rem" }}>
+                                <div key={idx} style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", gap: "6px", fontSize: "0.8rem" }}>
                                   <span style={{ fontWeight: 500, color: "var(--text-primary)" }}>{g.name}</span>
                                   <a href={`tel:${g.phone}`} style={{ color: "var(--accent-primary)", display: "flex", alignItems: "center", gap: "2px", fontSize: "0.75rem" }}>
                                     <Phone size={8} /> {g.phone}
                                   </a>
+                                  <OtpDeliveryChip delivery={otpDeliveries.forPhone(g.phone)} />
                                 </div>
                               ))}
                             </div>

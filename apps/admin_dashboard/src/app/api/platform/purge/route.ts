@@ -5,13 +5,17 @@ import { getCallerProfile, isPlatformSuperAdmin } from "@/lib/authApi";
 import { readPlatformNumberSettings } from "@/lib/platformSettings";
 import { removeTenantSubdomain } from "@/lib/vercelDomains";
 
+/** OTP delivery log rows are kept this long (see context/architecture.md). */
+const OTP_DELIVERY_LOG_RETENTION_DAYS = 30;
+
 /**
  * Tenant lifecycle purge, run daily by Vercel Cron (see vercel.json):
  * 1. Schools suspended longer than `suspended_purge_days` are soft-deleted
  *    (frees the subdomain, releases it from Vercel).
  * 2. Schools soft-deleted longer than `deleted_purge_days` are permanently
  *    removed (FK cascade drops campuses, students, routes, billing, ...).
- * A stage is skipped when its setting is 0.
+ * 3. OTP delivery log rows older than 30 days are deleted.
+ * Stages 1–2 are skipped when their setting is 0.
  */
 
 async function isAuthorized(request: Request): Promise<boolean> {
@@ -147,6 +151,22 @@ export async function GET(request: Request) {
       }
     }
 
+    // Stage 3: OTP delivery log retention (30 days; holds masked phones/emails)
+    let otpLogPurged = 0;
+    {
+      const otpCutoff = new Date(nowMs - OTP_DELIVERY_LOG_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const { data: removed, error: otpError } = await adminClient
+        .from("otp_delivery_log")
+        .delete()
+        .lt("created_at", otpCutoff)
+        .select("id");
+      if (otpError) {
+        notes.push(`otp log purge failed: ${otpError.message}`);
+      } else {
+        otpLogPurged = removed?.length ?? 0;
+      }
+    }
+
     return NextResponse.json({
       success: true,
       source: "supabase",
@@ -154,6 +174,7 @@ export async function GET(request: Request) {
         softDeleted,
         purged,
         demoPurged,
+        otpLogPurged,
         suspended_purge_days: suspendedDays,
         deleted_purge_days: deletedDays,
         notes,

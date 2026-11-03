@@ -1,111 +1,132 @@
-# Module: Guardian-aware parent RLS + profile column guard
+# Module: OTP delivery log + email-sent screen
 
 **Status:** `passing`  
-**Stack:** Supabase migration `20261026120000_guardian_aware_parent_rls.sql` (tested on PGlite via Vitest `apps/admin_dashboard/src/lib/rlsGuardianParent.test.ts`; Flutter `test/parent_children_fallback_test.dart`) + Flutter parent_app fallback roster query.
+**Stack:** Supabase migration `20261103120000_otp_delivery_log.sql`; Next.js admin_dashboard (`issuePhoneOtp`, `/api/webhooks/africastalking/delivery-report`, `/api/webhooks/resend`, `/api/otp-deliveries`, staff + student console chips, nightly purge); Flutter parent_app login verification screen.
 
-Spec: [architecture.md](architecture.md) — "Parent ownership in RLS" and "Profile column guard".
+Spec: [architecture.md](architecture.md) — "OTP delivery log" and "Parent app code screen".
 
-## Scenarios — parent read access (RLS)
+## Scenarios — recording sends
 
-### Happy — secondary guardian reads the child
+### Happy — SMS accepted
 ```gherkin
-Given Brian's parent_id is Elizaphan and Caroline's phone is in Brian's guardians as 07…
-And Caroline is signed in with a parent JWT for the same school
-When she selects from students
-Then she sees Brian
+Given a registered parent requests an OTP in production
+When Africa's Talking accepts the SMS with messageId ATXid_1
+Then an otp_delivery_log row is written with channel sms, status sent, provider_message_id ATXid_1
+And the row does not contain the OTP code
 ```
 
-### Happy — secondary guardian reads route data
+### Sad — SMS refused, email fallback
 ```gherkin
-Given Caroline is a guardian on Brian, whose route is R1
-When she selects from routes, stops, schedules, trips, live_coordinates and trip_stop_etas
-Then she sees R1's rows and nothing from other routes
+Given Africa's Talking refuses the SMS (UserInBlacklist) and the parent has an email
+When the parent requests an OTP
+Then an sms row is written with status failed and the reason
+And an email row is written with status sent and the Resend id
 ```
 
-### Happy — primary parent unchanged
+### Happy — email requested directly
 ```gherkin
-Given Elizaphan is Brian's parent_id
-When he selects from students
-Then he sees Brian
+Given the parent taps Send code via email
+When the OTP is emailed
+Then only an email row is written
 ```
 
-### Sad — unrelated parent
+### Guard — logging cannot break login
 ```gherkin
-Given a parent whose phone is not on any guardian list
-When they select from students or live_coordinates
-Then they see nothing
+Given writing to otp_delivery_log fails
+When the parent requests an OTP
+Then the OTP response is unchanged
 ```
 
-### Sad — same phone in another school
+### Guard — dry run is not logged
 ```gherkin
-Given Caroline's phone is also a guardian on a student in School B
-When she (School A) selects from students
-Then the School B student is not returned
+Given SMS dry-run or Play Review
+When an OTP is requested
+Then no otp_delivery_log row is written
 ```
 
-### Sad — secondary guardian cannot edit the child
+## Scenarios — delivery reports
+
+### Happy — SMS delivered
 ```gherkin
-Given Caroline is a guardian but not Brian's parent_id
-When she updates Brian's avatar_url
-Then no row is updated
+Given a logged sms row with provider_message_id ATXid_1
+When Africa's Talking posts a delivery report id=ATXid_1 status=Success with the right token
+Then the row status becomes delivered
 ```
 
-## Scenarios — profile column guard
-
-### Sad — parent escalates own role
+### Sad — SMS undelivered
 ```gherkin
-Given a parent signed in with an authenticated JWT
-When they update their own profiles.role to super_admin
-Then the update is rejected
+When Africa's Talking posts status=Failed failureReason=UserInBlacklist
+Then the row status becomes undelivered with that reason
 ```
 
-### Sad — parent changes own phone to claim a child
+### Sad — wrong or missing token
 ```gherkin
-Given a parent signed in with an authenticated JWT
-When they update their own profiles.phone
-Then the update is rejected
+When a delivery report arrives with a wrong token
+Then the response is 401 and nothing is updated
 ```
 
-### Happy — parent updates own avatar
+### Happy — email bounced
 ```gherkin
-Given a parent signed in with an authenticated JWT
-When they update their own profiles.avatar_url
-Then the update succeeds
+Given a logged email row with Resend id em_1
+When a correctly signed email.bounced webhook arrives
+Then the row status becomes undelivered with reason bounced
 ```
 
-### Sad — end user inserts a profile
+### Sad — bad email webhook signature or stale timestamp
 ```gherkin
-Given an authenticated user with no profile
-When they insert a profiles row for themselves
-Then the insert is rejected
+When a Resend webhook has an invalid signature or a timestamp older than 5 minutes
+Then the response is 401 and nothing is updated
 ```
 
-### Sad — forged user_metadata role
+## Scenarios — console
+
+### Happy — school admin sees latest status
 ```gherkin
-Given an authenticated user whose user_metadata.role is super_admin but app_metadata has no role
-When they update their own profiles.role
-Then the update is rejected
+Given a school admin of School A
+When they load GET /api/otp-deliveries
+Then they get the latest attempt per profile in School A only
 ```
 
-### Sad — school admin promotes to platform admin
+### Sad — driver token
 ```gherkin
-Given a school_admin (app_metadata) in School A
-When they set a School A profile's role to super_admin
-Then the update is rejected
+Given a driver drv.* token
+When it calls GET /api/otp-deliveries
+Then the response is 403
 ```
 
-### Happy — service role unaffected
+### Happy — status chip
 ```gherkin
-Given a service-role connection
-When it updates a profile's role, phone or tenant_id
-Then the update succeeds
+Given a parent's latest SMS is undelivered with UserInBlacklist
+When the admin views the student roster
+Then the guardian's phone shows "SMS not delivered · UserInBlacklist" with the time
 ```
 
-## Scenarios — Flutter fallback roster
-
-### Happy — fallback relies on RLS, not parent_id
+### Guard — retention
 ```gherkin
-Given the children API is unreachable
-When the parent app falls back to a direct students query
-Then the query is not filtered by parent_id (RLS scopes it to the caller's children)
+Given otp_delivery_log rows older than 30 days
+When the nightly purge runs
+Then those rows are deleted
+```
+
+## Scenarios — parent app
+
+### Happy — code went by email
+```gherkin
+Given the OTP response has source email and email_hint j***@gmail.com
+When the verification screen opens
+Then it says "We've emailed a 6-digit code to" j***@gmail.com and asks to check spam
+```
+
+### Happy — code went by SMS
+```gherkin
+Given the OTP response has source sms
+When the verification screen opens
+Then it says "We've sent a 6-digit code to" the phone number
+```
+
+### Happy — switched to email
+```gherkin
+Given the verification screen shows the phone
+When the parent taps Send code via email and it succeeds
+Then the heading switches to the email address
 ```

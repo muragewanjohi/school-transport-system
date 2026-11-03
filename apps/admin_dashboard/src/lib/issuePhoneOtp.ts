@@ -3,9 +3,12 @@ import {
   getAfricasTalkingUsername,
   resolveOtpDelivery,
   sendAfricasTalkingSms,
+  SmsRejectedError,
 } from "@/lib/africasTalkingSms";
 import { normalizeKenyanPhone, phoneFilterOrClause } from "@/lib/kenyanPhone";
-import { sendResendEmail } from "@/lib/resendEmail";
+import { sendResendEmailWithId } from "@/lib/resendEmail";
+import { recordOtpDelivery } from "@/lib/otpDeliveryLog";
+import { maskPhone } from "@/lib/otpDeliveryStatus";
 
 const PLAY_REVIEW_OTP = "123456";
 
@@ -32,6 +35,7 @@ export type OtpEmailMessage = {
 type ProfileRow = {
   id: string;
   tenant_id: string;
+  role?: string | null;
   status: string | null;
   otp_code: string | null;
   email: string | null;
@@ -121,7 +125,7 @@ export async function issuePhoneOtp(
   const phoneFilter = phoneFilterOrClause(phone);
   const profileQuery = client
     .from("profiles")
-    .select("id, tenant_id, status, otp_code, email")
+    .select("id, tenant_id, role, status, otp_code, email")
     .in("role", input.roles)
     .or(phoneFilter)
     .limit(1)
@@ -235,6 +239,11 @@ export async function issuePhoneOtp(
 
   const usableEmail = resolveOtpEmail(profile.email, tenant as TenantRow | null);
   const emailHint = usableEmail ? maskEmailHint(usableEmail) : undefined;
+  const logBase = {
+    tenantId: profile.tenant_id,
+    profileId: profile.id,
+    role: profile.role ?? null,
+  };
 
   const sendOtpEmail = async (): Promise<IssuePhoneOtpResult> => {
     if (!usableEmail) {
@@ -248,12 +257,21 @@ export async function issuePhoneOtp(
       };
     }
     const msg = input.emailMessage(otp);
-    const sent = await sendResendEmail({
+    const sent = await sendResendEmailWithId({
       to: usableEmail,
       subject: msg.subject,
       text: msg.text,
     });
-    if (!sent) {
+    await recordOtpDelivery(client, {
+      ...logBase,
+      channel: "email",
+      provider: "resend",
+      providerMessageId: sent.ok ? sent.id : null,
+      destination: emailHint ?? "***",
+      status: sent.ok ? "sent" : "failed",
+      failureReason: sent.ok ? null : sent.reason,
+    });
+    if (!sent.ok) {
       return {
         status: 502,
         body: {
@@ -278,13 +296,31 @@ export async function issuePhoneOtp(
   }
 
   try {
-    await sendAfricasTalkingSms({
+    const sms = await sendAfricasTalkingSms({
       to: phone,
       message: input.smsMessage(otp),
+    });
+    await recordOtpDelivery(client, {
+      ...logBase,
+      channel: "sms",
+      provider: "africastalking",
+      providerMessageId: sms.messageId,
+      destination: maskPhone(phone),
+      status: "sent",
+      failureReason: null,
     });
   } catch (smsError: unknown) {
     const detail =
       smsError instanceof Error ? smsError.message : "SMS delivery failed";
+    await recordOtpDelivery(client, {
+      ...logBase,
+      channel: "sms",
+      provider: "africastalking",
+      providerMessageId: null,
+      destination: maskPhone(phone),
+      status: "failed",
+      failureReason: smsError instanceof SmsRejectedError ? smsError.reason : detail,
+    });
     if (usableEmail) {
       const emailed = await sendOtpEmail();
       if (emailed.status === 200) return emailed;

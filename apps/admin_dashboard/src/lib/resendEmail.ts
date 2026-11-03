@@ -3,7 +3,7 @@
  * Skips quietly when RESEND_API_KEY is unset (local / preview).
  */
 
-export async function sendResendEmail(params: {
+export type ResendEmailParams = {
   to: string;
   subject: string;
   text: string;
@@ -11,14 +11,24 @@ export async function sendResendEmail(params: {
   replyTo?: string;
   /** Override From; defaults to PUBLIC_CONTACT_FROM_EMAIL → DEMO_REQUESTS_FROM_EMAIL → Resend test sender */
   from?: string;
-}): Promise<boolean> {
+};
+
+export type ResendSendResult =
+  | { ok: true; id: string | null }
+  | { ok: false; reason: string };
+
+export async function sendResendEmail(params: ResendEmailParams): Promise<boolean> {
+  return (await sendResendEmailWithId(params)).ok;
+}
+
+/** Same as sendResendEmail, but returns Resend's email id (for delivery webhooks). */
+export async function sendResendEmailWithId(params: ResendEmailParams): Promise<ResendSendResult> {
   const resendKey = process.env.RESEND_API_KEY;
   if (!resendKey) {
     console.info("[resend] Email skipped — no RESEND_API_KEY:", {
-      to: params.to,
       subject: params.subject,
     });
-    return false;
+    return { ok: false, reason: "email not configured" };
   }
 
   try {
@@ -44,12 +54,13 @@ export async function sendResendEmail(params: {
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
       console.warn("[resend] Rejected email:", res.status, detail);
-      return false;
+      return { ok: false, reason: `HTTP ${res.status}` };
     }
-    return true;
+    const body = (await res.json().catch(() => null)) as { id?: unknown } | null;
+    return { ok: true, id: typeof body?.id === "string" ? body.id : null };
   } catch (err) {
     console.warn("[resend] Email failed:", err);
-    return false;
+    return { ok: false, reason: "network error" };
   }
 }
 
